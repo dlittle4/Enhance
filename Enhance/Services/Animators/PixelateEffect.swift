@@ -1,10 +1,11 @@
 import CoreImage
 
-/// Progressively pixelates the image into a chunky mosaic. At progress 0 the
-/// image is sharp; at progress 1 the pixels are large and blocky.
+/// Starts fully pixelated and progressively resolves to a sharp image.
+/// At progress 0 the pixels are large and blocky; at progress 1 the image
+/// is crisp — a "reveal" effect that pairs naturally with zoom animations.
 /// Uses CIPixellate for efficient GPU-accelerated pixelation.
 ///
-/// - `intensity` scales the maximum pixel block size.
+/// - `intensity` scales the maximum pixel block size at the start.
 public struct PixelateEffect: VisualEffect {
     private let maxScale: CGFloat
 
@@ -17,7 +18,8 @@ public struct PixelateEffect: VisualEffect {
     }
 
     public func apply(to image: CIImage, progress: CGFloat, frameIndex: Int, viewportCenter: CGPoint?) -> CIImage {
-        let scale = 1.0 + (maxScale - 1.0) * (progress * progress)
+        let remaining = 1.0 - progress
+        let scale = 1.0 + (maxScale - 1.0) * (remaining * remaining)
         guard scale > 1.5 else { return image }
 
         let c = viewportCenter ?? CGPoint(x: image.extent.midX, y: image.extent.midY)
