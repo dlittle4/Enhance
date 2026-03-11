@@ -29,9 +29,32 @@
 		FD69C1912D8F8CDA001ED27D /* EnhanceUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EnhanceUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		FD69C1E52D8FCB70001ED27D /* Exceptions for "Enhance" folder in "EnhanceTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Fonts/Silkscreen-Bold.ttf",
+				"Fonts/Silkscreen-Regular.ttf",
+			);
+			target = FD69C1862D8F8CDA001ED27D /* EnhanceTests */;
+		};
+		FD69C1E62D8FCB70001ED27D /* Exceptions for "Enhance" folder in "EnhanceUITests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"Fonts/Silkscreen-Bold.ttf",
+				"Fonts/Silkscreen-Regular.ttf",
+			);
+			target = FD69C1902D8F8CDA001ED27D /* EnhanceUITests */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		FD69C1792D8F8CD9001ED27D /* Enhance */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				FD69C1E52D8FCB70001ED27D /* Exceptions for "Enhance" folder in "EnhanceTests" target */,
+				FD69C1E62D8FCB70001ED27D /* Exceptions for "Enhance" folder in "EnhanceUITests" target */,
+			);
 			path = Enhance;
 			sourceTree = "<group>";
 		};
@@ -396,8 +419,11 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"Enhance/Preview Content\"";
+				DEVELOPMENT_TEAM = WQK4RX7V65;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "We need permission to save your created GIFs to your photo library";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need access to your photos to display them in the gallery";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -424,8 +450,11 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "\"Enhance/Preview Content\"";
+				DEVELOPMENT_TEAM = WQK4RX7V65;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "We need permission to save your created GIFs to your photo library";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need access to your photos to display them in the gallery";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

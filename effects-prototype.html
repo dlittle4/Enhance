@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Enhance — Effects UI Prototype</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  @font-face {
+    font-family: 'Silkscreen';
+    src: local('Silkscreen');
+  }
+
+  body {
+    background: #0e0e0e;
+    color: #fff;
+    font-family: 'Courier New', monospace;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 100vh;
+    padding: 20px;
+  }
+
+  .phone-frame {
+    width: 393px;
+    height: 852px;
+    background: rgb(18, 14, 10);
+    border-radius: 40px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 0 60px rgba(0,0,0,0.5);
+  }
+
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 50px 17px 8px;
+  }
+  .header-title {
+    font-size: 16px;
+    font-weight: bold;
+    letter-spacing: 1px;
+  }
+  .header-close {
+    font-size: 24px;
+    cursor: pointer;
+    opacity: 0.8;
+  }
+  .header-close:hover { opacity: 1; }
+
+  .canvas-area {
+    margin: 8px 24px 0;
+    width: 345px;
+    height: 345px;
+    border-radius: 16px;
+    overflow: hidden;
+    position: relative;
+  }
+  .canvas-area img, .canvas-placeholder {
+    width: 100%; height: 100%; object-fit: cover;
+    border-radius: 16px;
+  }
+  .canvas-placeholder {
+    background: linear-gradient(135deg, #2a1a3e, #1a2a3e, #2a3a2e);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    opacity: 0.5;
+  }
+  .animated-border {
+    position: absolute;
+    inset: 0;
+    border-radius: 16px;
+    border: 3px solid transparent;
+    background: linear-gradient(rgb(18,14,10), rgb(18,14,10)) padding-box,
+                linear-gradient(135deg, #a855f7, #3b82f6, #06b6d4, #a855f7) border-box;
+    pointer-events: none;
+  }
+
+  .controls {
+    padding: 16px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .dropdown-row {
+    height: 60px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    cursor: pointer;
+    transition: background 0.15s;
+    user-select: none;
+  }
+  .dropdown-row:hover { background: rgba(255,255,255,0.08); }
+  .dropdown-row .label {
+    font-size: 13px;
+    letter-spacing: 1px;
+  }
+  .dropdown-row .triangle {
+    width: 0; height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 6px solid #fff;
+  }
+
+  .modifier-row {
+    display: flex;
+    gap: 8px;
+  }
+  .modifier-pill {
+    flex: 1;
+    height: 48px;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    transition: all 0.2s;
+    user-select: none;
+    border: 1px solid rgba(255,255,255,0.08);
+    background: transparent;
+    color: rgba(255,255,255,0.4);
+  }
+  .modifier-pill.active {
+    background: rgba(0, 255, 190, 0.1);
+    border-color: rgba(0, 255, 190, 0.3);
+    color: #00ffbe;
+  }
+  .modifier-pill:hover {
+    border-color: rgba(255,255,255,0.2);
+  }
+
+  .segmented-bar {
+    height: 60px;
+    background: rgba(255,255,255,0.04);
+    border-radius: 16px;
+    display: flex;
+    overflow: hidden;
+  }
+  .seg-item {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    letter-spacing: 1px;
+    cursor: pointer;
+    color: rgba(255,255,255,0.4);
+    transition: all 0.2s;
+    user-select: none;
+    position: relative;
+  }
+  .seg-item.active {
+    color: #fff;
+  }
+  .seg-item.active::before {
+    content: '';
+    position: absolute;
+    inset: 8px 4px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 12px;
+  }
+
+  .reset-btn {
+    align-self: center;
+    font-size: 13px;
+    letter-spacing: 1px;
+    color: rgba(255,255,255,0.3);
+    cursor: pointer;
+    padding: 8px 16px;
+    transition: color 0.2s;
+    user-select: none;
+    display: none;
+  }
+  .reset-btn.visible { display: block; }
+  .reset-btn:hover { color: rgba(255,255,255,0.6); }
+
+  .action-buttons {
+    display: flex;
+    gap: 8px;
+    padding: 4px 0 0;
+  }
+  .action-btn {
+    flex: 1;
+    height: 60px;
+    border-radius: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .btn-gradient {
+    background: linear-gradient(135deg, #a855f7, #3b82f6, #06b6d4);
+    color: #fff;
+  }
+  .btn-dark {
+    background: rgba(32,32,32,0.8);
+    color: #fff;
+  }
+
+  /* Sheet overlay */
+  .sheet-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    display: none;
+    z-index: 10;
+    border-radius: 40px;
+  }
+  .sheet-overlay.visible { display: block; }
+
+  .sheet {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #000;
+    border-radius: 16px 16px 0 0;
+    padding: 0 0 40px;
+    z-index: 11;
+    transform: translateY(100%);
+    transition: transform 0.35s cubic-bezier(0.32, 0.72, 0, 1);
+    max-height: 50%;
+    overflow-y: auto;
+  }
+  .sheet-overlay.visible .sheet {
+    transform: translateY(0);
+  }
+
+  .sheet-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 16px 12px;
+    position: sticky;
+    top: 0;
+    background: #000;
+    z-index: 1;
+  }
+  .sheet-title {
+    font-size: 16px;
+    font-weight: bold;
+    letter-spacing: 1px;
+  }
+  .sheet-close {
+    font-size: 24px;
+    cursor: pointer;
+    opacity: 0.8;
+  }
+  .sheet-close:hover { opacity: 1; }
+
+  .sheet-item {
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: background 0.15s;
+    user-select: none;
+  }
+  .sheet-item:hover { background: rgba(255,255,255,0.04); }
+  .sheet-item-title {
+    font-size: 16px;
+    letter-spacing: 1px;
+    color: rgba(255,255,255,0.5);
+  }
+  .sheet-item-title.active { color: #00ffbe; }
+  .sheet-item-subtitle {
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    color: rgba(255,255,255,0.25);
+    margin-top: 4px;
+  }
+  .sheet-item-subtitle.active { color: rgba(0, 255, 190, 0.5); }
+  .sheet-divider {
+    height: 1px;
+    background: rgba(255,255,255,0.08);
+    margin: 4px 16px;
+  }
+
+  /* Status bar at top */
+  .status-bar {
+    position: absolute;
+    top: 10px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 10px;
+    opacity: 0.3;
+    letter-spacing: 0.5px;
+    pointer-events: none;
+  }
+
+  /* Sidebar legend */
+  .legend {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    width: 280px;
+    background: #1a1a1a;
+    border-radius: 12px;
+    padding: 20px;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .legend h3 {
+    font-size: 14px;
+    margin-bottom: 12px;
+    letter-spacing: 1px;
+    color: #00ffbe;
+  }
+  .legend-section {
+    margin-bottom: 16px;
+  }
+  .legend-section h4 {
+    font-size: 12px;
+    color: rgba(255,255,255,0.6);
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+  }
+  .legend-section p {
+    color: rgba(255,255,255,0.4);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+  .current-state {
+    background: rgba(255,255,255,0.05);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 16px;
+  }
+  .current-state h4 {
+    font-size: 12px;
+    color: rgba(255,255,255,0.6);
+    margin-bottom: 8px;
+  }
+  .state-line {
+    font-size: 12px;
+    color: rgba(255,255,255,0.4);
+    padding: 2px 0;
+  }
+  .state-value {
+    color: #00ffbe;
+  }
+
+  @media (max-width: 800px) {
+    .legend { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="phone-frame" id="phone">
+  <div class="status-bar">ENHANCE PROTOTYPE</div>
+
+  <div class="header">
+    <div class="header-title">EDIT PHOTO</div>
+    <div class="header-close">X</div>
+  </div>
+
+  <div class="canvas-area">
+    <div class="canvas-placeholder">GIF PREVIEW</div>
+    <div class="animated-border"></div>
+  </div>
+
+  <div class="controls">
+    <div class="dropdown-row" id="categoryDropdown" onclick="openSheet('category')">
+      <span class="label" id="categoryLabel">ZOOM EFFECTS</span>
+      <span class="triangle"></span>
+    </div>
+
+    <div class="dropdown-row" id="effectDropdown" onclick="openSheet('effect')">
+      <span class="label" id="effectLabel">ZOOM IN</span>
+      <span class="triangle"></span>
+    </div>
+
+    <div class="modifier-row">
+      <div class="modifier-pill" id="mod-shake" onclick="toggleModifier('shake')">SHAKE</div>
+      <div class="modifier-pill" id="mod-spiral" onclick="toggleModifier('spiral')">SPIRAL</div>
+    </div>
+
+    <div class="segmented-bar">
+      <div class="seg-item" onclick="setSpeed(0.5)">0.5x</div>
+      <div class="seg-item active" onclick="setSpeed(1.0)">1x</div>
+      <div class="seg-item" onclick="setSpeed(2.0)">2x</div>
+    </div>
+
+    <div class="reset-btn" id="resetBtn" onclick="resetAll()">RESET</div>
+
+    <div class="action-buttons">
+      <div class="action-btn btn-gradient">ENHANCE</div>
+    </div>
+  </div>
+
+  <!-- Category Sheet -->
+  <div class="sheet-overlay" id="categorySheet" onclick="closeSheet('category')">
+    <div class="sheet" onclick="event.stopPropagation()">
+      <div class="sheet-header">
+        <div class="sheet-title">SELECT EFFECT</div>
+        <div class="sheet-close" onclick="closeSheet('category')">X</div>
+      </div>
+      <div id="categorySheetItems"></div>
+    </div>
+  </div>
+
+  <!-- Effect Sheet -->
+  <div class="sheet-overlay" id="effectSheet" onclick="closeSheet('effect')">
+    <div class="sheet" onclick="event.stopPropagation()">
+      <div class="sheet-header">
+        <div class="sheet-title" id="effectSheetTitle">ZOOM EFFECTS</div>
+        <div class="sheet-close" onclick="closeSheet('effect')">X</div>
+      </div>
+      <div id="effectSheetItems"></div>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <h3>INTERACTION GUIDE</h3>
+  
+  <div class="legend-section">
+    <h4>CATEGORY DROPDOWN (Row 1)</h4>
+    <p>Opens a sheet listing all effect categories. Each shows a description, or the applied effect name if one is active.</p>
+  </div>
+  
+  <div class="legend-section">
+    <h4>EFFECT DROPDOWN (Row 2)</h4>
+    <p>Opens a sheet listing effects within the selected category. Pick one (mutually exclusive).</p>
+  </div>
+  
+  <div class="legend-section">
+    <h4>MODIFIER TOGGLES (Row 3)</h4>
+    <p>Tap to toggle on/off. Stackable — both can be active at once. These add motion on top of the base effect.</p>
+  </div>
+  
+  <div class="legend-section">
+    <h4>SPEED BAR (Row 4)</h4>
+    <p>Standard segmented bar. Pick one speed.</p>
+  </div>
+
+  <div class="legend-section">
+    <h4>RESET</h4>
+    <p>Appears when any setting differs from defaults. Restores everything.</p>
+  </div>
+
+  <div class="current-state" id="stateDisplay">
+    <h4>CURRENT STATE</h4>
+    <div class="state-line">Category: <span class="state-value" id="stateCategory">ZOOM EFFECTS</span></div>
+    <div class="state-line">Base effect: <span class="state-value" id="stateEffect">ZOOM IN</span></div>
+    <div class="state-line">Modifiers: <span class="state-value" id="stateModifiers">None</span></div>
+    <div class="state-line">Speed: <span class="state-value" id="stateSpeed">1x</span></div>
+    <div class="state-line" style="margin-top:8px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.08)">
+      Output: <span class="state-value" id="stateOutput">ZoomIn</span>
+    </div>
+  </div>
+</div>
+
+<script>
+const categories = [
+  {
+    id: 'zoom',
+    name: 'ZOOM EFFECTS',
+    description: 'Classic zoom animations toward your focal point',
+    effects: [
+      { id: 'zoomIn', name: 'ZOOM IN', description: 'Smooth zoom into focal point' },
+      { id: 'zoomOut', name: 'ZOOM OUT', description: 'Pull back from focal point' },
+      { id: 'pulse', name: 'PULSE', description: 'Rhythmic zoom in and out' },
+    ]
+  },
+  {
+    id: 'visual',
+    name: 'VISUAL EFFECTS',
+    description: 'Coming soon — filters, grain, color',
+    effects: [],
+    disabled: true
+  }
+];
+
+const modifiers = [
+  { id: 'shake', name: 'SHAKE' },
+  { id: 'spiral', name: 'SPIRAL' },
+];
+
+const DEFAULTS = {
+  category: 'zoom',
+  effect: 'zoomIn',
+  modifiers: new Set(),
+  speed: 1.0
+};
+
+const state = {
+  category: 'zoom',
+  effect: 'zoomIn',
+  modifiers: new Set(),
+  speed: 1.0
+};
+
+function getCategory(id) {
+  return categories.find(c => c.id === id);
+}
+
+function getEffect(id) {
+  for (const cat of categories) {
+    const eff = cat.effects.find(e => e.id === id);
+    if (eff) return eff;
+  }
+  return null;
+}
+
+function updateUI() {
+  const cat = getCategory(state.category);
+  const eff = getEffect(state.effect);
+
+  document.getElementById('categoryLabel').textContent = cat.name;
+  document.getElementById('effectLabel').textContent = eff ? eff.name : 'NONE';
+
+  document.querySelectorAll('.modifier-pill').forEach(pill => {
+    const modId = pill.id.replace('mod-', '');
+    pill.classList.toggle('active', state.modifiers.has(modId));
+  });
+
+  document.querySelectorAll('.seg-item').forEach(item => {
+    const speed = parseFloat(item.textContent);
+    item.classList.toggle('active', speed === state.speed);
+  });
+
+  const isDefault = state.category === DEFAULTS.category &&
+                    state.effect === DEFAULTS.effect &&
+                    state.modifiers.size === 0 &&
+                    state.speed === DEFAULTS.speed;
+  document.getElementById('resetBtn').classList.toggle('visible', !isDefault);
+
+  document.getElementById('stateCategory').textContent = cat.name;
+  document.getElementById('stateEffect').textContent = eff ? eff.name : 'NONE';
+
+  const activeMods = [...state.modifiers].map(m => m.toUpperCase());
+  document.getElementById('stateModifiers').textContent = activeMods.length > 0 ? activeMods.join(' + ') : 'None';
+
+  document.getElementById('stateSpeed').textContent =
+    state.speed === 1.0 ? '1x' : state.speed === 0.5 ? '0.5x' : '2x';
+
+  let output = eff ? eff.name : 'None';
+  if (activeMods.length > 0) output += ' + ' + activeMods.join(' + ');
+  if (state.speed !== 1.0) output += ' @ ' + (state.speed === 0.5 ? '0.5x' : '2x');
+  document.getElementById('stateOutput').textContent = output;
+}
+
+function openSheet(type) {
+  if (type === 'category') {
+    renderCategorySheet();
+    document.getElementById('categorySheet').classList.add('visible');
+  } else if (type === 'effect') {
+    renderEffectSheet();
+    document.getElementById('effectSheet').classList.add('visible');
+  }
+}
+
+function closeSheet(type) {
+  document.getElementById(type + 'Sheet').classList.remove('visible');
+}
+
+function renderCategorySheet() {
+  const container = document.getElementById('categorySheetItems');
+  container.innerHTML = '';
+
+  categories.forEach((cat, i) => {
+    const item = document.createElement('div');
+    item.className = 'sheet-item';
+    if (cat.disabled) item.style.opacity = '0.3';
+
+    const isActive = state.category === cat.id;
+    const activeEffect = isActive ? getEffect(state.effect) : null;
+    const subtitle = activeEffect ? activeEffect.name : cat.description;
+
+    item.innerHTML = `
+      <div class="sheet-item-title ${isActive ? 'active' : ''}">${cat.name}</div>
+      <div class="sheet-item-subtitle ${isActive ? 'active' : ''}">${subtitle}</div>
+    `;
+
+    if (!cat.disabled) {
+      item.onclick = () => {
+        state.category = cat.id;
+        if (!cat.effects.find(e => e.id === state.effect)) {
+          state.effect = cat.effects[0]?.id || state.effect;
+        }
+        closeSheet('category');
+        updateUI();
+      };
+    }
+
+    container.appendChild(item);
+
+    if (i < categories.length - 1) {
+      const div = document.createElement('div');
+      div.className = 'sheet-divider';
+      container.appendChild(div);
+    }
+  });
+}
+
+function renderEffectSheet() {
+  const cat = getCategory(state.category);
+  document.getElementById('effectSheetTitle').textContent = cat.name;
+
+  const container = document.getElementById('effectSheetItems');
+  container.innerHTML = '';
+
+  cat.effects.forEach((eff, i) => {
+    const item = document.createElement('div');
+    item.className = 'sheet-item';
+
+    const isActive = state.effect === eff.id;
+
+    item.innerHTML = `
+      <div class="sheet-item-title ${isActive ? 'active' : ''}">${eff.name}</div>
+      <div class="sheet-item-subtitle ${isActive ? 'active' : ''}">${eff.description}</div>
+    `;
+
+    item.onclick = () => {
+      state.effect = eff.id;
+      closeSheet('effect');
+      updateUI();
+    };
+
+    container.appendChild(item);
+
+    if (i < cat.effects.length - 1) {
+      const div = document.createElement('div');
+      div.className = 'sheet-divider';
+      container.appendChild(div);
+    }
+  });
+}
+
+function toggleModifier(id) {
+  if (state.modifiers.has(id)) {
+    state.modifiers.delete(id);
+  } else {
+    state.modifiers.add(id);
+  }
+  updateUI();
+}
+
+function setSpeed(speed) {
+  state.speed = speed;
+  updateUI();
+}
+
+function resetAll() {
+  state.category = DEFAULTS.category;
+  state.effect = DEFAULTS.effect;
+  state.modifiers = new Set();
+  state.speed = DEFAULTS.speed;
+  updateUI();
+}
+
+updateUI();
+</script>
+
+</body>
+</html>

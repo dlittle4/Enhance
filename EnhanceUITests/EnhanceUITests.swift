@@ -1,40 +1,76 @@
-//
-//  EnhanceUITests.swift
-//  EnhanceUITests
-//
-//  Created by Dorington Little on 3/22/25.
-//
-
 import XCTest
 
 final class EnhanceUITests: XCTestCase {
 
+    private var app: XCUIApplication!
+
     override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
-        // In UI tests it is usually best to stop immediately when a failure occurs.
         continueAfterFailure = false
-
-        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
+        app = XCUIApplication()
+        app.launch()
     }
 
     override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
+        app = nil
+    }
+
+    // MARK: - Smoke Tests
+
+    @MainActor
+    func testAppLaunches() throws {
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 5))
     }
 
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
-        let app = XCUIApplication()
-        app.launch()
+    func testAppShowsGalleryOrNUX() throws {
+        let nuxButton = app.buttons["CREATE YOUR FIRST GIF"]
+        let galleryExists = app.collectionViews.firstMatch.waitForExistence(timeout: 5)
+            || app.scrollViews.firstMatch.waitForExistence(timeout: 2)
+        let nuxExists = nuxButton.waitForExistence(timeout: 5)
 
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
+        XCTAssertTrue(galleryExists || nuxExists, "App should show either the GIF gallery or the new user experience")
     }
+
+    @MainActor
+    func testNUXButtonExists_whenNoGifs() throws {
+        let nuxButton = app.buttons["CREATE YOUR FIRST GIF"]
+        if nuxButton.waitForExistence(timeout: 5) {
+            XCTAssertTrue(nuxButton.isHittable)
+        }
+    }
+
+    @MainActor
+    func testGalleryViewToggle_existsWhenGifsPresent() throws {
+        let gridButton = app.buttons["GRID"]
+        let carouselButton = app.buttons["CAROUSEL"]
+
+        if gridButton.waitForExistence(timeout: 5) {
+            XCTAssertTrue(gridButton.exists)
+            XCTAssertTrue(carouselButton.exists)
+
+            carouselButton.tap()
+            XCTAssertTrue(carouselButton.exists)
+
+            gridButton.tap()
+            XCTAssertTrue(gridButton.exists)
+        }
+    }
+
+    // MARK: - Launch Screenshot
+
+    @MainActor
+    func testCaptureScreenshotOnLaunch() throws {
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.name = "App Launch"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    // MARK: - Launch Performance
 
     @MainActor
     func testLaunchPerformance() throws {
-        if #available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 7.0, *) {
-            // This measures how long it takes to launch your application.
+        if #available(iOS 13.0, *) {
             measure(metrics: [XCTApplicationLaunchMetric()]) {
                 XCUIApplication().launch()
             }

@@ -1,0 +1,629 @@
+# Enhance — Learnings Log
+
+> Decisions, gotchas, and patterns discovered during development.
+> Each entry records context so future sessions don't repeat mistakes.
+
+---
+
+## 2026-03-07: PhotosPicker tap interception bug
+
+**Problem:** Tapping the "+" button and "CREATE YOUR FIRST GIF" button did nothing — the system photo picker never appeared.
+
+**Root cause (two issues):**
+1. The `enhanceButtonAnimation()` modifier adds a `DragGesture(minimumDistance: 0)` via `.simultaneousGesture()`. When applied to the label of a `PhotosPicker`, this gesture consumed touch events before the picker could respond.
+2. The `AppButton` component wraps its content in a `Button(action:)`. When used as the label for a `PhotosPicker`, this inner Button intercepted taps, preventing the outer PhotosPicker from receiving them.
+
+**Fix:**
+1. Removed `.enhanceButtonAnimation()` from the CircleButton label inside the header PhotosPicker.
+2. Replaced `AppButton(...)` with a plain styled `Text` view for the "CREATE YOUR FIRST GIF" PhotosPicker label — same visual appearance, no nested interactive element.
+
+**Rule:** Never place interactive views (Button, gesture-modified views) inside a PhotosPicker label. The label must be purely visual.
+
+---
+
+## 2026-03-07: Architecture decision — Moderate + Feature Folders
+
+**Context:** The app had accumulated a 709-line PhotoDetailView and a 424-line PhotoManager with mixed concerns.
+
+**Decision:** Adopt a moderate architecture:
+- One `@Observable` ViewModel per screen (EditorViewModel, GalleryViewModel)
+- Protocol-driven services (GIFGenerating, Animator)
+- Feature folders (Features/Gallery/, Features/Editor/)
+- Shared components in Components/
+
+**Why not lighter:** Pure file splitting without ViewModels would let business logic creep back into views.
+**Why not heavier:** Full MVVM + Coordinators would require touching 3-4 files to add a simple slider.
+
+**Rule:** Views contain only layout and styling. ViewModels own state and logic. Services are injected via protocols.
+
+---
+
+## 2026-03-07: Matched geometry IDs fixed
+
+**Problem:** `GifGridItem` uses `matchedGeometryEffect(id: "gif\(index)")` but `EditorView` used `gifURL?.lastPathComponent` as the ID suffix. These never matched, so shared element transitions silently failed.
+
+**Fix:** Added a second associated value to `DetailContent.existingGif(URL, Int)` to carry the grid index through to EditorView. Both sides now use `"gif\(index)"` as the geometry ID.
+
+**Rule:** Matched geometry IDs must be identical on both ends of a transition. Use stable indices or identifiers, never derived values like file names.
+
+---
+
+## 2026-03-08: PhotoManager facade pattern
+
+**Problem:** `PhotoManager` (~550 lines) mixed three unrelated concerns: permissions, photo fetching, and GIF album management. This made it hard to test or modify any single concern in isolation.
+
+**Fix:** Split into three focused services:
+- `PermissionManager` — authorization status and requests
+- `PhotoLibraryService` — fetching recent photos from the library
+- `GIFLibraryService` — fetching, saving, and refreshing GIFs in the "My GIFs" album
+
+`PhotoManager` was kept as a thin facade that composes these services and forwards their `@Published` properties via Combine's `assign(to:)`. This preserves the existing public API — no callsite changes needed.
+
+**Rule:** When splitting a large `ObservableObject`, keep a facade if many views depend on it. Internal services handle logic; the facade handles composition and property forwarding.
+
+---
+
+## 2026-03-08: Replaced system PhotosPicker with in-app photo grid
+
+**Problem:** The system `PhotosPicker` leaves the app context, returns a single image via `loadTransferable`, and offers no visual continuity with the editor.
+
+**Decision:** Created `PhotoGridView` — a full-screen overlay that displays `photoManager.photos` in a 3-column `LazyVGrid`. Each cell has `matchedGeometryEffect(id: "photo\(index)")` which matches the existing ID on `ImageCanvasView`, enabling a fluid hero transition from grid to canvas.
+
+**Key detail:** `GalleryView` now uses plain `Button` actions to open the photo grid instead of `PhotosPicker`. This eliminates the `PhotosUI` import and the `loadTransferable` async callback. Photo data comes directly from `PhotoLibraryService` which already fetches high-quality thumbnails.
+
+**Rule:** Prefer in-app photo grids over system pickers when visual continuity matters. Use `matchedGeometryEffect` with consistent IDs across the transition chain (grid → editor → canvas).
+
+---
+
+## 2026-03-08: Zoom frame minimap for focus area feedback
+
+**Problem:** When the user pinches to zoom in `ImageCanvasView`, there's no visual indication of what region of the full image is selected as the GIF's focus target.
+
+**Decision:** Created `ZoomFrameOverlay` — a minimap that appears in the bottom-left corner of the canvas when `scale > 1.05`. It shows the full image with the area outside `visibleRect` dimmed and a white border around the focus region.
+
+**Implementation:** Uses a reverse-mask technique (`.blendMode(.destinationOut)` inside a `.mask`) to cut out the visible rect from a dim overlay, creating the "everything else is dimmed" effect.
+
+**Rule:** Use `.allowsHitTesting(false)` on informational overlays to avoid interfering with gestures on the underlying interactive view.
+
+---
+
+## 2026-03-08: GIF preview playback controls
+
+**Problem:** After generating a GIF, the user could only watch it loop at 1x with no way to pause or change speed.
+
+**Decision:** Added `PreviewControlsView` with a play/pause button and 0.5x/1x/2x speed selector. `AnimatedGifView` now accepts a `playbackSpeed` parameter that divides `animationDuration` to speed up or slow down playback. The `Coordinator` stores the base duration so speed changes can be applied without reloading frames.
+
+**Rule:** When adding playback controls to `UIViewRepresentable` animation, store the original timing in the Coordinator and derive the displayed timing from it. This avoids compounding speed changes.
+
+---
+
+## 2026-03-08: GIF zoom targets the wrong spot (aspect ratio bug)
+
+**Problem:** The generated GIF didn't zoom to the area the user selected in the canvas. The Pulse effect also started too zoomed in, showing no context.
+
+**Root cause:** `ImageCanvasView.calculateVisibleRect()` assumed the image was square, using `canvasSize * scale` for both dimensions. But with `.aspectRatio(contentMode: .fill)`, a landscape image is rendered wider than the canvas (overflow clipped), and a portrait image renders taller. The visible rect was computed in "square space" but the GIF generator interpreted it in "actual image space" — the coordinate mismatch caused the zoom center to be wrong for all non-square images.
+
+**Fix:**
+1. Added `renderedSize` computed property that calculates the actual rendered image dimensions under `.fill`, accounting for the image's aspect ratio: `fillScale = max(canvasSize / image.width, canvasSize / image.height)`.
+2. Updated `calculateVisibleRect()` and drag gesture max offsets to use the correct per-axis dimensions.
+3. Rewrote `PulseAnimator` to use a sine curve `sin(progress * .pi)` interpolating between `fullViewParams` and `userZoomParams`, so it sweeps from the full image to the target and back — showing full context at the start/end.
+
+**Rule:** When an image uses `.fill` in a square frame, the rendered dimensions depend on the image's aspect ratio. Always compute the actual rendered size using the fill scale factor, never assume square.
+
+---
+
+## 2026-03-08: GIF generator .fit vs .fill mismatch
+
+**Problem:** The generated GIF appeared slightly more zoomed out than the user's canvas selection, and zoom animations swooped diagonally instead of smoothly converging.
+
+**Root cause (two issues):**
+1. The GIF generator used `.fit` semantics in `calculateDrawRect` (fitting the image inside the output with letterboxing), while the canvas uses `.fill` (center-cropping to fill the square). At scale 1.0, the GIF showed the *entire* image with black bars, while the canvas showed only the center-cropped portion. The scale factor `S` from the canvas didn't translate correctly — the GIF needed a different effective scale to show the same visible fraction.
+2. The ZoomIn/ZoomOut animators linearly interpolated both scale and center position. At low zoom, center shifts are imperceptible; at high zoom, the same shift is magnified. This created a non-uniform visual motion where the image appeared to swing sideways before settling.
+
+**Fix:**
+1. Changed `calculateDrawRect` to use `.fill` semantics: `fillScale = max(outputWidth / imageWidth, outputHeight / imageHeight)`. The image now overflows the output in one dimension (clipped), matching the canvas behavior exactly. The canvas scale factor transfers directly.
+2. Added `easeInOut()` cubic function and applied it to the progress parameter in `ZoomInAnimator` and `ZoomOutAnimator`. The eased progress synchronizes center movement with scale change, eliminating the swooping artifact.
+
+**Rule:** The GIF generator's drawing mode must match the canvas's content mode. If the canvas uses `.fill`, the generator must also use `.fill` — otherwise scale and center coordinates will be misinterpreted.
+
+**Rule:** When interpolating zoom animations, always ease the progress. Linear interpolation of scale + center creates non-linear visual motion because scale magnifies displacement.
+
+---
+
+## 2026-03-08: Logarithmic scale interpolation for smooth zoom
+
+**Problem:** Even with easing, the zoom animation had a "nothing → sudden burst → nothing" character at high zoom levels (e.g. 12x). The first few frames showed almost no change, then the middle frames contained a rapid zoom, and the final frames were again nearly static. The center panning also appeared as a visible "slide" before zoom kicked in.
+
+**Root cause:** Linear interpolation of the scale parameter distributes equal scale increments per frame. Going from 1x to 12x in 20 frames means +0.58x per frame. But perceptually, going from 1x→2x (doubling) is as significant as going from 6x→12x (also doubling). Linear interpolation spends 1.7 frames on the first doubling and 10 frames on the last doubling — the zoom appears to "explode" in the middle.
+
+**Fix:** Changed `interpolate()` to use logarithmic scale interpolation: `scale = exp(lerp(log(startScale), log(endScale), progress))`. This makes each frame represent an equal *ratio* of zoom change. For 1x→12x: frame 5 is at 1.2x, frame 10 is at 4.25x, frame 15 is at 10.9x — the visual zoom speed is constant throughout.
+
+Center position remains linearly interpolated, which works naturally: at low zoom, center shifts are imperceptible; at high zoom, the remaining center displacement is small. The easing layer (cubic ease-in-out for Zoom In/Out, sine for Pulse) is applied *before* the log interpolation for smooth start/stop.
+
+**Rule:** Always interpolate zoom scale in log space. Linear scale interpolation produces jerky animations at high zoom ratios because equal additive increments don't correspond to equal visual zoom.
+
+---
+
+## 2026-03-08: CGImageSourceCreateImageAtIndex empty dictionary → CFNull
+
+**Problem:** The console was flooded with `IIOLogTypeMismatch: expected 'CFDictionaryRef' -- got 'CFNull'` errors every time the gallery refreshed (one pair per GIF).
+
+**Root cause:** Passing `[:] as CFDictionary` as the options parameter to `CGImageSourceCreateImageAtIndex` was bridged to `CFNull` on some iOS versions, triggering the error. The function expects either a valid populated `CFDictionary` or `nil`.
+
+**Fix:** Changed all four call sites (`AnimatedGifView`, `GifGridItem`, `GalleryCarouselView`, `EditorViewModel`) to pass `nil` instead of `[:] as CFDictionary`.
+
+**Rule:** When calling Core Graphics / ImageIO C functions from Swift, pass `nil` for optional dictionary parameters when no options are needed. An empty Swift dictionary `[:]` does not bridge cleanly to `CFDictionary` and can produce `CFNull`.
+
+---
+
+## 2026-03-08: scaleEffect expands gesture hit-test area beyond canvas
+
+**Problem:** When the user zoomed into the photo in the editor, the X close button became untappable. The zoomed image's gesture area extended beyond the canvas frame and intercepted touches meant for the topBar.
+
+**Root cause:** `.scaleEffect(scale)` was applied to the Image, and `.gesture(dragGesture)` / `.gesture(magnificationGesture)` were attached directly to the scaled Image. Although `.clipped()` clips visual rendering, the gesture recognizers' hit-test area still extended to the scaled dimensions. In a VStack, the canvas's gesture area leaked into the topBar above it.
+
+**Fix:** Restructured `ImageCanvasView`:
+1. Removed the unnecessary `GeometryReader` wrapper (the `_` parameter was unused).
+2. Moved gestures from the Image to the outer `ZStack` container.
+3. Applied `.clipShape(RoundedRectangle(...))` and `.contentShape(Rectangle())` to the ZStack, constraining both visual and interactive bounds to `canvasSize × canvasSize`.
+4. Added `.allowsHitTesting(false)` to `ZoomFrameOverlay` so it doesn't interfere with gestures.
+
+**Rule:** Never attach gestures directly to a view that has `.scaleEffect`. Move gestures to a fixed-frame parent and clip that parent with `.clipShape` + `.contentShape(Rectangle())` to contain the interactive area.
+
+---
+
+## 2026-03-08: PBXFileSystemSynchronizedRootGroup — no project file edits needed for file moves
+
+**Problem:** After moving 7 Swift files from feature folders to `Components/`, we needed to update the Xcode project file.
+
+**Discovery:** The project uses `PBXFileSystemSynchronizedRootGroup` (objectVersion 77), the newer Xcode format where Xcode automatically syncs its file tree with the file system. There are no individual `PBXFileReference` entries per source file — Xcode watches the root group folder and picks up whatever is on disk.
+
+**Rule:** For projects using `PBXFileSystemSynchronizedRootGroup`, file moves/renames on disk are sufficient. No `.pbxproj` edits are needed. Just rebuild.
+
+---
+
+## 2026-03-08: Component vs. Feature folder organization
+
+**Problem:** Reusable UI views were scattered across feature folders, making them hard to find and creating implicit coupling.
+
+**Decision:** Established a clear rule:
+- **Components/** — Views used (or potentially used) by multiple features. Self-contained, parameterized via bindings/closures. Currently 13 files.
+- **Features/\<Name\>/** — Screen-level views and their view models. Only files tightly coupled to that screen's specific layout and logic.
+
+Files moved to Components: `GIFPreviewView`, `ShareSheet`, `ImageCanvasView`, `ZoomFrameOverlay`, `AnimatorPickerView`, `PreviewControlsView`, `GifGridItem`.
+
+**Rule:** If a view accepts generic inputs (bindings, closures, model data) and could be embedded in any screen, it belongs in Components. If it references a specific ViewModel or orchestrates a specific screen's layout, it stays in its feature folder.
+
+---
+
+## 2026-03-08: Existing GIF re-edit via first-frame extraction
+
+**Problem:** Users wanted to change the effect on a previously saved GIF, but the app only had the final GIF file — no original source image.
+
+**Solution:** When opening an existing GIF in the editor:
+1. Extract the first frame using `CGImageSourceCreateImageAtIndex(source, 0, ...)` and store it as `sourceImage` on `EditorViewModel`.
+2. Show the GIF playing in the preview, with effect/speed controls enabled.
+3. Track modifications via `hasModifiedSettings` — SAVE button stays disabled until the user changes something.
+4. On save, present an action sheet: "UPDATE ORIGINAL GIF" (deletes old PHAsset, saves new) or "SAVE NEW COPY" (saves alongside).
+5. `DetailContent.existingGif` now carries a third associated value: the `PHAsset.localIdentifier`, enabling targeted deletion for the update flow.
+
+**Rule:** When re-editing generated content, extract a stable source representation (first frame, original parameters) rather than trying to reverse-engineer the final output. Track the asset identifier from the start so updates can target the correct library asset.
+
+---
+
+## 2026-03-08: Photo thumbnail performance — size and caching matter
+
+**Problem:** Photo picker grid loaded slowly. Timing showed ~1567ms for 29 photos, with each thumbnail requested at 1035×1035 pixels (345pt × 3x scale) — far larger than the ~114pt grid cells.
+
+**Fix:**
+1. Reduced `thumbnailSize` from `345 * scale` to `130 * scale` (~390px). Images returned at 390×520 instead of 1036×1380.
+2. Switched from `PHImageManager.default()` to `PHCachingImageManager` for better thumbnail caching.
+3. Added progressive loading — UI updates every 12 images instead of waiting for all 50.
+4. Result: load time dropped from ~1567ms to ~779ms (50% improvement).
+
+**Rule:** Always match `targetSize` to the actual display size (cell width × screen scale). Use `PHCachingImageManager` for grid/collection views. Progressive batching prevents the "all or nothing" loading UX.
+
+---
+
+## 2026-03-08: iOS Simulator cannot download iCloud-only photos
+
+**Problem:** Album-specific photo fetches returned 0 or very few photos on the simulator, with `CloudPhotoLibraryErrorDomain Code=1006 "User rejected a prompt to enter their iCloud account password"` errors — even when signed into iCloud.
+
+**Cause:** `CKInternalErrorDomain Code=2011` — the simulator's Keychain/CloudKit auth doesn't properly handle photo download tokens. Photos in the "All" view worked because they were locally cached; album photos were iCloud-only and required a download.
+
+**Rule:** Always test iCloud Photo Library features on a physical device. The simulator cannot reliably download iCloud-only photos even when signed in. Use TestFlight for comprehensive photo library testing.
+
+---
+
+## 2026-03-08: ShareSheet — explicit UTType for broader share targets
+
+**Problem:** iMessage didn't appear in the share sheet when sharing GIFs.
+
+**Fix:** Replaced plain `URL` activity items with a `UIActivityItemSource` (`GIFActivityItem`) that declares `UTType.gif.identifier` via `dataTypeIdentifierForActivityType`. This tells the system the exact content type so all compatible apps appear.
+
+**Rule:** When sharing files via `UIActivityViewController`, implement `UIActivityItemSource` with explicit `dataTypeIdentifierForActivityType` rather than passing raw URLs. This ensures all compatible share targets (Messages, Mail, etc.) recognize the content type.
+
+---
+
+## 2026-03-08: Album sheet — native presentationDetents vs custom overlays
+
+**Problem:** Custom full-screen overlay for album/sort picker couldn't be dismissed easily and didn't support half-height presentation.
+
+**Fix:** Replaced the custom `ZStack` overlay with a native `.sheet` using `.presentationDetents([.medium, .large])`. The header stays outside the `ScrollView` so it pins at the top. The sheet starts at half-height and expands as the user scrolls.
+
+**Rule:** Prefer SwiftUI's native `.sheet` with `presentationDetents` over custom overlay implementations when you need half-height sheets, drag-to-dismiss, or expandable content. It handles all the edge cases (gesture priority, safe areas, animation) automatically.
+
+---
+
+## 2026-03-08: Photo pagination with PHFetchResult caching
+
+**Problem:** Removing the fetch limit to show all album photos caused the app to attempt loading 36,000+ photos synchronously, freezing the UI.
+
+**Fix:** Implemented proper pagination:
+1. Cache the `PHFetchResult` and maintain a `fetchResultOffset` to track position.
+2. Load 100 photos on initial fetch, then 50 per "LOAD MORE" tap.
+3. Filter out GIF album assets during iteration (skip by `localIdentifier`).
+4. Progressive UI updates every 12 photos within each batch.
+5. `hasMorePhotos` is derived from `fetchResultOffset < fetchResult.count`.
+
+**Rule:** Never enumerate an entire `PHFetchResult` into memory. Cache the result, paginate with an offset, and load thumbnails in small batches with progressive UI updates.
+
+---
+
+## 2026-03-08: Auto-continue for iCloud-sparse photo batches
+
+**Problem:** In albums where most photos are iCloud-only (no local thumbnail), a batch of 50 assets could yield 0 displayable photos. The user had to tap "LOAD MORE" repeatedly, getting nothing each time.
+
+**Fix:** After each batch completes, if fewer than 10 new photos were added and more assets remain, automatically load the next batch. A cap of 5 consecutive empty batches prevents runaway scanning. The counter resets on each manual "LOAD MORE" tap.
+
+**Why 5:** Balances between finding scattered local photos and not burning CPU on albums that are entirely iCloud-only. On a real device (where iCloud downloads succeed), the auto-continue rarely triggers because each batch yields a full 50 photos.
+
+**Rule:** When paginating through a data source where items may be unavailable (iCloud, network), auto-continue past empty batches but cap the attempt count. Reset the cap on explicit user action.
+
+---
+
+## 2026-03-08: Combine assign(to:) vs sink for @Published forwarding
+
+**Problem:** `PhotoManager` used `assign(to: &$hasMorePhotos)` to forward values from `PhotoLibraryService.$hasMorePhotos`. The UI did not update when `hasMorePhotos` changed — the "LOAD MORE" button never appeared.
+
+**Root cause:** `assign(to:)` on a `@Published` property writes directly to the backing storage, bypassing the `objectWillChange` publisher. SwiftUI views observing the `PhotoManager` never received change notifications for the forwarded properties.
+
+**Fix:** Replaced `assign(to:)` with explicit `sink` subscriptions that assign the value manually: `photoLibrary.$hasMorePhotos.sink { [weak self] value in self?.hasMorePhotos = value }`. The property setter on `@Published` triggers `objectWillChange`, causing view updates.
+
+**Rule:** When forwarding `@Published` values between `ObservableObject`s, use `sink` with explicit assignment instead of `assign(to:)`. The `assign(to:)` operator bypasses the `objectWillChange` publisher, silently breaking SwiftUI reactivity.
+
+---
+
+## 2026-03-08: LazyVGrid siblings in ScrollView layout issues
+
+**Problem:** The "LOAD MORE" button placed as a sibling view after a `LazyVGrid` inside a `ScrollView` was rendered in the view hierarchy (confirmed via `onAppear`) but was not visible or scrollable to.
+
+**Root cause:** `LazyVGrid` inside a `ScrollView` can cause subsequent sibling views to be laid out incorrectly — the lazy grid doesn't report its full height to the scroll view's layout engine until all items are materialized.
+
+**Fix:** Wrapped the `LazyVGrid`, the "LOAD MORE" button, and bottom padding inside a `VStack(spacing: 0)` within the `ScrollView`. The `VStack` acts as a concrete container that forces proper sequential layout.
+
+**Rule:** When placing views after a `LazyVGrid` in a `ScrollView`, wrap everything in a `VStack`. Don't rely on `LazyVGrid` siblings being laid out correctly as direct children of the `ScrollView`.
+
+---
+
+## 2026-03-08: Prefer shared components over one-off implementations
+
+**Problem:** The effects sheet, save sheet, and album picker sheet each had their own inline implementations of the same UI pattern — dark scrim, header with title and close button, slide-up content. This led to inconsistent animations, duplicated styling code, and extra work every time a new sheet was needed.
+
+**Fix:** Created a reusable `BottomSheet` component in `Components/` that encapsulates the shared header, presentation detents, drag indicator, and background. All three sheets now use this component, giving them identical behavior with zero duplication. The component accepts an `expandable` flag so fixed-content sheets (save, effects) stay at half-screen while scrollable sheets (album picker) can grow.
+
+**Rule:** Before building any UI element, ask: "Will we need this pattern again?" If yes — or even maybe — extract it into a shared component in `Components/` from the start. It's cheaper to generalize early than to refactor three copies later. Shared components also guarantee visual and behavioral consistency across the app.
+
+---
+
+## 2026-03-08: Composable effects via protocol layering
+
+**Problem:** Adding new motion effects (Shake, Spiral) as standalone `Animator` implementations would have created a combinatorial explosion — every base effect × every motion style = a separate class (ZoomInShake, ZoomInSpiral, PulseShake, etc.).
+
+**Fix:** Introduced a `MotionModifier` protocol that transforms `AnimationParameters` produced by a base `Animator`. A `CompositeAnimator` wraps any base + modifier pair and itself conforms to `Animator`, so `GIFGenerator` needs zero changes. The `StraightModifier` is a pass-through (no modification), `ShakeModifier` adds sine-wave jitter, and `SpiralModifier` adds circular displacement. Any base effect works with any modifier.
+
+**Rule:** When extending a system with a second axis of variation (e.g., base effects × motion styles), use protocol composition rather than multiplying implementations. A wrapper struct that conforms to the original protocol keeps the consumer unchanged and scales to N × M combinations with only N + M implementations.
+
+---
+
+## 2026-03-08: CIImage chaining for efficient per-frame visual effects
+
+**Problem:** Visual effects (film grain, vignette, chromatic aberration, light leak) need to be applied to every frame of a GIF (20+ frames). Naively converting CGImage → CIImage → applying filter → rendering back to CGImage for each effect on each frame would be expensive — potentially 4 render passes × 25 frames = 100 GPU round-trips.
+
+**Fix:** Each `VisualEffect` conforms to a protocol that takes and returns `CIImage`. Since CIImage operations are lazy (they build a filter graph, not pixels), chaining 4 effects still produces a single filter graph per frame. `GIFGenerator` creates one shared `CIContext` and calls `createCGImage` exactly once per frame to render the entire chain. This means 25 GPU renders total regardless of how many effects are active.
+
+**Rule:** When processing images through multiple Core Image filters, always chain `CIImage → CIImage` and render to `CGImage` only once at the end. Create `CIContext` once and reuse it — context creation is expensive. Never create a `CIContext` per frame or per effect.
+
+---
+
+## 2026-03-08: Progressive visual effects tied to animation progress
+
+**Problem:** Applying visual effects at constant intensity across all frames felt jarring and disconnected from the zoom animation. Effects like film grain or chromatic aberration at full strength from frame 0 made the GIF look broken rather than intentional.
+
+**Fix:** Each `VisualEffect` scales its intensity using the `progress` parameter (0.0 → 1.0) that's already passed through the protocol. Effects start invisible and build toward full strength as the zoom reaches its target. Using ease-in curves (`progress²` or `progress³`) keeps the first half of the animation mostly clean, with the effect kicking in dramatically in the second half — creating a visual crescendo that mirrors the zoom.
+
+**Rule:** When adding per-frame effects to animations, tie the effect intensity to the animation's progress curve rather than applying it uniformly. Ease-in curves (`progress²` for moderate, `progress³` for aggressive) work well because they preserve the clean look early and deliver impact at the climax. Always include an early-out guard (e.g., `guard intensity > threshold else { return image }`) to skip GPU work on frames where the effect is imperceptible.
+
+---
+
+## 2026-03-08: Mutually exclusive vs. stackable effect selection
+
+**Problem:** Initially visual effects were implemented as stackable (multiple active via `Set<VisualEffectType>`). In practice, combining effects like halftone + chromatic aberration produced unpredictable, unpleasant results because each CIFilter chain compounds in ways that are hard to preview or control.
+
+**Fix:** Changed from `Set<VisualEffectType>` to `VisualEffectType?` (optional single selection). The UI toggles work like radio buttons — tapping an active effect deselects it, tapping a new one replaces the previous. This keeps the output predictable and the UI simple.
+
+**Rule:** Default to mutually exclusive selection for creative effects unless there's a clear, tested reason to allow stacking. Stacking CIFilter chains creates emergent behavior that's difficult to predict or control. If stacking is needed later, it should be done through intentional, curated presets rather than free-form combination.
+
+---
+
+## 2026-03-08: Built-in CIFilter catalog for common visual effects
+
+**Filters used in this project and their strengths:**
+
+- `CIColorControls` — saturation, brightness, contrast adjustments. `kCIInputSaturationKey = 0.0` gives perfect grayscale.
+- `CICMYKHalftone` — classic newspaper CMYK dot pattern. `kCIInputWidthKey` controls dot size (2–12px is a good range for 600px output). `kCIInputSharpnessKey` at 0.7 gives crisp dots.
+- `CIBumpDistortion` — center bulge/pinch. Positive `kCIInputScaleKey` bulges outward (fisheye), negative pinches inward. Radius should be ~45% of the frame dimension for full coverage.
+- `CIColorMatrix` — isolate individual RGB channels by zeroing unwanted rows. Combined with `CIAffineTransform` for channel offset and `CIAdditionCompositing` to recombine, this creates chromatic aberration.
+
+**Rule:** Check Apple's CIFilter reference before writing custom pixel manipulation. Most common visual effects have efficient built-in implementations that are GPU-accelerated and handle edge cases (color spaces, alpha channels) correctly.
+
+---
+
+## 2026-03-07: Custom photo picker architecture (replaced with native PhotosPicker)
+
+**What we built and why it was removed:**
+
+We built a custom in-app photo picker (`PhotoGridView`) with album browsing, sort options, pagination, and thumbnail caching. It was removed in favor of SwiftUI's native `PhotosPicker` because the custom implementation had persistent bugs (iCloud-only assets failing silently, inconsistent batch loading, photos not appearing in albums) that consumed disproportionate development time.
+
+**Architecture (for reference if rebuilding):**
+
+- **PhotoGridView** (Features/Gallery/PhotoGridView.swift, ~316 lines): `LazyVGrid` of photo thumbnails with `matchedGeometryEffect` for hero transitions to the editor. Presented as an overlay from `GalleryView`. Used a callback `onPhotoSelected: (UIImage, Int) -> Void` to pass the selected image and grid index back to `GalleryView`.
+
+- **PhotoLibraryService** (Services/PhotoLibraryService.swift, ~314 lines): `ObservableObject` wrapping the Photos framework. Key design decisions:
+  - Cached the `PHFetchResult` from the initial query, then loaded thumbnails in batches via `loadNextBatch(count:append:)` to avoid loading all assets at once.
+  - Used `PHCachingImageManager` with 390px thumbnails (down from 1035px) for 50% faster loading.
+  - Progressive UI updates: published `@Published var photos: [UIImage]` which updated after each batch of 12 thumbnails loaded.
+  - Album browsing via `fetchAlbums()` which queried `PHAssetCollection` for smart albums and user albums.
+  - Sort options (`PhotoSortOrder` enum) toggling between `creationDate` and `modificationDate` sort descriptors.
+  - Auto-continue for iCloud-sparse batches: when `isNetworkAccessAllowed = false`, many assets return nil. A `consecutiveEmptyBatches` counter capped auto-continue at 5 to prevent runaway loops.
+  - Full-resolution fetch on selection: `fetchFullResolutionImage(for:)` requested 3000x3000 images for editor quality.
+
+- **PhotoManager** (Services/PhotoManager.swift): Facade that forwarded `PhotoLibraryService` properties via `Combine` `sink` subscriptions. Initially used `assign(to: &$property)` which didn't trigger SwiftUI updates — switching to `sink` with explicit assignment fixed this.
+
+- **Pagination**: "LOAD MORE" button at bottom of grid. Initial batch of 100, then 50 per tap. Button placed inside a `VStack` wrapping the `LazyVGrid` (not as a sibling of `LazyVGrid` directly in `ScrollView`, which caused layout bugs).
+
+- **Album picker**: Floating filter button at bottom of `PhotoGridView` that presented a `.sheet` with `presentationDetents([.medium, .large])`. Sheet listed albums with photo counts; tapping an album called `fetchPhotos(from:sortOrder:)`.
+
+- **Change observer**: `PHPhotoLibraryChangeObserver` on `PhotoManager` with 2-second debounce (only refreshed GIFs, not photos) to prevent infinite refresh cascades.
+
+**Key bugs encountered:**
+1. iCloud-only photos returned nil thumbnails on simulator even when signed in — no good workaround without `isNetworkAccessAllowed = true` (which blocks the thread).
+2. `LazyVGrid` siblings in `ScrollView` have unreliable layout — always wrap in a `VStack`.
+3. `Combine`'s `assign(to: &$property)` doesn't trigger `@Published` `objectWillChange` notifications — use `sink` with explicit assignment.
+4. Album sort order: `modificationDate` ≠ "most recent" for users — `creationDate` is what people expect.
+5. Batch loading with progressive UI caused the "LOAD MORE" button to flicker as `hasMorePhotos` toggled during batch processing.
+
+**Rule:** Prefer native pickers (PhotosPicker, PHPickerViewController) unless you need deep customization of the selection UI. The Photos framework's thumbnail loading, iCloud handling, and album management are complex enough that the maintenance cost of a custom picker often exceeds the UX benefit. If rebuilding, start with `PHCachingImageManager` and batch loading from day one — retrofitting pagination onto a synchronous fetch is painful.
+
+---
+
+### Native PhotosPicker Swap (Phase 5a)
+
+Replaced the entire custom photo picker (~280 lines of `PhotoGridView`, plus supporting code in `PhotoLibraryService` and `PhotoManager`) with SwiftUI's native `PhotosPicker` view.
+
+**What changed:**
+- `GalleryView` buttons now use `PhotosPicker(selection:matching:)` instead of presenting a custom overlay.
+- `PhotoLibraryService` stripped to a single static `fetchAlbumCollection(named:)` helper (used only by `GIFLibraryService`).
+- `PhotoManager` stripped of all photo-forwarding properties (`photos`, `photoAssets`, `albums`, `hasMorePhotos`, `isLoadingMore`), `Combine` subscriptions, and photo-fetching methods.
+- `DetailContent.newImage` no longer carries an index (was only used for `matchedGeometryEffect` hero transition from the custom grid).
+- `ImageCanvasView` no longer accepts `namespace` or `photoIndex` — the hero animation between grid cell and editor canvas was removed since the native picker handles its own presentation/dismissal.
+
+**Image loading approach:** `PhotosPickerItem.loadTransferable(type: Data.self)` returns full-resolution image data. The `UIImage(data:)` initializer handles all formats. A loading overlay (`ProgressView`) covers the screen while the async transfer completes.
+
+**Lines of code removed:** ~550 (PhotoGridView + stripped service/manager code).
+
+**Tradeoff:** We lose custom album browsing, sort order controls, and the pagination UI — but these caused more bugs than they solved (iCloud failures, layout flickering, sort confusion). The native picker handles all of this with zero maintenance.
+
+---
+
+### GIF Gallery Race Conditions & Cache Stability (Phase 5b)
+
+**Problem:** GIFs intermittently disappeared from the gallery on launch, and sometimes failed to animate.
+
+**Root causes identified:**
+1. **Concurrent fetches:** `fetchMyGifs()` and `forceRefreshGifs()` were separate methods that could run simultaneously (launch + `photoLibraryDidChange` observer + post-save callback). Overlapping `DispatchGroup` callbacks produced inconsistent array states.
+2. **Unstable cache URLs:** `getGifURL` generated new UUID-based filenames on every refresh (`\(index)-\(UUID().uuidString).gif`). This invalidated both `GIFCache` (keyed by URL for animation frames) and `ThumbnailCache` (keyed by URL for static thumbnails), causing momentary blank views during re-decode.
+3. **PHImageManager double-callback:** With `deliveryMode: .highQualityFormat` and `isSynchronous: false`, the handler can still fire once with a degraded image before the final. Not checking `PHImageResultIsDegradedKey` could cause `group.leave()` to fire prematurely.
+4. **Temp file leak:** UUID-named files accumulated in `Caches/MyGIFs/` without cleanup.
+
+**Fixes:**
+- Consolidated into a single `fetchMyGifs()` with 0.15s coalescing (`DispatchWorkItem` cancel + re-schedule) and an `isFetching` gate.
+- Stable filenames based on sanitized `asset.localIdentifier` — if the file already exists, skip the copy. This preserves cache validity across refreshes.
+- Check `PHImageResultIsDegradedKey` in the `requestImage` callback; only count the final high-quality delivery.
+- `cleanupStaleCacheFiles()` runs after each refresh, removing files not in the current URL set.
+
+**Rule:** When caching files keyed by URL, ensure the URL is deterministic and stable across refreshes. UUID-based temp filenames break any downstream cache that uses the URL as a key. Use the source identifier (asset ID, hash) as the filename instead.
+
+---
+
+### CGImageSourceCreateThumbnailAtIndex vs CGImageSourceCreateImageAtIndex
+
+For generating thumbnails from GIF data, prefer `CGImageSourceCreateThumbnailAtIndex` over `CGImageSourceCreateImageAtIndex` + manual resize. Benefits:
+- Decodes directly at the target size (less memory, faster)
+- Eliminates the `UIGraphicsImageRenderer` resize step
+- Uses proper options dictionary (`kCGImageSourceThumbnailMaxPixelSize`, `kCGImageSourceCreateThumbnailFromImageAlways`, etc.)
+
+`CGImageSourceCreateImageAtIndex` should only be used when you need the full-resolution image (e.g., extracting a source frame for GIF re-generation in the editor).
+
+**Note:** `PHImageManager.requestImage` internally calls `CGImageSourceCreateImageAtIndex` when loading GIF thumbnails from the Photos library and passes invalid options, producing `CFNull` errors in the console. These are Apple framework bugs — non-fatal, cannot be fixed from app code.
+
+---
+
+## 2026-03-09: Multi-select delete mode vs context menus
+
+**Problem:** Needed a way to delete GIFs from the gallery. Initially planned per-item context menus (long-press → "DELETE GIF"), but the Figma design called for a multi-select batch delete mode.
+
+**Design pattern:** Long-press enters a selection mode that changes the gallery's behavior:
+- Header updates to show selection count
+- Taps toggle selection instead of navigating
+- Bottom bar swaps to a destructive action button
+- X button exits the mode
+
+**Implementation:** Added `isSelectMode: Bool` and `selectedIndices: Set<Int>` to `GalleryView`. `GifGridItem` gained `isSelected: Bool` (drives a red border overlay) and `onLongPress` closure. The `onTap` closure is conditionally routed — in select mode it toggles selection, otherwise it navigates to the editor.
+
+**Batch deletion:** `GIFLibraryService.deleteAssets(identifiers:)` fetches all PHAssets in one `fetchAssets(withLocalIdentifiers:)` call and deletes them in a single `performChanges` block. This is more efficient than N individual delete calls and presents the user with only one system permission prompt.
+
+**Rule:** When implementing destructive batch operations, collect all identifiers first and execute in a single Photos framework `performChanges` block. This reduces permission prompts from N to 1 and is transactionally safer.
+
+---
+
+## 2026-03-09: Testing strategy — protocol injection for ViewModels
+
+**Problem:** `EditorViewModel` creates `GIFGenerator()` inline in `generateGIF()` and `regenerateGIF()`. This makes unit testing impossible — every test that touches GIF generation must wait for real image rendering (slow, flaky, dependent on `UIGraphicsBeginImageContext` availability in test bundles).
+
+**Fix:** Extracted a `GIFGenerating` protocol with `generateGIF(from:currentScale:visibleRect:animator:speed:visualEffects:) -> Data?` and `saveTempGIF(_:) -> URL?`. `GIFGenerator` conforms to it. `EditorViewModel` now accepts `gifGenerator: GIFGenerating` in its initializer with a default of `GIFGenerator()`, so production code is unchanged but tests can inject a `StubGIFGenerator` that returns canned data instantly.
+
+**Rule:** When a ViewModel creates heavy service objects inline, inject them via an initializer parameter with a production default. This keeps the call sites unchanged while enabling fast, deterministic tests. Use a lightweight protocol — only the methods the ViewModel actually calls need to be on it.
+
+---
+
+## 2026-03-09: Swift Testing framework (@Test) vs XCTest
+
+**Context:** The project was created with Swift Testing (`import Testing`, `@Test func`) for unit tests and XCTest (`import XCTest`, `XCTestCase`) for UI tests.
+
+**Key differences:**
+- Swift Testing uses `#expect(condition)` instead of `XCTAssertTrue`. Failures report the full expression, not just "assertion failed".
+- Test functions use `@Test` attribute — no `test` prefix naming convention required.
+- Tests are structs (value types), not classes. Each test gets a fresh instance automatically.
+- UI tests still require `XCTest` because `XCUIApplication` and `XCUIElement` are XCTest APIs with no Swift Testing equivalent yet.
+
+**Rule:** Use Swift Testing (`@Test`, `#expect`) for unit tests — it's more expressive and lighter weight. Use XCTest only for UI tests that need `XCUIApplication`. Don't mix frameworks within a single test file.
+
+---
+
+## 2026-03-09: Visual effect intensity — calibrating to a midpoint
+
+**Problem:** Adding an intensity slider to visual effects required deciding how parameter values map to the slider range. A naive linear mapping (`minValue + intensity * range`) doesn't give users a natural feel if the "good default" doesn't land at the midpoint.
+
+**Fix:** Calibrated each effect so that `intensity = 0.5` (medium, the default) reproduces the original hand-tuned values:
+- ChromaticAberration: `maxShift = max(2.0, 20.0 * intensity)` → 10px at medium, 20px at max
+- Halftone: `maxWidth = max(4.0, 24.0 * intensity)` → 12pt at medium, 24pt at max
+- Fisheye: `maxScale = max(0.1, 1.4 * intensity)` → 0.7 at medium, 1.4 at max
+- FadeToBW: `strength = intensity * 2.0` → full desaturation at medium, reaches B&W at 50% progress at max
+
+**Rule:** When adding intensity controls to creative parameters, calibrate so the midpoint matches the previously tuned "good default." Use `parameter = oldValue * (intensity / 0.5)` as a starting formula, then adjust per-effect.
+
+---
+
+## 2026-03-09: Bake timing into GIF frames, don't scale at playback
+
+**Problem:** The configurable pause duration was affected by the speed setting — a 4-second pause played in 2 seconds at 2x speed.
+
+**Root cause:** `AnimatedGifView` divided the entire `animationDuration` (including pause frames) by `playbackSpeed`. Speed was being applied twice: once during GIF generation (correct frame delays baked into the file) and again during playback (incorrectly scaling everything).
+
+**Fix:** Removed the `/ playbackSpeed` divisor from `AnimatedGifView`. The GIF generator already encodes correct per-frame timing — animation frames get shorter delays at higher speeds, while pause frames maintain their configured duration regardless of speed. The viewer now plays the GIF at its native frame rate.
+
+**Rule:** When GIF frame timing is dynamically computed (variable speed, configurable pause), bake all timing into the file's per-frame delay values. Don't apply playback speed scaling in the viewer — it creates coupling between speed and other timing parameters (like pause) that should be independent.
+
+---
+
+## 2026-03-09: UIViewRepresentable struct captures stale values in async closures
+
+**Problem:** GIFs in the carousel view never started animating, even though the frames loaded successfully.
+
+**Root cause:** `AnimatedGifView` (a struct conforming to `UIViewRepresentable`) called `loadGIF` from `makeUIView`. The `loadGIF` completion closure captured `self.isVisible`, but since structs are value types, the captured value was the one at `makeUIView` time (`false`). By the time the async completion ran, `isVisible` had been updated to `true` via `onAppear` → parent re-render, but the closure still held the stale `false`. The `updateUIView` method that ran with the new `isVisible = true` found `animationImages == nil` (not loaded yet from the async dispatch), so it couldn't start animating either.
+
+**Fix:** Always start animating when images finish loading, regardless of the captured `isVisible`. The `updateUIView` method will stop the animation on its next call if `isVisible` is actually `false`. For the cached path, removed the `DispatchQueue.main.async` wrapper entirely — since `loadGIF` is called from `makeUIView` (already on main thread), setting images synchronously ensures they're available when `updateUIView` runs.
+
+**Rule:** In `UIViewRepresentable` structs, never rely on captured `self.property` values in async closures — they're stale snapshots. Either use the Coordinator (a reference type) to track mutable state, or perform the action unconditionally and let `updateUIView` correct it on the next pass.
+
+---
+
+## 2026-03-09: Pinch-to-reflow grid — simultaneousGesture + LazyVGrid
+
+**Problem:** A `MagnificationGesture` attached to a parent view containing a `ScrollView` never received events — the scroll view consumed the gesture first.
+
+**Fix:** Changed `.gesture()` to `.simultaneousGesture()` so the pinch recognizer fires alongside the scroll gesture. The pinch drives a `gridScale` state variable that maps to column count via a computed property:
+- `gridScale < 1.3` → 3 columns
+- `gridScale < 2.0` → 2 columns
+- `gridScale >= 2.0` → 1 column
+
+On gesture end, `gridScale` snaps to the nearest column stop (1.0, 1.5, or 2.0) with a spring animation. The `lastGridScale` anchor pattern (same as the editor's pinch-to-zoom) ensures consecutive gestures accumulate correctly.
+
+**Key insight:** `LazyVGrid` column changes are discrete, not interpolated. The grid reflows instantly at the threshold — there's no smooth morphing between column counts. The spring animation on the `gridColumnCount` value change provides a visual transition via SwiftUI's layout animation system.
+
+**Rule:** When combining `MagnificationGesture` with `ScrollView`, always use `.simultaneousGesture()`. Use a `lastScale` anchor pattern for cumulative pinch tracking across multiple gestures. Snap to discrete stops on gesture end for a polished feel.
+
+---
+
+## 2026-03-10: Viewport-centered visual effect preview
+
+**Problem (iteration 1):** Applying the visual effect once to the full source image and letting SwiftUI handle pan/zoom was performant but the effect center (e.g., fisheye bulge) stuck to the image center. Panning the photo moved the bulge away from the viewport center — users expected the effect to track where they're looking.
+
+**Problem (iteration 2):** An earlier approach tried cropping the source image to the visible viewport, applying the effect, then scaling back up. This was computationally expensive (~150ms per update) and caused noticeable jank during pan/zoom gestures.
+
+**Fix:** Extended the `VisualEffect` protocol with an optional `viewportCenter: CGPoint?` parameter:
+```swift
+func apply(to image: CIImage, progress: CGFloat, frameIndex: Int, viewportCenter: CGPoint?) -> CIImage
+```
+A default extension routes to the base method (ignoring the center) so non-spatial effects (B&W, Chromatic Aberration) are unaffected. Spatially-centered effects (`FisheyeEffect`, `HalftoneEffect`) override this to use the viewport center instead of the image center when provided.
+
+`EditorViewModel.updatePreviewImage()` computes the viewport center in image coordinates from `visibleRect`:
+```swift
+let vpCenterX = (rect.midX) * imageWidth
+let vpCenterY = (1.0 - rect.midY) * imageHeight  // CIImage Y-axis is flipped
+```
+
+A 30ms debounce via `DispatchWorkItem` coalesces rapid gesture updates. The GPU-accelerated `CIContext` processes the full image in ~15-25ms, so the effect tracks the viewport center with minimal perceptible lag.
+
+**Why this works:** The effect is re-rendered at full image resolution with the correct center on each debounced update. SwiftUI's `scaleEffect` and `offset` handle smooth motion between renders. During fast continuous pans, the effect center drifts slightly (it's baked into the image from the last render), then snaps to the correct position when the debounce fires. This drift is typically imperceptible at 30ms intervals.
+
+**Tradeoff:** The preview centers the effect on the viewport, but the final GIF generation still centers effects on the image center (passes `nil` for `viewportCenter`). This is intentional — the GIF animates across the full image, so a fixed viewport-relative center wouldn't make sense in the animated output.
+
+**Alternative considered:** Metal shaders via SwiftUI's `.distortionEffect()` (iOS 17+) would apply the effect to rendered pixels post-transform, giving true zero-latency viewport-fixed distortion. This would be the right solution if the debounced approach proves too laggy on older devices.
+
+**Rule:** When visual effects need to track a viewport position rather than image coordinates, extend the effect protocol with an optional center parameter and a default implementation that ignores it. This keeps the GIF pipeline unchanged while allowing the preview to pass viewport-relative coordinates. Use debounced re-rendering rather than per-frame processing — the GPU handles full-image CIFilter passes fast enough that a 30ms debounce feels responsive.
+
+---
+
+## 2026-03-10: CIImage coordinate system — Y-axis is flipped
+
+**Problem:** The fisheye bulge appeared mirrored vertically from the expected position when passing viewport coordinates to the CIFilter.
+
+**Root cause:** CIImage uses a bottom-left origin coordinate system (Y increases upward), while SwiftUI/UIKit use top-left origin (Y increases downward). The `visibleRect` from SwiftUI reports Y in top-left coordinates, so passing `rect.midY * imageHeight` directly to `CIVector` placed the effect center at the wrong vertical position.
+
+**Fix:** Flip the Y coordinate when converting from SwiftUI space to CIImage space:
+```swift
+let vpCenterY = (1.0 - (rect.origin.y + rect.height / 2)) * imageHeight
+```
+
+**Rule:** Always flip the Y axis when converting between SwiftUI/UIKit coordinates and CIImage coordinates. `CIImage.extent` origin is bottom-left; SwiftUI layout origin is top-left.
+
+---
+
+## 2026-03-10: Downscaled preview source for CIFilter performance
+
+**Problem:** The live visual effect preview processed the full source image (4032x3024 pixels) through CIFilter on every update. Even with GPU-accelerated `CIContext`, each render took ~15-25ms. During rapid pan/zoom gestures, this created perceptible lag between the gesture and the effect updating.
+
+**Fix:** Created a 650x650 downscaled copy of the source image (matching the canvas at 325pt x 2x retina) using `CGImageSourceCreateThumbnailAtIndex`. This cached copy is created lazily on the first `updatePreviewImage()` call and reused for all subsequent renders. The CIFilter now processes ~14x fewer pixels, bringing render time down to ~2-3ms.
+
+**Key implementation detail:** The downscaled image is created from JPEG data via `CGImageSourceCreateThumbnailAtIndex` (same efficient path used for gallery thumbnails), not by rendering through `UIGraphicsImageRenderer`. This avoids a full decode-then-draw cycle and lets ImageIO handle the downsampling at the codec level.
+
+**Cleanup:** The cached `previewSourceCGImage` is cleared on `resetEffects()` or when the source image changes, so a stale preview source is never reused across different images.
+
+**Rule:** When applying CIFilter effects for preview purposes, downscale the source to match the display resolution. A 325pt canvas at 2x retina only needs a 650x650 source — processing a 4032x3024 image wastes ~93% of the GPU work on pixels that are never displayed. Use `CGImageSourceCreateThumbnailAtIndex` for the most efficient downsampling path.
+
+---
+
+## 2026-03-10: Separating warp intensity from effect radius (CIBumpDistortion)
+
+**Problem:** The fisheye effect had a single `intensity` control that scaled the `kCIInputScaleKey` (warp strength). The `kCIInputRadiusKey` (size of the distorted area) was hardcoded to 45% of the image dimension. Users couldn't create a tight, localized fisheye lens vs. a wide-angle distortion.
+
+**Fix:** Added a second `size` parameter to `FisheyeEffect` that maps to `radiusFraction`:
+- `size = 0.0` → radius = 10% of image (tight spot, like a magnifying glass)
+- `size = 0.5` → radius = 30% of image (moderate area, the default)
+- `size = 1.0` → radius = 50% of image (nearly full image, wide-angle)
+
+The `VisualEffectType.effect(intensity:size:)` factory passes `size` only to `FisheyeEffect`; other effects ignore it via the default parameter. The editor shows a SIZE slider beneath the INTENSITY slider, but only when fisheye is selected.
+
+**Rule:** When a CIFilter has multiple orthogonal parameters (strength vs. area, frequency vs. amplitude), expose them as separate controls rather than coupling them in a single slider. Users think about "how strong" and "how big" independently. Use the `VisualEffectType` factory's default parameters to keep the API clean for effects that don't use all parameters.
