@@ -627,3 +627,18 @@ let vpCenterY = (1.0 - (rect.origin.y + rect.height / 2)) * imageHeight
 The `VisualEffectType.effect(intensity:size:)` factory passes `size` only to `FisheyeEffect`; other effects ignore it via the default parameter. The editor shows a SIZE slider beneath the INTENSITY slider, but only when fisheye is selected.
 
 **Rule:** When a CIFilter has multiple orthogonal parameters (strength vs. area, frequency vs. amplitude), expose them as separate controls rather than coupling them in a single slider. Users think about "how strong" and "how big" independently. Use the `VisualEffectType` factory's default parameters to keep the API clean for effects that don't use all parameters.
+
+---
+
+## 2026-03-11: Expanding visual effects with mixed CIFilter and manual compositing
+
+**Problem:** Adding 5 new visual effects (swirl, glitch, scanlines, pixelate, ripple) required different implementation strategies depending on whether Core Image has a built-in filter.
+
+**Approach by effect type:**
+- **CIFilter-backed (GPU-efficient):** Swirl uses `CITwirlDistortion` (center, radius, angle params). Pixelate uses `CIPixellate` (center, scale). Both support viewport-centered preview via the existing `viewportCenter` protocol parameter.
+- **Generator + compositing:** Scanlines uses `CIStripesGenerator` to create horizontal stripes, then composites them over the image with `CIColorMatrix` for a subtle green CRT tint. The generator produces an infinite-extent pattern that must be `.cropped(to:)` to the image extent.
+- **Manual strip compositing:** Glitch and Ripple don't have CIFilter equivalents. They crop the image into horizontal strips, apply per-strip transforms (random displacement for glitch, sine-wave displacement for ripple), then composite strips back together. This is heavier than a single CIFilter call but still performant because the downscaled preview (650x650) keeps pixel counts low.
+
+**Deterministic randomness for GIF consistency:** GlitchEffect uses a simple xorshift PRNG seeded by `frameIndex * 137 + bandIndex * 31` so the same frame always produces identical displacement. This ensures GIF playback is consistent — the glitch pattern doesn't change between preview and final render.
+
+**Rule:** Prefer built-in CIFilters when available (swirl, pixelate) for GPU efficiency. When no filter exists, strip-based compositing (crop → transform → composite over) is the cleanest approach for row/band effects. Always seed randomness from `frameIndex` for GIF reproducibility. Keep strip counts reasonable (12–40) to balance visual quality with compositing overhead.
