@@ -202,14 +202,17 @@ struct EditorView: View {
                 VStack(spacing: 8) {
                     visualEffectsGrid
 
-                    if viewModel.selectedVisualEffect != nil {
-                        intensitySlider
+                    if let effect = viewModel.selectedVisualEffect {
+                        if effect.supportsSizeControl {
+                            HStack(spacing: 8) {
+                                intensitySlider
+                                sizeSlider
+                            }
                             .transition(.opacity)
-                    }
-
-                    if viewModel.selectedVisualEffect?.supportsSizeControl == true {
-                        sizeSlider
-                            .transition(.opacity)
+                        } else {
+                            intensitySlider
+                                .transition(.opacity)
+                        }
                     }
                 }
                 .transition(.opacity)
