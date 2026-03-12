@@ -26,6 +26,10 @@ struct EditorView: View {
                 controlsSection
                     .opacity(viewModel.showControls ? 1 : 0)
                 Spacer(minLength: 0)
+                bottomButtons
+                    .opacity(viewModel.showControls ? 1 : 0)
+                    .frame(width: borderedSize)
+                    .padding(.bottom, 16)
             }
 
         }
@@ -98,9 +102,6 @@ struct EditorView: View {
             } else if viewModel.isSplit {
                 viewModel.regenerateGIF()
             }
-        }
-        .sheet(isPresented: $viewModel.showEffectsSheet) {
-            effectsSheetContent
         }
         .sheet(isPresented: $viewModel.showSaveSheet) {
             saveSheetContent
@@ -235,7 +236,7 @@ struct EditorView: View {
 
     private var controlsSection: some View {
         VStack(spacing: 8) {
-            effectCategoryRow
+            effectCategoryTabs
 
             switch viewModel.selectedEffectCategory {
             case .zoomEffects:
@@ -279,16 +280,19 @@ struct EditorView: View {
                 .transition(.opacity)
             }
 
-            if case .newImage = viewModel.content {
-                actionButtons
-                    .padding(.top, 4)
-            } else {
-                saveShareButtons
-                    .padding(.top, 4)
-            }
         }
         .animation(.easeInOut(duration: 0.25), value: viewModel.selectedEffectCategory)
         .frame(width: borderedSize)
+    }
+
+    private var bottomButtons: some View {
+        Group {
+            if case .newImage = viewModel.content {
+                actionButtons
+            } else {
+                saveShareButtons
+            }
+        }
     }
 
     private var zoomControlsBars: some View {
@@ -360,10 +364,11 @@ struct EditorView: View {
     // MARK: - Visual Effects Grid
 
     private var visualEffectsGrid: some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 3)
-        return LazyVGrid(columns: columns, spacing: 8) {
-            ForEach(VisualEffectType.allCases) { effectType in
-                visualEffectToggle(effectType)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(VisualEffectType.allCases) { effectType in
+                    visualEffectToggle(effectType)
+                }
             }
         }
     }
@@ -378,15 +383,15 @@ struct EditorView: View {
             Text(effectType.rawValue)
                 .font(.silkscreenControl)
                 .foregroundColor(isActive ? mintGreen : .white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 48)
+                .padding(.horizontal, 16)
+                .frame(height: 60)
                 .background(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(isActive ? mintGreen.opacity(0.08) : Color.white.opacity(0.04))
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(isActive ? Color(hex: 0x323232) : Color.white.opacity(0.04))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(isActive ? mintGreen : .clear, lineWidth: 2)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(isActive ? mintGreen : .clear, lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
@@ -455,7 +460,7 @@ struct EditorView: View {
                 }
 
                 VStack(spacing: 2) {
-                    Text("SIZE")
+                    Text(viewModel.selectedVisualEffect?.secondSliderLabel ?? "SIZE")
                         .font(.silkscreenControl)
                         .foregroundColor(mintGreen)
                     Text(viewModel.sizeLabel)
@@ -482,9 +487,11 @@ struct EditorView: View {
     // MARK: - Face Filters Grid
 
     private var faceFiltersGrid: some View {
-        LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-            ForEach(FaceFilterType.allCases) { filterType in
-                faceFilterToggle(filterType)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(FaceFilterType.allCases) { filterType in
+                    faceFilterToggle(filterType)
+                }
             }
         }
     }
@@ -499,7 +506,7 @@ struct EditorView: View {
             Text(filterType.rawValue)
                 .font(.silkscreenControl)
                 .foregroundColor(isActive ? mintGreen : .white)
-                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 16)
                 .frame(height: 60)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -600,27 +607,28 @@ struct EditorView: View {
         .animation(.easeOut(duration: 0.1), value: viewModel.faceFilterSpeed)
     }
 
-    // MARK: - Effect Category Dropdown
+    // MARK: - Effect Category Icon Tabs
 
-    private var effectCategoryRow: some View {
-        Button {
-            viewModel.showEffectsSheet = true
-        } label: {
-            HStack(spacing: 10) {
-                Spacer()
-                Text(viewModel.selectedEffectCategory.rawValue)
-                    .font(.silkscreenControl)
-                    .foregroundColor(.white)
-                TriangleDown()
-                    .fill(.white)
-                    .frame(width: 8, height: 6)
-                Spacer()
+    private var effectCategoryTabs: some View {
+        HStack(spacing: 48) {
+            effectCategoryIcon("icon-zoom-in", category: .zoomEffects)
+            effectCategoryIcon("icon-image", category: .visualEffects)
+            effectCategoryIcon("icon-smile", category: .faceFilters)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 42)
+    }
+
+    private func effectCategoryIcon(_ assetName: String, category: EffectCategory) -> some View {
+        let isActive = viewModel.selectedEffectCategory == category
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                viewModel.selectedEffectCategory = category
             }
-            .frame(height: 60)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(0.04))
-            )
+        } label: {
+            Image(assetName)
+                .renderingMode(.template)
+                .foregroundColor(isActive ? mintGreen : Color(white: 0.82))
         }
         .buttonStyle(.plain)
     }
@@ -689,66 +697,6 @@ struct EditorView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             .enhanceButtonAnimation()
-        }
-    }
-
-    // MARK: - Effects Sheet Content
-
-    private var effectsSheetContent: some View {
-        BottomSheet(isPresented: $viewModel.showEffectsSheet, title: "SELECT EFFECT") {
-            VStack(alignment: .leading, spacing: 16) {
-                ForEach(EffectCategory.allCases) { category in
-                    let isActive = viewModel.selectedEffectCategory == category
-                    Button {
-                        viewModel.selectedEffectCategory = category
-                        viewModel.showEffectsSheet = false
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(category.rawValue)
-                                .font(.custom("Silkscreen-Regular", size: 16))
-                                .foregroundColor(isActive ? mintGreen : .white)
-
-                            Text(categorySubtitle(for: category))
-                                .font(.custom("Silkscreen-Regular", size: 16))
-                                .foregroundColor(isActive ? mintGreen.opacity(0.5) : .white)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.top, 16)
-        }
-    }
-
-    private func categorySubtitle(for category: EffectCategory) -> String {
-        switch category {
-        case .zoomEffects:
-            var parts: [String] = [viewModel.selectedAnimatorType.rawValue.uppercased()]
-            if viewModel.selectedModifier != .straight {
-                parts.append(viewModel.selectedModifier.rawValue)
-            }
-            if viewModel.playbackSpeed != 1.0 {
-                parts.append(viewModel.speedLabel + " SPEED")
-            }
-            if viewModel.pauseDuration != 1 {
-                parts.append("\(viewModel.pauseDuration)S PAUSE")
-            }
-            return parts.joined(separator: " - ")
-        case .visualEffects:
-            guard let effect = viewModel.selectedVisualEffect else { return "NONE" }
-            if effect.supportsSizeControl {
-                return "\(effect.rawValue) - \(viewModel.intensityLabel) - \(viewModel.sizeLabel)"
-            }
-            return "\(effect.rawValue) - \(viewModel.intensityLabel)"
-        case .faceFilters:
-            guard let filter = viewModel.selectedFaceFilter else { return "NONE" }
-            if filter.supportsSecondSlider {
-                return "\(filter.rawValue) - \(viewModel.faceFilterIntensityLabel) - \(viewModel.faceFilterSecondLabel)"
-            }
-            return "\(filter.rawValue) - \(viewModel.faceFilterIntensityLabel)"
         }
     }
 
@@ -869,18 +817,5 @@ struct EditorView: View {
         .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showSaveMessage)
         .frame(maxHeight: .infinity, alignment: .bottom)
         .padding(.bottom, AppConstants.Spacing.grid)
-    }
-}
-
-// MARK: - Triangle Shape
-
-private struct TriangleDown: Shape {
-    func path(in rect: CGRect) -> Path {
-        Path { p in
-            p.move(to: CGPoint(x: rect.minX, y: rect.minY))
-            p.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
-            p.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
-            p.closeSubpath()
-        }
     }
 }

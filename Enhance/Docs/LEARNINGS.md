@@ -686,3 +686,75 @@ The `VisualEffectType.effect(intensity:size:)` factory passes `size` only to `Fi
 **Fix:** Generated eyes procedurally using `CIRadialGradient` — a white circle for the sclera and a smaller dark circle for the pupil. The pupil position within the white circle is offset using a xorshift PRNG seeded by `frameIndex`, creating deterministic wobble that's consistent across GIF regenerations. The eye size is derived from `leftEyeWidth * sizeMultiplier`.
 
 **Rule:** For simple geometric overlays (circles, shapes), generate them procedurally with CIFilter generators rather than bundling asset images. This keeps sizes dynamic, avoids resolution mismatches, and allows per-frame animation via the frameIndex seed.
+
+---
+
+## 2026-03-12: FaceVisualEffect adapter — configurable delay and progress curves
+
+**Problem:** The `FaceVisualEffect` adapter (which wraps any `VisualEffect` into a `FaceEffect`) hardcoded a delay (`progress > 0.3`) and quadratic ramp. This was wrong for effects like Pixelate (which needs to start immediately and use its own internal curve) and caused blank previews since the preview calls with `progress=1.0`.
+
+**Fix:** Added two parameters to `FaceVisualEffect`:
+- `skipDelay: Bool` — starts the effect from progress=0 instead of waiting until 0.3.
+- `passRawProgress: Bool` — sends progress directly to the underlying effect without applying a quadratic ramp (for effects like Pixelate that have their own easing).
+
+Also added `previewProgress` to `FaceFilterType` — most effects preview at 1.0 (full strength), but pixelate uses 0.2 because its "full strength" pixelation happens at low progress (it resolves to clear at 1.0). The preview also uses `frameIndex: 5` instead of 0 for better pseudo-random variety.
+
+**Rule:** When wrapping effects with an adapter, make timing parameters configurable rather than hardcoded. Effects have different relationships between progress and intensity — some ramp up (fisheye), some ramp down (pixelate), some need to start immediately (shake). The adapter shouldn't impose a single timing model on all effects.
+
+---
+
+## 2026-03-12: SVG icons in Xcode asset catalog as template images
+
+**Problem:** Needed custom pixel-art SVG icons for the editor's tab bar that could change color based on active/inactive state.
+
+**Fix:** Added SVGs to `Assets.xcassets` as `.imageset` entries with `"template-rendering-intent": "template"` in the Contents.json. This tells iOS to treat the SVG fill color as a mask, allowing SwiftUI's `.foregroundColor()` to tint the icon dynamically.
+
+**Contents.json structure:**
+```json
+{
+  "images": [{ "filename": "icon.svg", "idiom": "universal" }],
+  "properties": {
+    "preserves-vector-representation": true,
+    "template-rendering-intent": "template"
+  }
+}
+```
+
+**Rule:** When using SVGs that need to change color at runtime, set `template-rendering-intent` to `template` in the asset catalog. Use `.renderingMode(.template)` in SwiftUI's `Image()` as a belt-and-suspenders measure. The SVG's original fill color is ignored — only the shape is used as a mask.
+
+---
+
+## 2026-03-12: Pinning buttons to bottom of screen across variable-height content
+
+**Problem:** The Enhance/Save/Share buttons moved vertically depending on which tab was active (zoom controls had 3 rows, visual effects had 1 row + optional sliders, face filters had different content). This created jarring layout shifts when switching tabs.
+
+**Fix:** Moved the action buttons out of `controlsSection` into a separate `bottomButtons` view placed after a `Spacer(minLength: 0)` in the main `VStack`. The Spacer absorbs all remaining space between the variable-height controls and the pinned bottom buttons, ensuring the buttons always sit at the same position regardless of content above.
+
+**Rule:** When a bottom action area should stay fixed while content above varies, use `Spacer(minLength: 0)` between the variable content and the pinned buttons inside a `VStack`. Don't place the buttons inside the variable content's container.
+
+---
+
+## 2026-03-12: Ripple effect — whole-image shake vs strip displacement
+
+**Problem:** The original ripple effect displaced individual horizontal strips with a sine wave, creating a "water ripple" look. The user wanted the face to shake rapidly as a whole unit, not have sections shift independently.
+
+**Fix:** Rewrote `RippleEffect` from 40-strip compositing to a single `CGAffineTransform(translationX:y:)` applied to the entire image. Uses `sin(frameIndex * speed)` for rapid horizontal oscillation. The image is `.clamped(to: extent)` before translation to prevent edge gaps. When used as a face effect via the `FaceVisualEffect` adapter, the radial mask isolates the shake to just the face region.
+
+Added a red tint overlay using `CIImage(color:)` composited over the shaken image. The slider controls `redness` (opacity of the red overlay) rather than shake intensity, which is fixed at a "heavy" level.
+
+**Rule:** For vibration/shake effects, translate the entire image as a unit rather than displacing strips. Strip-based approaches create wave patterns, not vibrations. Use `sin(frameIndex * speed)` for smooth oscillation and `.clamped(to:)` to handle edge pixels during translation.
+
+---
+
+## 2026-03-12: Gallery GIF quality vs performance trade-offs
+
+**Problem:** Gallery GIF previews looked choppy and blurry due to aggressive optimization — only 15 frames kept (via `count/15` skip) at 200px resolution.
+
+**Analysis:** On modern iPhones with 4-6GB RAM:
+- 200px × 200px × 4 bytes × 15 frames = ~2.4 MB per GIF
+- 350px × 350px × 4 bytes × 30 frames = ~14.7 MB per GIF
+- With visibility-based loading (~6-9 visible), that's ~90-130 MB total — well within device capabilities
+
+**Fix:** Increased frame count to 30 (`count/30`), resolution to 350px, and GIF cache to 150MB. Also made quality adaptive based on grid layout: single-column mode (zoomed in via pinch) renders at full resolution with full framerate (`lowQuality: false`), while multi-column layouts keep the optimized mode.
+
+**Rule:** Don't over-optimize for performance without measuring actual impact. Modern devices can handle significantly more decoded image data than early optimization assumptions allow. Make quality adaptive based on context — a single large preview can afford full quality while a grid of 9 thumbnails benefits from optimization.

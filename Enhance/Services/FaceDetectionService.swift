@@ -2,40 +2,60 @@ import Vision
 import UIKit
 import CoreImage
 
-/// Detects faces and landmarks in a still image.
-/// Uses a three-tier detection strategy:
+/// Detects human and animal faces/heads in a still image.
+/// Human detection uses a three-tier fallback:
 /// 1. Vision landmarks (best quality, requires Neural Engine)
 /// 2. Vision rectangles (simpler, still needs Vision inference)
 /// 3. CIDetector (Core Image, works everywhere including "Designed for iPad" on Mac)
+/// Animal detection uses VNDetectAnimalBodyPoseRequest (cats & dogs, iOS 17+).
+/// Both run independently and results are merged, so mixed photos work.
 /// Results are cached per image to avoid redundant detection.
 final class FaceDetectionService {
     private var cachedImageHash: Int?
     private var cachedFaces: [DetectedFace] = []
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
-    /// Detect faces in the given image. Returns cached results if the image hasn't changed.
+    /// Detect human and animal faces in the given image. Returns cached results if the image hasn't changed.
     func detectFaces(in image: UIImage) async -> [DetectedFace] {
         let hash = image.hashValue
         if hash == cachedImageHash { return cachedFaces }
 
         guard let cgImage = image.cgImage else { return [] }
-        let imageWidth = CGFloat(cgImage.width)
-        let imageHeight = CGFloat(cgImage.height)
         let orientation = visionOrientation(from: image)
 
-        var faces = detectWithLandmarks(cgImage: cgImage, orientation: orientation, imageWidth: imageWidth, imageHeight: imageHeight)
-
-        if faces == nil {
-            faces = detectWithRectanglesOnly(cgImage: cgImage, orientation: orientation, imageWidth: imageWidth, imageHeight: imageHeight)
+        // Vision returns coordinates in the *oriented* image space (it applies the
+        // orientation hint internally). We must convert using oriented dimensions,
+        // not the raw CGImage pixel buffer dimensions which may be rotated.
+        let imageWidth: CGFloat
+        let imageHeight: CGFloat
+        switch orientation {
+        case .left, .right, .leftMirrored, .rightMirrored:
+            imageWidth = CGFloat(cgImage.height)
+            imageHeight = CGFloat(cgImage.width)
+        default:
+            imageWidth = CGFloat(cgImage.width)
+            imageHeight = CGFloat(cgImage.height)
         }
 
-        if faces == nil {
-            faces = detectWithCIDetector(image: image)
+        // Human detection (three-tier fallback)
+        var humanFaces = detectWithLandmarks(cgImage: cgImage, orientation: orientation, imageWidth: imageWidth, imageHeight: imageHeight)
+
+        if humanFaces == nil {
+            humanFaces = detectWithRectanglesOnly(cgImage: cgImage, orientation: orientation, imageWidth: imageWidth, imageHeight: imageHeight)
         }
 
-        let result = faces ?? []
+        if humanFaces == nil {
+            humanFaces = detectWithCIDetector(image: image)
+        }
+
+        // Animal detection (cats & dogs)
+        let animalFaces = detectAnimals(cgImage: cgImage, orientation: orientation, imageWidth: imageWidth, imageHeight: imageHeight)
+
+        let result = (humanFaces ?? []) + (animalFaces ?? [])
         #if DEBUG
-        print("FaceDetectionService: detected \(result.count) face(s)")
+        let humanCount = humanFaces?.count ?? 0
+        let animalCount = animalFaces?.count ?? 0
+        print("FaceDetectionService: detected \(humanCount) human face(s), \(animalCount) animal face(s)")
         #endif
         cachedImageHash = hash
         cachedFaces = result
@@ -177,6 +197,276 @@ final class FaceDetectionService {
         return faceFeatures.map { feature in
             buildFaceFromCIFeature(feature, imageWidth: imageWidth, imageHeight: imageHeight)
         }
+    }
+
+    // MARK: - Animal Detection
+
+    /// Detect cat/dog faces by running both body pose and recognition in parallel,
+    /// then merging results. Body pose gives precise landmarks but needs a visible body;
+    /// recognition gives bounding boxes and works even when the body is mostly hidden.
+    private func detectAnimals(cgImage: CGImage, orientation: CGImagePropertyOrientation, imageWidth: CGFloat, imageHeight: CGFloat) -> [DetectedFace]? {
+        let poseFaces = detectAnimalBodyPose(cgImage: cgImage, orientation: orientation, imageWidth: imageWidth, imageHeight: imageHeight) ?? []
+        let boxFaces = detectAnimalBoundingBoxes(cgImage: cgImage, orientation: orientation, imageWidth: imageWidth, imageHeight: imageHeight) ?? []
+
+        if poseFaces.isEmpty && boxFaces.isEmpty { return nil }
+
+        // If we got pose results, prefer those; add any box results that don't
+        // overlap with existing pose detections (for animals pose missed).
+        if poseFaces.isEmpty { return boxFaces }
+        if boxFaces.isEmpty { return poseFaces }
+
+        var merged = poseFaces
+        for boxFace in boxFaces {
+            let overlaps = poseFaces.contains { existing in
+                existing.boundingBox.intersects(boxFace.boundingBox)
+            }
+            if !overlaps { merged.append(boxFace) }
+        }
+        return merged
+    }
+
+    private func detectAnimalBodyPose(cgImage: CGImage, orientation: CGImagePropertyOrientation, imageWidth: CGFloat, imageHeight: CGFloat) -> [DetectedFace]? {
+        let request = VNDetectAnimalBodyPoseRequest()
+        let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
+
+        do {
+            try handler.perform([request])
+        } catch {
+            #if DEBUG
+            print("FaceDetectionService: animal body pose detection failed — \(error.localizedDescription)")
+            #endif
+            return nil
+        }
+
+        guard let observations = request.results, !observations.isEmpty else { return nil }
+
+        let faces = observations.compactMap { obs in
+            buildAnimalFace(from: obs, imageWidth: imageWidth, imageHeight: imageHeight)
+        }
+
+        guard !faces.isEmpty else { return nil }
+
+        #if DEBUG
+        print("FaceDetectionService: animal body pose found \(faces.count) animal(s)")
+        #endif
+        return faces
+    }
+
+    /// Fallback: detect animals by bounding box when body pose fails
+    /// (e.g., partially hidden body, unusual pose). Estimates eye positions
+    /// from the bounding box using typical cat/dog facial proportions.
+    private func detectAnimalBoundingBoxes(cgImage: CGImage, orientation: CGImagePropertyOrientation, imageWidth: CGFloat, imageHeight: CGFloat) -> [DetectedFace]? {
+        let request = VNRecognizeAnimalsRequest()
+        let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
+
+        do {
+            try handler.perform([request])
+        } catch {
+            #if DEBUG
+            print("FaceDetectionService: animal recognition failed — \(error.localizedDescription)")
+            #endif
+            return nil
+        }
+
+        guard let observations = request.results, !observations.isEmpty else { return nil }
+
+        #if DEBUG
+        print("FaceDetectionService: animal recognition found \(observations.count) animal(s) (bounding box fallback)")
+        #endif
+
+        return observations.compactMap { obs in
+            buildEstimatedAnimalFace(from: obs, imageWidth: imageWidth, imageHeight: imageHeight)
+        }
+    }
+
+    /// Build a DetectedFace from a bounding-box-only animal observation.
+    /// The bounding box covers the whole visible body, so we estimate the head
+    /// as the top ~45% of the box and place eyes within that region.
+    private func buildEstimatedAnimalFace(from obs: VNRecognizedObjectObservation, imageWidth: CGFloat, imageHeight: CGFloat) -> DetectedFace? {
+        let bb = obs.boundingBox
+        let bodyBox = CGRect(
+            x: bb.origin.x * imageWidth,
+            y: bb.origin.y * imageHeight,
+            width: bb.width * imageWidth,
+            height: bb.height * imageHeight
+        )
+
+        // Estimate head region as the upper portion of the body box
+        // In CIImage coords (bottom-left origin), "upper" means higher Y
+        let headH = bodyBox.height * 0.45
+        let headBox = CGRect(
+            x: bodyBox.origin.x,
+            y: bodyBox.origin.y + bodyBox.height - headH,
+            width: bodyBox.width,
+            height: headH
+        )
+
+        let w = headBox.width
+        let h = headBox.height
+        let center = CGPoint(x: headBox.midX, y: headBox.midY)
+
+        let eyeY = headBox.origin.y + h * 0.55
+        let eyeSpread = w * 0.17
+        let leftPupil = CGPoint(x: center.x - eyeSpread, y: eyeY)
+        let rightPupil = CGPoint(x: center.x + eyeSpread, y: eyeY)
+        let eyeWidth = w * 0.12
+
+        let browOffsetY = h * 0.08
+        let leftBrow = [
+            CGPoint(x: leftPupil.x - eyeWidth, y: leftPupil.y + browOffsetY),
+            CGPoint(x: leftPupil.x, y: leftPupil.y + browOffsetY + h * 0.02),
+            CGPoint(x: leftPupil.x + eyeWidth, y: leftPupil.y + browOffsetY)
+        ]
+        let rightBrow = [
+            CGPoint(x: rightPupil.x - eyeWidth, y: rightPupil.y + browOffsetY),
+            CGPoint(x: rightPupil.x, y: rightPupil.y + browOffsetY + h * 0.02),
+            CGPoint(x: rightPupil.x + eyeWidth, y: rightPupil.y + browOffsetY)
+        ]
+
+        let contour = [
+            CGPoint(x: headBox.minX, y: center.y),
+            CGPoint(x: headBox.minX + w * 0.15, y: headBox.minY),
+            CGPoint(x: center.x, y: headBox.minY),
+            CGPoint(x: headBox.maxX - w * 0.15, y: headBox.minY),
+            CGPoint(x: headBox.maxX, y: center.y)
+        ]
+
+        // Use the head box for the overlay, not the full body
+        let normalizedHeadBB = CGRect(
+            x: headBox.origin.x / imageWidth,
+            y: headBox.origin.y / imageHeight,
+            width: w / imageWidth,
+            height: h / imageHeight
+        )
+
+        return DetectedFace(
+            boundingBox: headBox, faceCenter: center,
+            faceWidth: w, faceHeight: h,
+            leftPupilCenter: leftPupil, rightPupilCenter: rightPupil,
+            leftEyeWidth: eyeWidth, rightEyeWidth: eyeWidth,
+            leftEyebrowPoints: leftBrow, rightEyebrowPoints: rightBrow,
+            faceContourPoints: contour, normalizedBoundingBox: normalizedHeadBB
+        )
+    }
+
+    /// Build a DetectedFace from an animal body pose observation.
+    /// Accepts partial landmark data: works with both eyes, one eye + nose,
+    /// or even just nose + ears. Estimates missing positions from available ones.
+    private func buildAnimalFace(from obs: VNAnimalBodyPoseObservation, imageWidth: CGFloat, imageHeight: CGFloat) -> DetectedFace? {
+        let minConf: Float = 0.15
+
+        func pt(_ name: VNAnimalBodyPoseObservation.JointName) -> CGPoint? {
+            guard let p = try? obs.recognizedPoint(name), p.confidence > minConf else { return nil }
+            return CGPoint(x: p.location.x * imageWidth, y: p.location.y * imageHeight)
+        }
+
+        let leftEyeRaw = pt(.leftEye)
+        let rightEyeRaw = pt(.rightEye)
+        let nose = pt(.nose)
+        let leftEarTop = pt(.leftEarTop)
+        let rightEarTop = pt(.rightEarTop)
+        let leftEarBottom = pt(.leftEarBottom)
+        let rightEarBottom = pt(.rightEarBottom)
+
+        // Need at least two head points to position a face
+        let allHeadPts = [leftEyeRaw, rightEyeRaw, nose, leftEarTop, rightEarTop, leftEarBottom, rightEarBottom].compactMap { $0 }
+        guard allHeadPts.count >= 2 else { return nil }
+
+        // Derive eye positions: use detected eyes, or estimate from other landmarks
+        let leftEye: CGPoint
+        let rightEye: CGPoint
+
+        if let le = leftEyeRaw, let re = rightEyeRaw {
+            leftEye = le
+            rightEye = re
+        } else if let le = leftEyeRaw, let n = nose {
+            leftEye = le
+            let dx = le.x - n.x
+            let dy = le.y - n.y
+            rightEye = CGPoint(x: n.x - dx, y: n.y - dy)
+        } else if let re = rightEyeRaw, let n = nose {
+            rightEye = re
+            let dx = re.x - n.x
+            let dy = re.y - n.y
+            leftEye = CGPoint(x: n.x - dx, y: n.y - dy)
+        } else if let n = nose {
+            let earSpan: CGFloat
+            if let le = leftEarBottom, let re = rightEarBottom {
+                earSpan = abs(re.x - le.x) * 0.35
+            } else if let le = leftEarTop, let re = rightEarTop {
+                earSpan = abs(re.x - le.x) * 0.35
+            } else {
+                earSpan = imageWidth * 0.04
+            }
+            leftEye = CGPoint(x: n.x - earSpan, y: n.y + earSpan * 0.8)
+            rightEye = CGPoint(x: n.x + earSpan, y: n.y + earSpan * 0.8)
+        } else if let le = leftEarBottom ?? leftEarTop, let re = rightEarBottom ?? rightEarTop {
+            let midX = (le.x + re.x) / 2
+            let midY = (le.y + re.y) / 2
+            let span = abs(re.x - le.x) * 0.3
+            leftEye = CGPoint(x: midX - span, y: midY - span * 0.5)
+            rightEye = CGPoint(x: midX + span, y: midY - span * 0.5)
+        } else {
+            return nil
+        }
+
+        // Bounding box from all head points + derived eyes
+        var boxPts = allHeadPts + [leftEye, rightEye]
+        let xs = boxPts.map(\.x)
+        let ys = boxPts.map(\.y)
+        guard let minX = xs.min(), let maxX = xs.max(),
+              let minY = ys.min(), let maxY = ys.max() else { return nil }
+
+        let rawW = max(maxX - minX, 1)
+        let rawH = max(maxY - minY, 1)
+        let padX = rawW * 0.25
+        let padY = rawH * 0.25
+        let boundingBox = CGRect(
+            x: max(0, minX - padX),
+            y: max(0, minY - padY),
+            width: min(imageWidth - max(0, minX - padX), rawW + padX * 2),
+            height: min(imageHeight - max(0, minY - padY), rawH + padY * 2)
+        )
+        let center = CGPoint(x: boundingBox.midX, y: boundingBox.midY)
+
+        let interEyeDistance = max(hypot(rightEye.x - leftEye.x, rightEye.y - leftEye.y), 1)
+        let eyeWidth = interEyeDistance * 0.25
+
+        let browOffsetY = boundingBox.height * 0.08
+        let leftBrow = [
+            CGPoint(x: leftEye.x - eyeWidth, y: leftEye.y + browOffsetY),
+            CGPoint(x: leftEye.x, y: leftEye.y + browOffsetY + boundingBox.height * 0.02),
+            CGPoint(x: leftEye.x + eyeWidth, y: leftEye.y + browOffsetY)
+        ]
+        let rightBrow = [
+            CGPoint(x: rightEye.x - eyeWidth, y: rightEye.y + browOffsetY),
+            CGPoint(x: rightEye.x, y: rightEye.y + browOffsetY + boundingBox.height * 0.02),
+            CGPoint(x: rightEye.x + eyeWidth, y: rightEye.y + browOffsetY)
+        ]
+
+        let contour = [
+            CGPoint(x: boundingBox.minX, y: center.y),
+            CGPoint(x: boundingBox.minX + boundingBox.width * 0.15, y: boundingBox.minY),
+            CGPoint(x: center.x, y: boundingBox.minY),
+            CGPoint(x: boundingBox.maxX - boundingBox.width * 0.15, y: boundingBox.minY),
+            CGPoint(x: boundingBox.maxX, y: center.y)
+        ]
+
+        let normalizedBB = CGRect(
+            x: boundingBox.origin.x / imageWidth,
+            y: boundingBox.origin.y / imageHeight,
+            width: boundingBox.width / imageWidth,
+            height: boundingBox.height / imageHeight
+        )
+
+        return DetectedFace(
+            boundingBox: boundingBox, faceCenter: center,
+            faceWidth: boundingBox.width, faceHeight: boundingBox.height,
+            leftPupilCenter: leftEye, rightPupilCenter: rightEye,
+            leftEyeWidth: eyeWidth, rightEyeWidth: eyeWidth,
+            leftEyebrowPoints: leftBrow, rightEyebrowPoints: rightBrow,
+            faceContourPoints: contour, normalizedBoundingBox: normalizedBB
+        )
     }
 
     /// Creates a new UIImage with `.up` orientation by redrawing pixels.

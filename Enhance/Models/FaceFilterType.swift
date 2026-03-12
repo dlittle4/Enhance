@@ -1,26 +1,35 @@
 import Foundation
 
 enum FaceFilterType: String, CaseIterable, Identifiable, Hashable {
+    // Original face-specific effects
     case lazerEyes  = "LAZER EYES"
     case googlyEyes = "GOOGLY EYES"
-    case bobbleHead = "BOBBLE HEAD"
+    case squeeze    = "SQUEEZE"
     case handsome   = "HANDSOME"
+
+    // Visual effects adapted for face
+    case fisheye    = "FISHEYE"
+    case swirl      = "SWIRL"
+    case pixelate   = "PIXELATE"
+    case ripple     = "RIPPLE"
+    case fadeToBW   = "FADE TO B&W"
+    case chromaShift = "CHROMA SHIFT"
 
     var id: String { rawValue }
 
     /// Primary slider label.
     var sliderLabel: String {
         switch self {
-        case .lazerEyes:  return "INTENSITY"
         case .googlyEyes: return "SIZE"
-        case .bobbleHead: return "BIGNESS"
         case .handsome:   return "HANDSOMENESS"
+        case .ripple:     return "REDNESS"
+        default:          return "INTENSITY"
         }
     }
 
     /// Whether this filter exposes a second slider.
     var supportsSecondSlider: Bool {
-        self == .googlyEyes || self == .lazerEyes
+        self == .googlyEyes || self == .lazerEyes || self == .fisheye
     }
 
     /// Label for the second slider.
@@ -28,6 +37,7 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .lazerEyes:  return "SIZE"
         case .googlyEyes: return "SPEED"
+        case .fisheye:    return "SIZE"
         default:          return ""
         }
     }
@@ -52,7 +62,7 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable {
             case ..<0.75: return "FAST"
             default:      return "HYPER"
             }
-        case .lazerEyes:
+        case .lazerEyes, .fisheye:
             switch value {
             case ..<0.3:  return "SMALL"
             case ..<0.6:  return "MEDIUM"
@@ -64,14 +74,31 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// Progress value used for the static live preview. Most effects look best
+    /// at 1.0 (full strength). Pixelate needs a low value because its full
+    /// strength is at progress=0 (fully pixelated → resolves to clear).
+    var previewProgress: CGFloat {
+        switch self {
+        case .pixelate: return 0.2
+        default:        return 1.0
+        }
+    }
+
     func effect(intensity: Double = 0.5, secondValue: Double = 0.5) -> FaceEffect {
         let clamped = max(0, min(1, intensity))
         let clampedSecond = max(0, min(1, secondValue))
         switch self {
         case .lazerEyes:  return LazerEyesEffect(intensity: clamped, size: clampedSecond)
         case .googlyEyes: return GooglyEyesEffect(size: clamped, speed: clampedSecond)
-        case .bobbleHead: return BobbleHeadEffect(intensity: clamped)
+        case .squeeze:    return SqueezeEffect(intensity: clamped)
         case .handsome:   return HandsomeEffect(intensity: clamped)
+
+        case .fisheye:    return FaceVisualEffect(effect: FisheyeEffect(intensity: clamped, size: clampedSecond), skipDelay: true)
+        case .swirl:      return FaceVisualEffect(effect: SwirlEffect(intensity: clamped), skipDelay: true)
+        case .pixelate:   return FaceVisualEffect(effect: PixelateEffect(intensity: clamped), skipDelay: true, passRawProgress: true)
+        case .ripple:     return FaceVisualEffect(effect: RippleEffect(intensity: clamped), skipDelay: true)
+        case .fadeToBW:   return FaceVisualEffect(effect: FadeToBWEffect(intensity: clamped), skipDelay: true)
+        case .chromaShift: return FaceVisualEffect(effect: ChromaticAberrationEffect(intensity: clamped), skipDelay: true)
         }
     }
 }

@@ -1,6 +1,6 @@
 # Enhance (ZoomGif) — Roadmap
 
-> Last updated: 2026-03-11 (session 6)
+> Last updated: 2026-03-12 (session 7)
 
 ## Vision
 
@@ -249,9 +249,34 @@ Each step should feel fast, tactile, and visually satisfying.
 - [x] GIF pipeline updated to chain face effects per frame with coordinate scaling
 - [x] Unit tests for all 4 face effects, FaceFilterType enum, and EditorViewModel face filter state
 
-### Phase 10: Future Features
+### Phase 10: Editor UI Overhaul & Effect Polish ✓
+
+- [x] Icon tab bar — replaced dropdown category selector with 3 tappable icons (zoom, image, smiley) from custom SVG assets
+- [x] Custom pixel-art SVG icons added to asset catalog as template images (tint-aware)
+- [x] SegmentedBar selected state updated — green-tinted bg (rgba 100/148/122/0.7), mint border, mint text per Figma
+- [x] Removed effects sheet dropdown + TriangleDown shape + categorySubtitle helper
+- [x] Effect carousels — both visual effects and face filters use horizontal ScrollView with pill-shaped buttons
+- [x] Consistent 60pt height across all effect buttons and sliders
+- [x] Enhance/Save/Share buttons pinned to fixed bottom position (outside scrolling controls section)
+- [x] Face effect timing — removed 0.3 progress delay from squeeze, handsome, and all adapted visual effects (fisheye, swirl, ripple, fadeToBW, chromaShift); effects now animate from progress 0→1 for full zoom duration
+- [x] Exceptions: laser eyes, pixelate, and googly eyes retain delayed start
+- [x] Pixelate face effect preview fix — added `skipDelay`/`passRawProgress` to FaceVisualEffect, per-effect `previewProgress` on FaceFilterType
+- [x] Fisheye face effect second slider — added SIZE control matching the visual effect version
+- [x] Speed options — added 0.25x speed, default changed from 1x to 0.5x, cycle: 0.25→0.5→1→2→0.25
+- [x] Glitch effect removed — removed from both VisualEffectType and FaceFilterType
+- [x] Ripple effect rewritten — whole-face horizontal shake (amplitude 3.5, speed 70) with red tint overlay; slider controls REDNESS instead of intensity
+
+### Phase 10b: Gallery Performance ✓
+
+- [x] Gallery GIF frame count doubled (15→30 frames in low-quality mode) for smoother animation
+- [x] Gallery thumbnail resolution increased (200→350px) to match retina grid cell sizes
+- [x] GIF cache limit increased (100→150MB) to accommodate larger decoded frames
+- [x] Full-quality single-column mode — pinch-to-zoom to 1 column renders full resolution GIFs with full framerate (lowQuality: false)
+
+### Phase 11: Future Features
 
 **Editor UX**
+- [ ] Refine face detection UI
 - [ ] Stateful save button (show saving state, success confirmation, error feedback)
 - [ ] Pause/edit during animation preview (pause playback, adjust zoom point, resume)
 - [ ] Fix RESET/X spacing in editor header (RESET looks like a label for X — add visual separation)

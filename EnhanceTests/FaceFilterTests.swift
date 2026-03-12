@@ -80,17 +80,17 @@ struct FaceFilterTests {
         #expect(ctx.createCGImage(output, from: output.extent) != nil)
     }
 
-    // MARK: - BobbleHeadEffect
+    // MARK: - SqueezeEffect
 
-    @Test func bobbleHead_atZeroProgress_returnsUnchanged() {
-        let effect = BobbleHeadEffect()
+    @Test func squeeze_atZeroProgress_returnsUnchanged() {
+        let effect = SqueezeEffect()
         let input = makeTestImage()
         let output = effect.apply(to: input, face: makeMockFace(), progress: 0.0, frameIndex: 0)
         #expect(output.extent == input.extent)
     }
 
-    @Test func bobbleHead_atFullProgress_producesOutput() {
-        let effect = BobbleHeadEffect(intensity: 0.8)
+    @Test func squeeze_atFullProgress_producesOutput() {
+        let effect = SqueezeEffect(intensity: 0.8)
         let input = makeTestImage()
         let output = effect.apply(to: input, face: makeMockFace(), progress: 1.0, frameIndex: 0)
         let ctx = CIContext()
@@ -131,13 +131,8 @@ struct FaceFilterTests {
         }
     }
 
-    @Test func faceFilterType_sliderLabelsAreUnique() {
-        let labels = FaceFilterType.allCases.map { $0.sliderLabel }
-        #expect(Set(labels).count == labels.count)
-    }
-
     @Test func faceFilterType_intensityBuckets() {
-        let filter = FaceFilterType.bobbleHead
+        let filter = FaceFilterType.squeeze
         #expect(filter.intensityBucket(0.1) == "LIGHT")
         #expect(filter.intensityBucket(0.5) == "MEDIUM")
         #expect(filter.intensityBucket(0.7) == "HEAVY")
@@ -173,7 +168,7 @@ struct FaceFilterTests {
             ctx.fill(CGRect(x: 0, y: 0, width: 10, height: 10))
         }
         let vm = EditorViewModel(content: .newImage(img))
-        vm.selectedFaceFilter = .bobbleHead
+        vm.selectedFaceFilter = .squeeze
         vm.faceFilterIntensity = 0.9
         vm.faceFilterSpeed = 0.8
         vm.selectedFaceIndex = 0

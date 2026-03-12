@@ -8,6 +8,7 @@ struct GifGridItem: View {
     let onTap: () -> Void
     var isSelected: Bool = false
     var autoPlay: Bool = true
+    var lowQuality: Bool = true
     var onLongPress: (() -> Void)? = nil
     @State private var isVisible: Bool = false
     @State private var thumbnail: UIImage? = nil
@@ -23,7 +24,7 @@ struct GifGridItem: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
 
-            AnimatedGifViewWithLoading(url: url, contentMode: .scaleAspectFill, lowQuality: true, isVisible: isVisible && autoPlay)
+            AnimatedGifViewWithLoading(url: url, contentMode: .scaleAspectFill, lowQuality: lowQuality, isVisible: isVisible && autoPlay)
                  .opacity(isVisible && autoPlay ? 1 : 0)
                  .matchedGeometryEffect(id: "gif\(index)", in: namespace)
         }

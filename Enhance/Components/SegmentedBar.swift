@@ -6,9 +6,12 @@ struct SegmentedBar<T: Hashable>: View {
     let label: (T) -> String
     var onChange: (() -> Void)? = nil
 
+    private let mintGreen = Color(red: 96/255, green: 255/255, blue: 168/255)
+
     var body: some View {
         HStack(spacing: 0) {
             ForEach(items, id: \.self) { item in
+                let isSelected = selection == item
                 Button {
                     withAnimation(.easeOut(duration: AppConstants.Animation.quick)) {
                         selection = item
@@ -17,12 +20,16 @@ struct SegmentedBar<T: Hashable>: View {
                 } label: {
                     Text(label(item))
                         .font(.silkscreenControl)
-                        .foregroundColor(.white)
+                        .foregroundColor(isSelected ? mintGreen : .white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 60)
                         .background(
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(selection == item ? Color(hex: 0x323232) : Color.clear)
+                                .fill(isSelected ? Color(red: 100/255, green: 148/255, blue: 122/255).opacity(0.7) : Color.clear)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(isSelected ? mintGreen : .clear, lineWidth: 1)
                         )
                 }
                 .buttonStyle(.plain)

@@ -14,9 +14,10 @@ struct LazerEyesEffect: FaceEffect {
     }
 
     func apply(to image: CIImage, face: DetectedFace, progress: CGFloat, frameIndex: Int) -> CIImage {
-        guard progress > 0.05 else { return image }
+        guard progress > 0.3 else { return image }
 
-        let fade = min(1.0, progress * 2.5)
+        let ramp = (progress - 0.3) / 0.7
+        let fade = ramp * ramp
         let imageWidth = image.extent.width
         var result = image
 

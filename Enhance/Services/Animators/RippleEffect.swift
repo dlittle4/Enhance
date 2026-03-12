@@ -1,45 +1,42 @@
 import CoreImage
 
-/// Progressively applies a water-like ripple/wave distortion that undulates
-/// across the image. At progress 0 the image is still; at progress 1 the
-/// waves are at full amplitude. Uses horizontal sine-wave displacement of
-/// image rows via CIAffineTransform strips, composited back together.
+/// Rapidly shakes the entire image horizontally and overlays a red tint,
+/// simulating an angry vibration effect. Shake intensity is fixed at a
+/// strong level; the `redness` parameter controls how red the image gets.
 ///
-/// - `intensity` scales the maximum wave amplitude and frequency.
+/// - `redness` (0–1) controls the strength of the red color overlay.
 public struct RippleEffect: VisualEffect {
-    private let maxAmplitude: CGFloat
-    private let frequency: CGFloat
+    private let maxAmplitude: CGFloat = 3.75
+    private let speed: CGFloat = 60.0
+    private let redness: CGFloat
 
     public init(intensity: Double = 0.5) {
-        self.maxAmplitude = max(2.0, 20.0 * CGFloat(intensity))
-        self.frequency = 3.0 + 5.0 * CGFloat(intensity)
+        self.redness = CGFloat(max(0, min(1, intensity)))
     }
 
     public func apply(to image: CIImage, progress: CGFloat, frameIndex: Int) -> CIImage {
-        let amplitude = maxAmplitude * (progress * progress)
-        guard amplitude > 0.5 else { return image }
+        apply(to: image, progress: progress, frameIndex: frameIndex, viewportCenter: nil)
+    }
 
-        let extent = image.extent
-        let stripCount = 40
-        let stripHeight = extent.height / CGFloat(stripCount)
-        var result = CIImage.empty()
+    public func apply(to image: CIImage, progress: CGFloat, frameIndex: Int, viewportCenter: CGPoint?) -> CIImage {
+        let ramp = min(progress * 2.0, 1.0)
+        let amplitude = maxAmplitude * ramp
+        guard amplitude > 0.1 else { return image }
 
-        let phase = CGFloat(frameIndex) * 0.5
+        let dx = amplitude * sin(CGFloat(frameIndex) * speed)
 
-        for i in 0..<stripCount {
-            let normalizedY = CGFloat(i) / CGFloat(stripCount)
-            let dx = amplitude * sin((normalizedY * frequency + phase) * .pi * 2)
+        let clamped = image.clamped(to: image.extent)
+        var result = clamped
+            .transformed(by: CGAffineTransform(translationX: dx, y: 0))
+            .cropped(to: image.extent)
 
-            let stripY = extent.origin.y + CGFloat(i) * stripHeight
-            let stripRect = CGRect(x: extent.origin.x, y: stripY,
-                                   width: extent.width, height: stripHeight)
-
-            let strip = image.cropped(to: stripRect)
-                .transformed(by: CGAffineTransform(translationX: dx, y: 0))
-
-            result = strip.composited(over: result)
+        if redness > 0.01 {
+            let redAlpha = redness * 0.45 * ramp
+            let redOverlay = CIImage(color: CIColor(red: 0.9, green: 0.05, blue: 0.02, alpha: redAlpha))
+                .cropped(to: image.extent)
+            result = redOverlay.composited(over: result).cropped(to: image.extent)
         }
 
-        return result.cropped(to: extent)
+        return result
     }
 }

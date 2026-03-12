@@ -28,9 +28,8 @@ class EditorViewModel {
     var selectedAnimatorType: AnimatorType = .zoomIn
     var selectedModifier: ModifierType = .straight
     var isPlaying: Bool = true
-    var playbackSpeed: Double = 1.0
+    var playbackSpeed: Double = 0.5
     var pauseDuration: Int = 1
-    var showEffectsSheet: Bool = false
     var showSaveSheet: Bool = false
     var hasModifiedSettings: Bool = false
     var selectedEffectCategory: EffectCategory = .zoomEffects
@@ -87,13 +86,18 @@ class EditorViewModel {
         let hasVisualEffect = selectedVisualEffect != nil
         let hasFaceFilter = selectedFaceFilter != nil
         if case .newImage = content {
-            return selectedAnimatorType != .zoomIn || selectedModifier != .straight || playbackSpeed != 1.0 || pauseDuration != 1 || isSplit || hasVisualEffect || hasFaceFilter
+            return selectedAnimatorType != .zoomIn || selectedModifier != .straight || playbackSpeed != 0.5 || pauseDuration != 1 || isSplit || hasVisualEffect || hasFaceFilter
         }
-        return selectedAnimatorType != .zoomIn || selectedModifier != .straight || playbackSpeed != 1.0 || pauseDuration != 1 || hasVisualEffect || hasFaceFilter
+        return selectedAnimatorType != .zoomIn || selectedModifier != .straight || playbackSpeed != 0.5 || pauseDuration != 1 || hasVisualEffect || hasFaceFilter
     }
 
     var speedLabel: String {
-        playbackSpeed == 0.5 ? "0.5X" : playbackSpeed == 1.0 ? "1X" : "\(Int(playbackSpeed))X"
+        switch playbackSpeed {
+        case 0.25: return "0.25X"
+        case 0.5:  return "0.5X"
+        case 1.0:  return "1X"
+        default:   return "\(Int(playbackSpeed))X"
+        }
     }
 
     var pauseLabel: String {
@@ -102,9 +106,10 @@ class EditorViewModel {
 
     func cycleSpeed() {
         switch playbackSpeed {
-        case 1.0: playbackSpeed = 2.0
-        case 2.0: playbackSpeed = 0.5
-        default:  playbackSpeed = 1.0
+        case 0.25: playbackSpeed = 0.5
+        case 0.5:  playbackSpeed = 1.0
+        case 1.0:  playbackSpeed = 2.0
+        default:   playbackSpeed = 0.25
         }
     }
 
@@ -133,7 +138,7 @@ class EditorViewModel {
     func resetEffects() {
         selectedAnimatorType = .zoomIn
         selectedModifier = .straight
-        playbackSpeed = 1.0
+        playbackSpeed = 0.5
         pauseDuration = 1
         selectedVisualEffect = nil
         effectIntensity = 0.5
@@ -313,7 +318,8 @@ class EditorViewModel {
                     let scaleX = result.extent.width / orientedWidth
                     let scaleY = result.extent.height / orientedHeight
                     let scaledFace = self.scaleFace(face, scaleX: scaleX, scaleY: scaleY)
-                    result = faceEffect.apply(to: result, face: scaledFace, progress: 1.0, frameIndex: 0)
+                    let previewProg = self.selectedFaceFilter?.previewProgress ?? 1.0
+                    result = faceEffect.apply(to: result, face: scaledFace, progress: previewProg, frameIndex: 5)
                 }
 
                 if !visualEffects.isEmpty {

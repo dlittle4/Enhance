@@ -264,6 +264,7 @@ struct GalleryView: View {
                                 },
                                 isSelected: selectedIndices.contains(index),
                                 autoPlay: autoPlayGifs,
+                                lowQuality: gridColumnCount > 1,
                                 onLongPress: { enterSelectMode(at: index) }
                             )
                         }

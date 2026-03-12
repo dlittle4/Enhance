@@ -9,7 +9,7 @@ class GIFCache {
     private var cache: NSCache<NSURL, NSArray> = {
         let c = NSCache<NSURL, NSArray>()
         c.countLimit = 50
-        c.totalCostLimit = 100 * 1024 * 1024 // 100 MB
+        c.totalCostLimit = 150 * 1024 * 1024
         return c
     }()
     
@@ -138,12 +138,12 @@ struct AnimatedGifView: UIViewRepresentable {
                 let options: [CFString: Any]? = lowQuality ? [
                     kCGImageSourceCreateThumbnailFromImageAlways: true,
                     kCGImageSourceCreateThumbnailWithTransform: true,
-                    kCGImageSourceThumbnailMaxPixelSize: 200, // Smaller thumbnail size
+                    kCGImageSourceThumbnailMaxPixelSize: 350,
                     kCGImageSourceShouldCacheImmediately: false // Don't cache immediately to reduce memory
                 ] : nil
                 
                 // For low quality mode, we'll also skip frames to improve performance
-                let frameSkip = lowQuality ? max(1, count / 15) : 1 // Skip frames for performance in gallery view
+                let frameSkip = lowQuality ? max(1, count / 30) : 1
                 
                 for i in stride(from: 0, to: count, by: frameSkip) {
                     // Use the downsampling options if in low quality mode

@@ -2,8 +2,8 @@ import CoreImage
 
 /// CIFilter approximation of the "Handsome Squidward" meme aesthetic:
 /// elongated jaw, defined cheekbones, and sharpened luminance for a
-/// chiseled look. Combines CIBumpDistortion for geometry with
-/// CISharpenLuminance for edge definition.
+/// chiseled look. Distortions are masked to the face region so the
+/// background stays undistorted.
 struct HandsomeEffect: FaceEffect {
     private let maxStrength: CGFloat
 
@@ -13,7 +13,6 @@ struct HandsomeEffect: FaceEffect {
 
     func apply(to image: CIImage, face: DetectedFace, progress: CGFloat, frameIndex: Int) -> CIImage {
         let strength = maxStrength * (progress * progress)
-        guard strength > 0.02 else { return image }
 
         let extent = image.extent
         var result = image.clamped(to: extent)
@@ -50,8 +49,22 @@ struct HandsomeEffect: FaceEffect {
         result = result.applyingFilter("CISharpenLuminance", parameters: [
             kCIInputSharpnessKey: sharpness,
             kCIInputRadiusKey: 2.0
-        ])
+        ]).cropped(to: extent)
 
-        return result.cropped(to: extent)
+        // Radial mask: isolate the effect to the face region only
+        let maskRadius = max(face.faceWidth, face.faceHeight) * 0.8
+        let center = CIVector(x: face.faceCenter.x, y: face.faceCenter.y)
+        let mask = CIFilter(name: "CIRadialGradient", parameters: [
+            "inputCenter": center,
+            "inputRadius0": maskRadius * 0.7,
+            "inputRadius1": maskRadius,
+            "inputColor0": CIColor.white,
+            "inputColor1": CIColor(red: 0, green: 0, blue: 0, alpha: 0)
+        ])!.outputImage!.cropped(to: extent)
+
+        return result.applyingFilter("CIBlendWithMask", parameters: [
+            kCIInputBackgroundImageKey: image,
+            kCIInputMaskImageKey: mask
+        ]).cropped(to: extent)
     }
 }
