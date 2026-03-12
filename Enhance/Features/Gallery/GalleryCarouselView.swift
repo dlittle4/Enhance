@@ -107,7 +107,8 @@ private struct CarouselCard: View {
                 kCGImageSourceThumbnailMaxPixelSize: maxPixel,
                 kCGImageSourceShouldCacheImmediately: true
             ]
-            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbOpts as CFDictionary) else { return }
+            let lastFrameIndex = max(CGImageSourceGetCount(source) - 1, 0)
+            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, lastFrameIndex, thumbOpts as CFDictionary) else { return }
 
             let resized = UIImage(cgImage: cgImage)
             ThumbnailCache.shared.set(resized, for: url)

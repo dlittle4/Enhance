@@ -10,7 +10,9 @@ protocol GIFGenerating {
         animator: Animator,
         speed: Double,
         pauseDuration: Double,
-        visualEffects: [VisualEffect]
+        visualEffects: [VisualEffect],
+        faceEffect: FaceEffect?,
+        detectedFace: DetectedFace?
     ) -> Data?
     
     func saveTempGIF(_ gifData: Data) -> URL?

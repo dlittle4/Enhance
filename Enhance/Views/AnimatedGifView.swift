@@ -88,6 +88,9 @@ struct AnimatedGifView: UIViewRepresentable {
                 imageView.startAnimating()
             } else if !isVisible && imageView.isAnimating {
                 imageView.stopAnimating()
+                if let lastFrame = imageView.animationImages?.last {
+                    imageView.image = lastFrame
+                }
             }
         }
     }

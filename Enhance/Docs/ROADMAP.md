@@ -1,6 +1,6 @@
 # Enhance (ZoomGif) — Roadmap
 
-> Last updated: 2026-03-11 (session 5)
+> Last updated: 2026-03-11 (session 6)
 
 ## Vision
 
@@ -227,7 +227,29 @@ Each step should feel fast, tactile, and visually satisfying.
 - [x] `supportsSizeControl` property on enum for future extensibility
 - [x] Unit tests for all 5 new effects (zero progress, full progress, viewport/frame variants)
 
-### Phase 8i: Future Features
+### Phase 8i: Effect Refinements ✓
+
+- [x] PixelateEffect inverted — starts pixelated, resolves to sharp as animation progresses ("reveal" aesthetic)
+- [x] Fisheye INTENSITY + SIZE sliders laid out side-by-side (HStack) to save vertical space
+- [x] `supportsSizeControl` on VisualEffectType drives horizontal vs. stacked slider layout
+- [x] Project pushed to GitHub (github.com/dlittle4/Enhance), .venv removed from history, .gitignore added
+
+### Phase 9: Face Filters ✓
+
+- [x] FaceDetectionService — Vision framework face/landmark detection with coordinate conversion and caching
+- [x] DetectedFace model — pre-computed image-coordinate positions for bounding box, pupils, eyes, brows, contour
+- [x] FaceEffect protocol — face-aware effect interface separate from VisualEffect
+- [x] FaceFilterType enum — 4 cases (bushy eyebrows, googly eyes, bobble head, handsome) with custom slider labels
+- [x] BushyEyebrowsEffect — multiple CIBumpDistortion along eyebrow landmark points
+- [x] GooglyEyesEffect — procedural CIRadialGradient eyes with xorshift PRNG pupil wobble per frame
+- [x] BobbleHeadEffect — CIBumpDistortion centered on face with CIAffineClamp for edge safety
+- [x] HandsomeEffect — CIFilter approximation (jaw stretch + cheekbone bumps + CISharpenLuminance)
+- [x] EffectCategory expanded with faceFilters case (third editor page)
+- [x] Editor UI: 2-column face filter grid, face detection overlay with tap-to-select, custom intensity slider labels
+- [x] GIF pipeline updated to chain face effects per frame with coordinate scaling
+- [x] Unit tests for all 4 face effects, FaceFilterType enum, and EditorViewModel face filter state
+
+### Phase 10: Future Features
 
 **Editor UX**
 - [ ] Stateful save button (show saving state, success confirmation, error feedback)

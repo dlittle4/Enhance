@@ -642,3 +642,47 @@ The `VisualEffectType.effect(intensity:size:)` factory passes `size` only to `Fi
 **Deterministic randomness for GIF consistency:** GlitchEffect uses a simple xorshift PRNG seeded by `frameIndex * 137 + bandIndex * 31` so the same frame always produces identical displacement. This ensures GIF playback is consistent — the glitch pattern doesn't change between preview and final render.
 
 **Rule:** Prefer built-in CIFilters when available (swirl, pixelate) for GPU efficiency. When no filter exists, strip-based compositing (crop → transform → composite over) is the cleanest approach for row/band effects. Always seed randomness from `frameIndex` for GIF reproducibility. Keep strip counts reasonable (12–40) to balance visual quality with compositing overhead.
+
+---
+
+## 2026-03-11: Inverting effect progress for "reveal" aesthetics
+
+**Problem:** The pixelate effect started sharp and became blocky as the animation progressed. This felt like degradation rather than enhancement. The more natural creative direction is to start pixelated and resolve to sharp — a "reveal" that pairs with the zoom animation reaching its destination.
+
+**Fix:** Replaced `progress` with `1.0 - progress` in the scale calculation: `let remaining = 1.0 - progress`. The quadratic easing curve `remaining * remaining` now means the image de-pixelates quickly at the end for a satisfying snap to clarity.
+
+**Rule:** When an effect feels like it's "breaking" the image rather than enhancing it, try inverting the progress direction. Effects that resolve (pixelate → sharp, blur → clear) often pair better with zoom animations than effects that accumulate (sharp → pixelated), because the animation's endpoint should feel like a reward, not corruption.
+
+---
+
+## 2026-03-11: Horizontal slider layout for multi-parameter effects
+
+**Problem:** When fisheye was selected, the INTENSITY and SIZE sliders stacked vertically, consuming 128pt of vertical space (two 60pt sliders + 8pt spacing). On smaller devices this pushed the action buttons uncomfortably close to the bottom edge.
+
+**Fix:** Wrapped both sliders in an `HStack(spacing: 8)` when `supportsSizeControl` is true. Each slider's `GeometryReader` naturally takes half the available width. For effects without size control, the intensity slider remains full-width. The conditional layout is driven by `VisualEffectType.supportsSizeControl` so adding future multi-parameter effects automatically gets the horizontal layout.
+
+**Rule:** When an effect has two slider controls, lay them out horizontally to preserve vertical space. The `GeometryReader` inside each slider already handles proportional fill width, so halving the container width works without any internal changes. Use a semantic property (`supportsSizeControl`) on the effect type enum rather than checking specific cases — this keeps the view code extensible.
+
+---
+
+## 2026-03-11: Face-aware effects with Vision framework landmarks
+
+**Problem:** Adding "face filters" (bushy eyebrows, googly eyes, bobble head, handsome) requires knowing where facial features are in the image. The existing `VisualEffect` protocol operates on the whole image without any spatial awareness of face geometry.
+
+**Approach:** Created a separate `FaceEffect` protocol that takes a `DetectedFace` parameter alongside the image. `FaceDetectionService` uses `VNDetectFaceLandmarksRequest` to detect faces once per source image and caches results. The `DetectedFace` struct pre-computes all landmark positions in image coordinates (CIImage's bottom-left origin) so effects don't need to do coordinate conversion.
+
+**Key coordinate insight:** Vision's `VNFaceObservation.boundingBox` and `VNFaceLandmarkRegion2D.normalizedPoints` are both in normalized coordinates (0-1) with bottom-left origin. CIImage also uses bottom-left origin. So conversion is straightforward: `imageX = (bb.originX + point.x * bb.width) * imageWidth`. No Y-flip needed between Vision and CIImage (unlike Vision → SwiftUI, which needs a Y-flip for the face overlay).
+
+**Scaling for preview:** The downscaled preview (650x650) means face coordinates from the full image must be scaled proportionally. The `EditorViewModel.scaleFace()` method computes `scaleX = previewWidth / fullWidth` and applies it to all landmark points. The same scaling logic exists in `GIFGenerator.applyFaceEffect()` for the GIF output resolution.
+
+**Rule:** When adding spatial effects that target specific image regions, create a dedicated protocol rather than overloading the existing one. Cache detection results aggressively — Vision face detection is ~50-100ms and shouldn't run on every preview update. Pre-compute coordinates in the detection service rather than converting in each effect.
+
+---
+
+## 2026-03-11: Procedural googly eyes with CIRadialGradient
+
+**Problem:** Googly eyes need to be composited at detected pupil positions with an animated wobble effect. External asset images would need to match the eye size precisely and wouldn't animate.
+
+**Fix:** Generated eyes procedurally using `CIRadialGradient` — a white circle for the sclera and a smaller dark circle for the pupil. The pupil position within the white circle is offset using a xorshift PRNG seeded by `frameIndex`, creating deterministic wobble that's consistent across GIF regenerations. The eye size is derived from `leftEyeWidth * sizeMultiplier`.
+
+**Rule:** For simple geometric overlays (circles, shapes), generate them procedurally with CIFilter generators rather than bundling asset images. This keeps sizes dynamic, avoids resolution mismatches, and allows per-frame animation via the frameIndex seed.

@@ -84,6 +84,21 @@ struct EditorView: View {
             guard viewModel.selectedVisualEffect != nil else { return }
             viewModel.updatePreviewImage(debounce: true)
         }
+        .onChange(of: viewModel.selectedEffectCategory) { _, newValue in
+            if newValue == .faceFilters {
+                viewModel.detectFacesIfNeeded()
+            }
+        }
+        .onChange(of: viewModel.selectedFaceFilter) { _, _ in
+            viewModel.updateFaceFilterPreview()
+            guard !viewModel.isRegenerating else { return }
+            if case .existingGif = viewModel.content {
+                viewModel.hasModifiedSettings = true
+                viewModel.regenerateGIF()
+            } else if viewModel.isSplit {
+                viewModel.regenerateGIF()
+            }
+        }
         .sheet(isPresented: $viewModel.showEffectsSheet) {
             effectsSheetContent
         }
@@ -140,10 +155,29 @@ struct EditorView: View {
         ZStack {
             switch viewModel.content {
             case .existingGif(let url, _, _):
-                borderedCanvas {
-                    let displayURL = viewModel.generatedGifURL ?? url
-                    GIFPreviewView(url: displayURL, isPlaying: viewModel.isPlaying, playbackSpeed: viewModel.playbackSpeed)
+                if viewModel.selectedEffectCategory == .faceFilters,
+                   let source = viewModel.sourceImage {
+                    borderedCanvas {
+                        ImageCanvasView(
+                            image: viewModel.previewImage ?? source,
+                            scale: $viewModel.currentScale,
+                            visibleRect: $viewModel.visibleRect,
+                            faceOverlays: activeFaceOverlays,
+                            onFaceSelected: { index in
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    viewModel.selectedFaceIndex = viewModel.selectedFaceIndex == index ? nil : index
+                                }
+                                viewModel.updateFaceFilterPreview()
+                            }
+                        )
                         .frame(width: canvasSize, height: canvasSize)
+                    }
+                } else {
+                    borderedCanvas {
+                        let displayURL = viewModel.generatedGifURL ?? url
+                        GIFPreviewView(url: displayURL, isPlaying: viewModel.isPlaying, playbackSpeed: viewModel.playbackSpeed)
+                            .frame(width: canvasSize, height: canvasSize)
+                    }
                 }
 
             case .newImage(let image):
@@ -157,13 +191,21 @@ struct EditorView: View {
                         ImageCanvasView(
                             image: viewModel.previewImage ?? image,
                             scale: $viewModel.currentScale,
-                            visibleRect: $viewModel.visibleRect
+                            visibleRect: $viewModel.visibleRect,
+                            faceOverlays: activeFaceOverlays,
+                            onFaceSelected: { index in
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    viewModel.selectedFaceIndex = viewModel.selectedFaceIndex == index ? nil : index
+                                }
+                                viewModel.updateFaceFilterPreview()
+                            }
                         )
                         .frame(width: canvasSize, height: canvasSize)
                     }
                 }
             }
         }
+        .overlay(faceStatusOverlay)
         .overlay(regeneratingOverlay)
         .overlay(toastOverlay)
     }
@@ -195,10 +237,11 @@ struct EditorView: View {
         VStack(spacing: 8) {
             effectCategoryRow
 
-            if viewModel.selectedEffectCategory == .zoomEffects {
+            switch viewModel.selectedEffectCategory {
+            case .zoomEffects:
                 zoomControlsBars
                     .transition(.opacity)
-            } else {
+            case .visualEffects:
                 VStack(spacing: 8) {
                     visualEffectsGrid
 
@@ -211,6 +254,24 @@ struct EditorView: View {
                             .transition(.opacity)
                         } else {
                             intensitySlider
+                                .transition(.opacity)
+                        }
+                    }
+                }
+                .transition(.opacity)
+            case .faceFilters:
+                VStack(spacing: 8) {
+                    faceFiltersGrid
+
+                    if let filter = viewModel.selectedFaceFilter {
+                        if filter.supportsSecondSlider {
+                            HStack(spacing: 8) {
+                                faceFilterIntensitySlider
+                                faceFilterSecondSlider
+                            }
+                            .transition(.opacity)
+                        } else {
+                            faceFilterIntensitySlider
                                 .transition(.opacity)
                         }
                     }
@@ -418,6 +479,127 @@ struct EditorView: View {
         .animation(.easeOut(duration: 0.1), value: viewModel.effectSize)
     }
 
+    // MARK: - Face Filters Grid
+
+    private var faceFiltersGrid: some View {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+            ForEach(FaceFilterType.allCases) { filterType in
+                faceFilterToggle(filterType)
+            }
+        }
+    }
+
+    private func faceFilterToggle(_ filterType: FaceFilterType) -> some View {
+        let isActive = viewModel.selectedFaceFilter == filterType
+        return Button {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                viewModel.selectedFaceFilter = isActive ? nil : filterType
+            }
+        } label: {
+            Text(filterType.rawValue)
+                .font(.silkscreenControl)
+                .foregroundColor(isActive ? mintGreen : .white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 60)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(isActive ? Color(hex: 0x323232) : Color.white.opacity(0.04))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(isActive ? mintGreen : .clear, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+        .disabled(viewModel.isRegenerating || viewModel.selectedFace == nil)
+    }
+
+    // MARK: - Face Filter Intensity Slider
+
+    private var faceFilterIntensitySlider: some View {
+        GeometryReader { geo in
+            let fillWidth = geo.size.width * viewModel.faceFilterIntensity
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(hex: 0x323232))
+
+                HStack(spacing: 0) {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(mintGreen.opacity(0.3))
+                        .frame(width: fillWidth)
+
+                    Spacer(minLength: 0)
+                }
+
+                VStack(spacing: 2) {
+                    Text(viewModel.faceFilterSliderLabel)
+                        .font(.silkscreenControl)
+                        .foregroundColor(mintGreen)
+                    Text(viewModel.faceFilterIntensityLabel)
+                        .font(.silkscreenControl)
+                        .foregroundColor(mintGreen)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let newVal = max(0.05, min(1.0, value.location.x / geo.size.width))
+                        viewModel.faceFilterIntensity = newVal
+                    }
+                    .onEnded { _ in
+                        viewModel.onFaceFilterIntensityDragEnded()
+                    }
+            )
+        }
+        .frame(height: 60)
+        .animation(.easeOut(duration: 0.1), value: viewModel.faceFilterIntensity)
+    }
+
+    // MARK: - Face Filter Second Slider
+
+    private var faceFilterSecondSlider: some View {
+        GeometryReader { geo in
+            let fillWidth = geo.size.width * viewModel.faceFilterSpeed
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(hex: 0x323232))
+
+                HStack(spacing: 0) {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(mintGreen.opacity(0.3))
+                        .frame(width: fillWidth)
+
+                    Spacer(minLength: 0)
+                }
+
+                VStack(spacing: 2) {
+                    Text(viewModel.selectedFaceFilter?.secondSliderLabel ?? "")
+                        .font(.silkscreenControl)
+                        .foregroundColor(mintGreen)
+                    Text(viewModel.faceFilterSecondLabel)
+                        .font(.silkscreenControl)
+                        .foregroundColor(mintGreen)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let newVal = max(0.05, min(1.0, value.location.x / geo.size.width))
+                        viewModel.faceFilterSpeed = newVal
+                    }
+                    .onEnded { _ in
+                        viewModel.onFaceFilterSpeedDragEnded()
+                    }
+            )
+        }
+        .frame(height: 60)
+        .animation(.easeOut(duration: 0.1), value: viewModel.faceFilterSpeed)
+    }
+
     // MARK: - Effect Category Dropdown
 
     private var effectCategoryRow: some View {
@@ -561,6 +743,12 @@ struct EditorView: View {
                 return "\(effect.rawValue) - \(viewModel.intensityLabel) - \(viewModel.sizeLabel)"
             }
             return "\(effect.rawValue) - \(viewModel.intensityLabel)"
+        case .faceFilters:
+            guard let filter = viewModel.selectedFaceFilter else { return "NONE" }
+            if filter.supportsSecondSlider {
+                return "\(filter.rawValue) - \(viewModel.faceFilterIntensityLabel) - \(viewModel.faceFilterSecondLabel)"
+            }
+            return "\(filter.rawValue) - \(viewModel.faceFilterIntensityLabel)"
         }
     }
 
@@ -603,6 +791,37 @@ struct EditorView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 16)
+        }
+    }
+
+    // MARK: - Face Detection Overlay
+
+    /// Face overlay data passed into ImageCanvasView. Empty when not in face filter mode.
+    private var activeFaceOverlays: [(id: UUID, rect: CGRect, isSelected: Bool)] {
+        guard viewModel.selectedEffectCategory == .faceFilters else { return [] }
+        if case .newImage = viewModel.content {
+            guard !viewModel.isSplit else { return [] }
+        }
+        return viewModel.detectedFaces.enumerated().map { index, face in
+            (id: face.id, rect: face.normalizedBoundingBox, isSelected: viewModel.selectedFaceIndex == index)
+        }
+    }
+
+    /// Shows status messages for face detection (loading spinner, no faces found).
+    private var faceStatusOverlay: some View {
+        Group {
+            if viewModel.selectedEffectCategory == .faceFilters && !viewModel.isSplit {
+                if viewModel.isDetectingFaces {
+                    ProgressView()
+                        .tint(mintGreen)
+                        .frame(width: canvasSize, height: canvasSize)
+                } else if viewModel.detectedFaces.isEmpty {
+                    Text("NO FACES DETECTED")
+                        .font(.silkscreenControl)
+                        .foregroundColor(.white.opacity(0.5))
+                        .frame(width: canvasSize, height: canvasSize)
+                }
+            }
         }
     }
 

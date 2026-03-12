@@ -6,7 +6,7 @@ import UIKit
 private struct StubGIFGenerator: GIFGenerating {
     var shouldSucceed: Bool = true
     
-    func generateGIF(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double, pauseDuration: Double, visualEffects: [VisualEffect]) -> Data? {
+    func generateGIF(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double, pauseDuration: Double, visualEffects: [VisualEffect], faceEffect: FaceEffect? = nil, detectedFace: DetectedFace? = nil) -> Data? {
         guard shouldSucceed else { return nil }
         return Data([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])
     }

@@ -77,6 +77,6 @@ class ThumbnailCache {
     
     private func diskFilename(for gifURL: URL) -> String {
         let base = gifURL.deletingPathExtension().lastPathComponent
-        return "\(base).thumb.jpg"
+        return "\(base).thumb.v2.jpg"
     }
 }

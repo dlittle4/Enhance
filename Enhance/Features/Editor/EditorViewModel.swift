@@ -2,6 +2,7 @@ import SwiftUI
 import Photos
 import CoreImage
 import ImageIO
+import Vision
 
 @Observable
 class EditorViewModel {
@@ -39,6 +40,37 @@ class EditorViewModel {
     var previewImage: UIImage? = nil
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
+    // MARK: - Face Filters
+    var detectedFaces: [DetectedFace] = []
+    var selectedFaceIndex: Int? = nil
+    var selectedFaceFilter: FaceFilterType? = nil
+    var faceFilterIntensity: Double = 0.5
+    var faceFilterSpeed: Double = 0.5
+    var isDetectingFaces: Bool = false
+    private let faceDetectionService = FaceDetectionService()
+
+    var selectedFace: DetectedFace? {
+        guard let idx = selectedFaceIndex, idx < detectedFaces.count else { return nil }
+        return detectedFaces[idx]
+    }
+
+    var faceFilterSliderLabel: String {
+        selectedFaceFilter?.sliderLabel ?? "INTENSITY"
+    }
+
+    var faceFilterIntensityLabel: String {
+        selectedFaceFilter?.intensityBucket(faceFilterIntensity) ?? "MEDIUM"
+    }
+
+    var faceFilterSecondLabel: String {
+        selectedFaceFilter?.secondSliderBucket(faceFilterSpeed) ?? "MEDIUM"
+    }
+
+    var activeFaceEffect: FaceEffect? {
+        guard let filter = selectedFaceFilter else { return nil }
+        return filter.effect(intensity: faceFilterIntensity, secondValue: faceFilterSpeed)
+    }
+
     var activeVisualEffectList: [VisualEffect] {
         guard let effect = selectedVisualEffect else { return [] }
         return [effect.effect(intensity: effectIntensity, size: effectSize)]
@@ -53,10 +85,11 @@ class EditorViewModel {
 
     var hasNonDefaultSettings: Bool {
         let hasVisualEffect = selectedVisualEffect != nil
+        let hasFaceFilter = selectedFaceFilter != nil
         if case .newImage = content {
-            return selectedAnimatorType != .zoomIn || selectedModifier != .straight || playbackSpeed != 1.0 || pauseDuration != 1 || isSplit || hasVisualEffect
+            return selectedAnimatorType != .zoomIn || selectedModifier != .straight || playbackSpeed != 1.0 || pauseDuration != 1 || isSplit || hasVisualEffect || hasFaceFilter
         }
-        return selectedAnimatorType != .zoomIn || selectedModifier != .straight || playbackSpeed != 1.0 || pauseDuration != 1 || hasVisualEffect
+        return selectedAnimatorType != .zoomIn || selectedModifier != .straight || playbackSpeed != 1.0 || pauseDuration != 1 || hasVisualEffect || hasFaceFilter
     }
 
     var speedLabel: String {
@@ -108,6 +141,12 @@ class EditorViewModel {
         selectedEffectCategory = .zoomEffects
         previewImage = nil
         previewSourceCGImage = nil
+        selectedFaceFilter = nil
+        selectedFaceIndex = nil
+        faceFilterIntensity = 0.5
+        faceFilterSpeed = 0.5
+        detectedFaces = []
+        faceDetectionService.clearCache()
 
         if case .newImage = content {
             generatedGIF = nil
@@ -141,6 +180,73 @@ class EditorViewModel {
         }
     }
 
+    func onFaceFilterIntensityDragEnded() {
+        updateFaceFilterPreview()
+        guard !isRegenerating else { return }
+        if case .existingGif = content {
+            hasModifiedSettings = true
+            regenerateGIF()
+        } else if isSplit {
+            regenerateGIF()
+        }
+    }
+
+    func onFaceFilterSpeedDragEnded() {
+        updateFaceFilterPreview()
+        guard !isRegenerating else { return }
+        if case .existingGif = content {
+            hasModifiedSettings = true
+            regenerateGIF()
+        } else if isSplit {
+            regenerateGIF()
+        }
+    }
+
+    func detectFacesIfNeeded() {
+        guard !isDetectingFaces else { return }
+        guard let source = image ?? sourceImage else { return }
+        guard detectedFaces.isEmpty else { return }
+
+        isDetectingFaces = true
+        Task {
+            let faces = await faceDetectionService.detectFaces(in: source)
+            await MainActor.run {
+                self.detectedFaces = faces
+                self.isDetectingFaces = false
+                if faces.count == 1 {
+                    self.selectedFaceIndex = 0
+                }
+            }
+        }
+    }
+
+    func updateFaceFilterPreview() {
+        updateCombinedPreview()
+    }
+
+    /// Scale face landmark coordinates to match the downscaled preview image.
+    private func scaleFace(_ face: DetectedFace, scaleX: CGFloat, scaleY: CGFloat) -> DetectedFace {
+        DetectedFace(
+            boundingBox: CGRect(
+                x: face.boundingBox.origin.x * scaleX,
+                y: face.boundingBox.origin.y * scaleY,
+                width: face.boundingBox.width * scaleX,
+                height: face.boundingBox.height * scaleY
+            ),
+            faceCenter: CGPoint(x: face.faceCenter.x * scaleX, y: face.faceCenter.y * scaleY),
+            faceWidth: face.faceWidth * scaleX,
+            faceHeight: face.faceHeight * scaleY,
+            leftPupilCenter: face.leftPupilCenter.map { CGPoint(x: $0.x * scaleX, y: $0.y * scaleY) },
+            rightPupilCenter: face.rightPupilCenter.map { CGPoint(x: $0.x * scaleX, y: $0.y * scaleY) },
+            leftEyeWidth: face.leftEyeWidth * scaleX,
+            rightEyeWidth: face.rightEyeWidth * scaleX,
+            leftEyebrowPoints: face.leftEyebrowPoints.map { CGPoint(x: $0.x * scaleX, y: $0.y * scaleY) },
+            rightEyebrowPoints: face.rightEyebrowPoints.map { CGPoint(x: $0.x * scaleX, y: $0.y * scaleY) },
+            faceContourPoints: face.faceContourPoints.map { CGPoint(x: $0.x * scaleX, y: $0.y * scaleY) },
+            normalizedBoundingBox: face.normalizedBoundingBox
+        )
+    }
+
     private var previewWorkItem: DispatchWorkItem?
     private var previewDebounceItem: DispatchWorkItem?
     private var previewSourceCGImage: CGImage?
@@ -166,15 +272,29 @@ class EditorViewModel {
     }
 
     func updatePreviewImage(debounce: Bool = false) {
+        updateCombinedPreview(debounce: debounce)
+    }
+
+    /// Unified preview that applies both visual effects and face effects together.
+    private func updateCombinedPreview(debounce: Bool = false) {
         previewDebounceItem?.cancel()
         previewWorkItem?.cancel()
 
-        guard let source = image, !isSplit else {
+        guard let source = image ?? sourceImage else {
             previewImage = nil
             return
         }
-        let effects = activeVisualEffectList
-        guard !effects.isEmpty else {
+
+        if isSplit, case .newImage = content {
+            previewImage = nil
+            return
+        }
+
+        let visualEffects = activeVisualEffectList
+        let faceEffect = activeFaceEffect
+        let face = selectedFace
+
+        guard !visualEffects.isEmpty || (faceEffect != nil && face != nil) else {
             previewImage = nil
             return
         }
@@ -185,20 +305,30 @@ class EditorViewModel {
             let work = DispatchWorkItem { [weak self] in
                 guard let self,
                       let cgImage = self.getPreviewSourceCGImage(from: source) else { return }
-                let ciImage = CIImage(cgImage: cgImage)
+                var result = CIImage(cgImage: cgImage)
 
-                let imgW = ciImage.extent.width
-                let imgH = ciImage.extent.height
-                let vpCenterX = (rect.origin.x + rect.width / 2) * imgW
-                let vpCenterY = (1.0 - (rect.origin.y + rect.height / 2)) * imgH
-                let center = CGPoint(x: vpCenterX, y: vpCenterY)
-
-                var result = ciImage
-                for effect in effects {
-                    result = effect.apply(to: result, progress: 1.0, frameIndex: 0, viewportCenter: center)
+                if let faceEffect, let face {
+                    let orientedWidth = source.size.width * source.scale
+                    let orientedHeight = source.size.height * source.scale
+                    let scaleX = result.extent.width / orientedWidth
+                    let scaleY = result.extent.height / orientedHeight
+                    let scaledFace = self.scaleFace(face, scaleX: scaleX, scaleY: scaleY)
+                    result = faceEffect.apply(to: result, face: scaledFace, progress: 1.0, frameIndex: 0)
                 }
+
+                if !visualEffects.isEmpty {
+                    let imgW = result.extent.width
+                    let imgH = result.extent.height
+                    let vpCenterX = (rect.origin.x + rect.width / 2) * imgW
+                    let vpCenterY = (1.0 - (rect.origin.y + rect.height / 2)) * imgH
+                    let center = CGPoint(x: vpCenterX, y: vpCenterY)
+                    for effect in visualEffects {
+                        result = effect.apply(to: result, progress: 1.0, frameIndex: 0, viewportCenter: center)
+                    }
+                }
+
                 guard let outputCG = self.ciContext.createCGImage(result, from: result.extent) else { return }
-                let uiImage = UIImage(cgImage: outputCG, scale: source.scale, orientation: source.imageOrientation)
+                let uiImage = UIImage(cgImage: outputCG, scale: source.scale, orientation: .up)
                 DispatchQueue.main.async {
                     self.previewImage = uiImage
                 }
@@ -283,6 +413,9 @@ class EditorViewModel {
                 self?.sourceImage = image
                 self?.currentScale = 2.0
                 self?.visibleRect = CGRect(x: 0.15, y: 0.15, width: 0.7, height: 0.7)
+                if self?.selectedEffectCategory == .faceFilters {
+                    self?.detectFacesIfNeeded()
+                }
             }
         }
     }
@@ -317,7 +450,9 @@ class EditorViewModel {
                 visibleRect: visibleRect, animator: animator,
                 speed: playbackSpeed,
                 pauseDuration: Double(pauseDuration),
-                visualEffects: activeVisualEffectList
+                visualEffects: activeVisualEffectList,
+                faceEffect: activeFaceEffect,
+                detectedFace: selectedFace
             ) {
                 let tempDir = FileManager.default.temporaryDirectory
                 let fileURL = tempDir.appendingPathComponent("\(UUID().uuidString).gif")
@@ -361,7 +496,9 @@ class EditorViewModel {
                 visibleRect: visibleRect, animator: animator,
                 speed: playbackSpeed,
                 pauseDuration: Double(pauseDuration),
-                visualEffects: activeVisualEffectList
+                visualEffects: activeVisualEffectList,
+                faceEffect: activeFaceEffect,
+                detectedFace: selectedFace
             ) {
                 let tempDir = FileManager.default.temporaryDirectory
                 let fileURL = tempDir.appendingPathComponent("\(UUID().uuidString).gif")

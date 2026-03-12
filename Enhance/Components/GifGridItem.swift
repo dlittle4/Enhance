@@ -95,7 +95,8 @@ struct GifGridItem: View {
                 kCGImageSourceThumbnailMaxPixelSize: maxPixel,
                 kCGImageSourceShouldCacheImmediately: true
             ]
-            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbOpts as CFDictionary) else {
+            let lastFrameIndex = max(CGImageSourceGetCount(source) - 1, 0)
+            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, lastFrameIndex, thumbOpts as CFDictionary) else {
                 print("Error generating thumbnail for \(url)")
                 return
             }

@@ -28,7 +28,7 @@ public class GIFGenerator: GIFGenerating {
         let pauseFrameDelay: Double
     }
     
-    public func generateGIF(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double = 1.0, pauseDuration: Double = 1.0, visualEffects: [VisualEffect] = []) -> Data? {
+    func generateGIF(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double = 1.0, pauseDuration: Double = 1.0, visualEffects: [VisualEffect] = [], faceEffect: FaceEffect? = nil, detectedFace: DetectedFace? = nil) -> Data? {
         guard let context = prepareDrawingContext(from: image, currentScale: currentScale, visibleRect: visibleRect, speed: speed, pauseDuration: pauseDuration) else {
             return nil
         }
@@ -38,8 +38,8 @@ public class GIFGenerator: GIFGenerating {
             return nil
         }
 
-        addAnimatedFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects)
-        addPauseFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects)
+        addAnimatedFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects, faceEffect: faceEffect, detectedFace: detectedFace)
+        addPauseFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects, faceEffect: faceEffect, detectedFace: detectedFace)
 
         if CGImageDestinationFinalize(destination) {
             return data as Data
@@ -108,7 +108,7 @@ public class GIFGenerator: GIFGenerating {
         return destination
     }
 
-    private func addAnimatedFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect]) {
+    private func addAnimatedFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], faceEffect: FaceEffect? = nil, detectedFace: DetectedFace? = nil) {
         for i in 0..<context.frameCount {
             let frameProgress = CGFloat(i) / CGFloat(context.frameCount - 1)
             let frameParams = animator.animationParameters(for: frameProgress, in: context)
@@ -118,7 +118,8 @@ public class GIFGenerator: GIFGenerating {
                 outputSize: context.outputSize
             )
 
-            if let frameImage = createFrameImage(transform: transform, context: context) {
+            let sourceForFrame = faceEffectedSource(context: context, effect: faceEffect, face: detectedFace, progress: frameProgress, frameIndex: i)
+            if let frameImage = createFrameImage(transform: transform, context: context, sourceOverride: sourceForFrame) {
                 let outputImage = applyVisualEffects(frameImage, effects: visualEffects, progress: frameProgress, frameIndex: i)
                 let frameProperties: [String: Any] = [
                     kCGImagePropertyGIFDictionary as String: [
@@ -131,13 +132,14 @@ public class GIFGenerator: GIFGenerating {
         }
     }
 
-    private func addPauseFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect]) {
+    private func addPauseFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], faceEffect: FaceEffect? = nil, detectedFace: DetectedFace? = nil) {
         let finalParams = animator.animationParameters(for: 1.0, in: context)
         let finalTransform = calculateTransformForFrame(
             params: finalParams, drawRect: context.drawRect, outputSize: context.outputSize
         )
 
-        if let finalFrameImage = createFrameImage(transform: finalTransform, context: context) {
+        let sourceForFrame = faceEffectedSource(context: context, effect: faceEffect, face: detectedFace, progress: 1.0, frameIndex: context.frameCount)
+        if let finalFrameImage = createFrameImage(transform: finalTransform, context: context, sourceOverride: sourceForFrame) {
             let outputImage = applyVisualEffects(finalFrameImage, effects: visualEffects, progress: 1.0, frameIndex: context.frameCount)
             for _ in 0..<context.pauseFrameCount {
                 let frameProperties: [String: Any] = [
@@ -151,6 +153,16 @@ public class GIFGenerator: GIFGenerating {
         }
     }
 
+    /// Apply face effect to the full source image so effects are baked in
+    /// before the zoom/crop transform, keeping them fixed on the face.
+    private func faceEffectedSource(context: DrawingContext, effect: FaceEffect?, face: DetectedFace?, progress: CGFloat, frameIndex: Int) -> UIImage? {
+        guard let effect, let face, let cgImage = context.normalizedImage.cgImage else { return nil }
+        let ciImage = CIImage(cgImage: cgImage)
+        let result = effect.apply(to: ciImage, face: face, progress: progress, frameIndex: frameIndex)
+        guard let outputCG = ciContext.createCGImage(result, from: result.extent) else { return nil }
+        return UIImage(cgImage: outputCG)
+    }
+
     private func applyVisualEffects(_ cgImage: CGImage, effects: [VisualEffect], progress: CGFloat, frameIndex: Int) -> CGImage {
         guard !effects.isEmpty else { return cgImage }
         var ciImage = CIImage(cgImage: cgImage)
@@ -160,7 +172,7 @@ public class GIFGenerator: GIFGenerating {
         return ciContext.createCGImage(ciImage, from: ciImage.extent) ?? cgImage
     }
 
-    private func createFrameImage(transform: CGAffineTransform, context: DrawingContext) -> CGImage? {
+    private func createFrameImage(transform: CGAffineTransform, context: DrawingContext, sourceOverride: UIImage? = nil) -> CGImage? {
         UIGraphicsBeginImageContextWithOptions(context.outputSize, false, 1.0)
         guard let gfx = UIGraphicsGetCurrentContext() else {
             UIGraphicsEndImageContext()
@@ -171,7 +183,8 @@ public class GIFGenerator: GIFGenerating {
         gfx.fill(CGRect(origin: .zero, size: context.outputSize))
         gfx.clip(to: CGRect(origin: .zero, size: context.outputSize))
         gfx.concatenate(transform)
-        context.normalizedImage.draw(in: context.drawRect)
+        let imageToDraw = sourceOverride ?? context.normalizedImage
+        imageToDraw.draw(in: context.drawRect)
 
         let frameUIImage = UIGraphicsGetImageFromCurrentImageContext()
         UIGraphicsEndImageContext()
