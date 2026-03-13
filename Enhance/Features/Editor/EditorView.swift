@@ -237,15 +237,38 @@ struct EditorView: View {
             content()
                 .clipShape(RoundedRectangle(cornerRadius: innerRadius, style: .continuous))
 
-            RoundedRectangle(cornerRadius: outerRadius, style: .continuous)
-                .fill(mintGreen)
+            TimelineView(.animation) { timeline in
+                let angle = timeline.date.timeIntervalSinceReferenceDate.remainder(dividingBy: 4) * 90
+                AngularGradient(
+                    colors: [
+                        Color(red: 0.231, green: 1.0, blue: 0.988),
+                        Color(red: 0.122, green: 0.773, blue: 0.580),
+                        Color(red: 0.086, green: 0.698, blue: 0.443),
+                        Color(red: 0.537, green: 0.545, blue: 0.722),
+                        Color(red: 0.765, green: 0.467, blue: 0.863),
+                        Color(red: 0.988, green: 0.388, blue: 1.0),
+                        Color(red: 0.765, green: 0.467, blue: 0.863),
+                        Color(red: 0.537, green: 0.545, blue: 0.722),
+                        Color(red: 0.086, green: 0.698, blue: 0.443),
+                        Color(red: 0.122, green: 0.773, blue: 0.580),
+                        Color(red: 0.231, green: 1.0, blue: 0.988)
+                    ],
+                    center: .center,
+                    angle: .degrees(angle)
+                )
                 .frame(width: borderedSize, height: borderedSize)
+                .layerEffect(
+                    ShaderLibrary.pixellate(.float(CGFloat(8)), .float2(CGSize(width: borderedSize, height: borderedSize))),
+                    maxSampleOffset: CGSize(width: 8, height: 8)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: outerRadius, style: .continuous))
                 .reverseMask {
                     RoundedRectangle(cornerRadius: innerRadius, style: .continuous)
                         .frame(width: canvasSize, height: canvasSize)
                 }
-                .shadow(color: .black.opacity(0.15), radius: 22, x: 0, y: 22)
-                .allowsHitTesting(false)
+            }
+            .shadow(color: .black.opacity(0.15), radius: 22, x: 0, y: 22)
+            .allowsHitTesting(false)
         }
         .frame(width: borderedSize, height: borderedSize)
     }

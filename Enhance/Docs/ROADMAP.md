@@ -1,6 +1,6 @@
 # Enhance (ZoomGif) — Roadmap
 
-> Last updated: 2026-03-13 (session 8)
+> Last updated: 2026-03-13 (session 9)
 
 ## Vision
 
@@ -284,7 +284,7 @@ Each step should feel fast, tactile, and visually satisfying.
 
 ### Phase 12: Performance & Core Polish
 
-- [x] Pan/zoom performance — `.drawingGroup()` rasterizes canvas to Metal texture, removed async binding hop
+- [x] Pan/zoom performance — `.drawingGroup()` rasterizes canvas to Metal texture, removed async binding hop; later replaced with UIScrollView in Phase 13b
 - [x] Face detection — landmarks + rectangles run in parallel to catch side profiles; added `redetect()` support
 - [x] Face detection UI — pulse animation on selected face box outline
 - [x] Gallery press state — bounce/scale effect (0.95x) with brightness dim on tap
@@ -304,6 +304,31 @@ Each step should feel fast, tactile, and visually satisfying.
 - [x] Heart eyes — animated pink hearts over detected pupils with subtle bounce
 - [x] Anime background — radiating speed lines behind the face for dramatic focus
 - [x] Renamed ripple face effect to "Intensify"
+
+### Phase 13b: Editor UX & Performance ✓
+
+**Pinch/zoom performance**
+- [x] Replaced SwiftUI gesture-based pinch/zoom with UIScrollView via UIViewRepresentable for hardware-accelerated 60fps zoom
+- [x] Face box overlays converted to UIView subviews with CAShapeLayer borders and CABasicAnimation pulse
+- [x] Double-tap gesture to toggle zoom between 1x and 2x
+- [x] Fixed preview image swap resetting scroll position (only swap UIImageView.image, don't reconfigure scroll geometry)
+
+**Undo/redo**
+- [x] EditorSnapshot struct capturing all undoable state (effects, sliders, speed, pause, face selection)
+- [x] Undo/redo stacks capped at 50 entries with pushUndo/undo/redo/canUndo/canRedo
+- [x] Slider undo: snapshot captured on drag start, not per frame
+- [x] Reset pushes undo first (reset is undoable)
+- [x] Pixel-art undo/redo SVG icons added to asset catalog as template images
+- [x] Editor top bar redesigned: RESET + undo/redo icons on left, X on right; removed EDIT PHOTO title
+
+**UI polish**
+- [x] Selected button stroke updated to 2pt across all effect carousels and segmented bars
+- [x] Fixed effect carousel clipping (added vertical padding inside ScrollView)
+- [x] Photo border changed from gradient to solid mintGreen, reduced from 10pt to 5pt
+- [x] Button gradient updated to brighter mint green palette matching Figma
+- [x] Button text color changed from white to near-black (#171717) on all gradient-backed buttons
+- [x] SegmentedBar gained onWillChange callback for pre-change hooks
+- [x] Fixed gallery multi-select: simultaneousGesture for long press + tap suppression after long press
 
 ### Phase 14: Onboarding & NUX
 
@@ -331,8 +356,8 @@ Each step should feel fast, tactile, and visually satisfying.
 - [ ] New shader-based effects: wave/ripple, swirl, heat shimmer, pixelation, VHS glitch
 
 **Undo / History**
+- [x] Undo/redo stack for editor (track effect, speed, pause, zoom changes; button to step back/forward) — completed in Phase 13b
 - [ ] UNDO button for existing GIF editing (revert all changes back to the original saved state)
-- [ ] Undo/redo stack for editor (track effect, speed, pause, zoom changes; swipe or button to step back/forward)
 
 **New Animation & Content**
 - [ ] Add Bounce, Dramatic Zoom, Loop Zoom base animation styles

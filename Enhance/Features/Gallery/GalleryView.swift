@@ -19,6 +19,7 @@ struct GalleryView: View {
     @State private var lastGridScale: CGFloat = 1.0
     @State private var isPinching = false
     @State private var showCopiedToast = false
+    @State private var showSettings = false
     @AppStorage("autoPlayGifs") private var autoPlayGifs = true
     @AppStorage("exportFormat") private var exportFormat = "gif"
     @Namespace private var animation
@@ -106,6 +107,9 @@ struct GalleryView: View {
                 dismissButton: .default(Text("OK")) { errorMessage = nil }
             )
         }
+        .sheet(isPresented: $showSettings) {
+            SettingsView(isPresented: $showSettings, autoPlayGifs: $autoPlayGifs)
+        }
         .alert("Delete \(selectedIndices.count) GIF\(selectedIndices.count == 1 ? "" : "s")?", isPresented: $showDeleteConfirmation) {
             Button("Delete", role: .destructive) { deleteSelectedGifs() }
             Button("Cancel", role: .cancel) {}
@@ -125,6 +129,14 @@ struct GalleryView: View {
                 .foregroundColor(.white)
 
             Spacer()
+
+            Button { showSettings = true } label: {
+                Image("icon-settings")
+                    .resizable()
+                    .frame(width: 24, height: 24)
+                    .foregroundColor(.white)
+            }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, 17)
         .padding(.top, 32)
@@ -200,9 +212,10 @@ struct GalleryView: View {
                 }
                 .buttonStyle(.plain)
             } else {
-                Button { autoPlayGifs.toggle() } label: {
-                    Image(systemName: autoPlayGifs ? "pause.fill" : "play.fill")
-                        .font(.system(size: 20))
+                Button { showSettings = true } label: {
+                    Image("icon-settings")
+                        .resizable()
+                        .frame(width: 24, height: 24)
                         .foregroundColor(.white)
                 }
                 .buttonStyle(.plain)

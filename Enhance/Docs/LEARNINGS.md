@@ -808,3 +808,43 @@ Added a red tint overlay using `CIImage(color:)` composited over the shaken imag
 **Fix:** Changed `updateUIView` to only swap `imageView.image` without touching `contentSize`, `zoomScale`, or `contentOffset`. The scroll geometry is configured once in `makeUIView` based on the source image. Since `UIImageView` uses `.scaleAspectFill`, images of different resolutions display identically within the same frame — no content size reconfiguration needed for preview swaps.
 
 **Rule:** In `UIViewRepresentable.updateUIView`, distinguish between state changes that require scroll geometry reconfiguration (source image with different aspect ratio) versus cosmetic updates (preview image swap at same or different resolution). For the latter, only update `UIImageView.image` and leave all scroll view properties untouched. Never use `!==` identity comparison to decide whether to reconfigure layout — preview pipelines create new `UIImage` instances every frame.
+
+---
+
+## 2026-03-13: Snapshot-based undo/redo for editor state
+
+**Problem:** The editor has many interrelated state properties (effect type, intensity, speed, pause, face selection, etc.) and no way to step backward after making changes. Users who accidentally reset or change effects lose their previous configuration.
+
+**Fix:** Created an `EditorSnapshot` struct capturing all undoable state. `EditorViewModel` maintains `undoStack` and `redoStack` arrays (capped at 50 entries). `pushUndo()` is called before every user-initiated change — button taps call it directly, sliders call it on drag start only (via a `sliderUndoPushed` flag) to avoid flooding the stack. `undo()`/`redo()` pop from one stack, push to the other, and restore the snapshot. `resetEffects()` pushes undo first so reset itself is undoable.
+
+**Rule:** For undo in a multi-property editor, use lightweight value-type snapshots rather than command objects. Push snapshots *before* changes (not after). For continuous gestures like sliders, push on drag start and use a boolean flag to prevent duplicate pushes during the drag. Cap the stack to prevent unbounded memory growth.
+
+---
+
+## 2026-03-13: SegmentedBar onWillChange for pre-mutation hooks
+
+**Problem:** `SegmentedBar` writes to a `@Binding` inside its button action. Undo requires capturing state *before* the binding changes, but the `onChange` callback fires *after* the write.
+
+**Fix:** Added an `onWillChange` closure parameter to `SegmentedBar` that fires before the binding is updated. Also added a `guard selection != item` to skip the callback when tapping the already-selected item. This gives callers a clean pre-mutation hook for undo pushes.
+
+**Rule:** When a reusable component writes to a binding and callers need a pre-mutation hook, add an explicit `onWillChange` callback that fires before the binding write. Don't rely on SwiftUI's `.onChange(of:)` view modifier — it fires after the state change.
+
+---
+
+## 2026-03-13: SwiftUI Button + onLongPressGesture conflict
+
+**Problem:** In the gallery grid, `GifGridItem` uses a `Button` for tap handling and `.onLongPressGesture` for entering multi-select mode. When the long press fires and the finger lifts, the `Button`'s tap action also fires — causing `enterSelectMode` to add the index and `toggleSelection` to immediately remove it, exiting select mode.
+
+**Fix:** Two changes: (1) Replaced `.onLongPressGesture` with `.simultaneousGesture(LongPressGesture(...))` so both gestures can coexist. (2) Added a `@State var longPressTriggered` flag — set `true` when long press fires, checked and reset in the button action to suppress the phantom tap.
+
+**Rule:** Never combine SwiftUI `Button` with `.onLongPressGesture` on the same view — the long press end will trigger the button tap. Use `.simultaneousGesture(LongPressGesture)` instead, and add a flag to suppress the tap that fires on finger-up after a long press.
+
+---
+
+## 2026-03-13: SVG fill-opacity compounds with SwiftUI template rendering
+
+**Problem:** Custom pixel-art SVG icons added to the asset catalog as template images appeared gray instead of white, even with `.foregroundColor(.white)`. The SVGs had `fill-opacity="0.5"` baked into every rect element.
+
+**Fix:** Removed `fill-opacity="0.5"` from all SVG rects, setting them to solid `fill="white"`. Template rendering uses the SVG's alpha channel as a mask — the 50% opacity in the SVG compounded with the SwiftUI foreground color, making the icons permanently dimmed.
+
+**Rule:** When using SVG assets with `template-rendering-intent: template`, ensure all fill elements use full opacity (`fill-opacity="1.0"` or omit it). Control opacity exclusively via SwiftUI's `.foregroundColor` or `.opacity` modifiers. Any alpha baked into the SVG source will multiply with the runtime tint.

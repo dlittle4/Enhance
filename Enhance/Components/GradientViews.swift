@@ -3,72 +3,45 @@ import SwiftUI
 // MARK: - Button Background Gradient
 // This gradient creates a smooth, diffused effect using MeshGradient
 struct SimpleGradientBackground: View {
-    // Configuration parameters
     var width: Int = 3
     var height: Int = 3
-    // Two sets of colors to toggle between.
     var primaryColors: [Color] = [
-        Color(red: 0.376, green: 1.0, blue: 0.659),   Color(red: 0.37, green: 0.93, blue: 0.62),   Color(red: 0.35, green: 0.75, blue: 0.50),
-        Color(red: 0.37, green: 0.93, blue: 0.62),    Color(red: 0.35, green: 0.85, blue: 0.55),   Color(red: 0.32, green: 0.60, blue: 0.42),
-        Color(red: 0.35, green: 0.80, blue: 0.55),    Color(red: 0.33, green: 0.65, blue: 0.45),   Color(red: 0.31, green: 0.44, blue: 0.37)
+        Color(red: 0.231, green: 1.0, blue: 0.988),   Color(red: 0.122, green: 0.773, blue: 0.580),  Color(red: 0.765, green: 0.467, blue: 0.863),
+        Color(red: 0.157, green: 0.851, blue: 0.714),  Color(red: 0.086, green: 0.698, blue: 0.443),  Color(red: 0.988, green: 0.388, blue: 1.0),
+        Color(red: 0.231, green: 1.0, blue: 0.988),   Color(red: 0.196, green: 0.659, blue: 0.514),  Color(red: 0.537, green: 0.545, blue: 0.722)
     ]
     var secondaryColors: [Color] = [
-        Color(red: 0.37, green: 0.95, blue: 0.63),   Color(red: 0.376, green: 1.0, blue: 0.659),   Color(red: 0.37, green: 0.85, blue: 0.58),
-        Color(red: 0.376, green: 1.0, blue: 0.659),   Color(red: 0.37, green: 0.90, blue: 0.60),    Color(red: 0.34, green: 0.70, blue: 0.48),
-        Color(red: 0.37, green: 0.88, blue: 0.58),    Color(red: 0.35, green: 0.75, blue: 0.50),    Color(red: 0.33, green: 0.55, blue: 0.42)
+        Color(red: 0.157, green: 0.851, blue: 0.714),  Color(red: 0.086, green: 0.698, blue: 0.443),  Color(red: 0.988, green: 0.388, blue: 1.0),
+        Color(red: 0.231, green: 1.0, blue: 0.988),   Color(red: 0.196, green: 0.659, blue: 0.514),  Color(red: 0.765, green: 0.467, blue: 0.863),
+        Color(red: 0.157, green: 0.851, blue: 0.714),  Color(red: 0.122, green: 0.773, blue: 0.580),  Color(red: 0.988, green: 0.388, blue: 1.0)
     ]
-    // Animation durations
     var positionAnimationDuration: Double = 3.0
     var colorAnimationDuration: Double = 5.0
-    
-    // Internal state for animations
+    /// Set to a value > 0 to apply GPU pixelation. Larger values = chunkier pixels.
+    var pixelSize: CGFloat = 8
+
     @State private var isAnimating = false
     @State private var isColorToggled = false
     
     var body: some View {
-        ZStack {
-            #if os(iOS) && compiler(>=5.9)
-            if #available(iOS 18.0, *) {
-                MeshGradient(width: width, height: height,
-                             locations: .points([
-                                SIMD2<Float>(0.0, 0.0), SIMD2<Float>(0.5, 0.0), SIMD2<Float>(1.0, 0.0),
-                                SIMD2<Float>(0.0, 0.5), SIMD2<Float>(isAnimating ? 0.1 : 0.8, 0.5), SIMD2<Float>(1.0, isAnimating ? 0.5 : 1.0),
-                                SIMD2<Float>(0.0, 1.0), SIMD2<Float>(0.5, 1.0), SIMD2<Float>(1.0, 1.0)
-                             ]),
-                             colors: .colors(isColorToggled ? secondaryColors : primaryColors),
-                             smoothsColors: true)
-                .opacity(1)
-                .scaleEffect(1)
-            } else {
-                RadialGradient(
-                    gradient: Gradient(colors: [primaryColors[0], primaryColors[4]]),
-                    center: .center,
-                    startRadius: 5,
-                    endRadius: 350
-                )
-                .opacity(0.85)
-                .scaleEffect(2.5)
-            }
-            #else
-            RadialGradient(
-                gradient: Gradient(colors: [primaryColors[0], primaryColors[4]]),
-                center: .center,
-                startRadius: 5,
-                endRadius: 350
+        GeometryReader { geo in
+            MeshGradient(width: width, height: height,
+                         locations: .points([
+                            SIMD2<Float>(0.0, 0.0), SIMD2<Float>(0.5, 0.0), SIMD2<Float>(1.0, 0.0),
+                            SIMD2<Float>(0.0, 0.5), SIMD2<Float>(isAnimating ? 0.1 : 0.8, 0.5), SIMD2<Float>(1.0, isAnimating ? 0.5 : 1.0),
+                            SIMD2<Float>(0.0, 1.0), SIMD2<Float>(0.5, 1.0), SIMD2<Float>(1.0, 1.0)
+                         ]),
+                         colors: .colors(isColorToggled ? secondaryColors : primaryColors),
+                         smoothsColors: true)
+            .layerEffect(
+                ShaderLibrary.pixellate(.float(pixelSize), .float2(geo.size)),
+                maxSampleOffset: CGSize(width: pixelSize, height: pixelSize)
             )
-            .opacity(0.85)
-            .scaleEffect(2.5)
-            #endif
         }
-        .mask(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-        )
         .onAppear {
-            // Animate mesh positions.
             withAnimation(.easeInOut(duration: positionAnimationDuration).repeatForever(autoreverses: true)) {
                 isAnimating.toggle()
             }
-            // Animate between the two color sets.
             withAnimation(.easeInOut(duration: colorAnimationDuration).repeatForever(autoreverses: true)) {
                 isColorToggled.toggle()
             }
