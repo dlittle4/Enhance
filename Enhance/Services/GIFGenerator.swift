@@ -110,24 +110,26 @@ public class GIFGenerator: GIFGenerating {
 
     private func addAnimatedFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], faceEffect: FaceEffect? = nil, detectedFace: DetectedFace? = nil) {
         for i in 0..<context.frameCount {
-            let frameProgress = CGFloat(i) / CGFloat(context.frameCount - 1)
-            let frameParams = animator.animationParameters(for: frameProgress, in: context)
+            autoreleasepool {
+                let frameProgress = CGFloat(i) / CGFloat(context.frameCount - 1)
+                let frameParams = animator.animationParameters(for: frameProgress, in: context)
 
-            let transform = calculateTransformForFrame(
-                params: frameParams, drawRect: context.drawRect,
-                outputSize: context.outputSize
-            )
+                let transform = calculateTransformForFrame(
+                    params: frameParams, drawRect: context.drawRect,
+                    outputSize: context.outputSize
+                )
 
-            let sourceForFrame = faceEffectedSource(context: context, effect: faceEffect, face: detectedFace, progress: frameProgress, frameIndex: i)
-            if let frameImage = createFrameImage(transform: transform, context: context, sourceOverride: sourceForFrame) {
-                let outputImage = applyVisualEffects(frameImage, effects: visualEffects, progress: frameProgress, frameIndex: i)
-                let frameProperties: [String: Any] = [
-                    kCGImagePropertyGIFDictionary as String: [
-                        kCGImagePropertyGIFDelayTime as String: context.frameDelay,
-                        kCGImagePropertyGIFHasGlobalColorMap as String: true
+                let sourceForFrame = faceEffectedSource(context: context, effect: faceEffect, face: detectedFace, progress: frameProgress, frameIndex: i)
+                if let frameImage = createFrameImage(transform: transform, context: context, sourceOverride: sourceForFrame) {
+                    let outputImage = applyVisualEffects(frameImage, effects: visualEffects, progress: frameProgress, frameIndex: i)
+                    let frameProperties: [String: Any] = [
+                        kCGImagePropertyGIFDictionary as String: [
+                            kCGImagePropertyGIFDelayTime as String: context.frameDelay,
+                            kCGImagePropertyGIFHasGlobalColorMap as String: true
+                        ]
                     ]
-                ]
-                CGImageDestinationAddImage(destination, outputImage, frameProperties as CFDictionary)
+                    CGImageDestinationAddImage(destination, outputImage, frameProperties as CFDictionary)
+                }
             }
         }
     }

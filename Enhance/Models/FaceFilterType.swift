@@ -7,13 +7,18 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable {
     case squeeze    = "SQUEEZE"
     case handsome   = "HANDSOME"
 
+    // New face-specific effects
+    case heartVignette = "HEART VIGNETTE"
+    case heartEyes     = "HEART EYES"
+
     // Visual effects adapted for face
     case fisheye    = "FISHEYE"
     case swirl      = "SWIRL"
     case pixelate   = "PIXELATE"
-    case ripple     = "RIPPLE"
+    case ripple     = "INTENSIFY"
     case fadeToBW   = "FADE TO B&W"
     case chromaShift = "CHROMA SHIFT"
+    case rainbow    = "RAINBOW"
 
     var id: String { rawValue }
 
@@ -29,16 +34,18 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable {
 
     /// Whether this filter exposes a second slider.
     var supportsSecondSlider: Bool {
-        self == .googlyEyes || self == .lazerEyes || self == .fisheye
+        self == .googlyEyes || self == .lazerEyes || self == .fisheye || self == .heartVignette || self == .rainbow
     }
 
     /// Label for the second slider.
     var secondSliderLabel: String {
         switch self {
-        case .lazerEyes:  return "SIZE"
-        case .googlyEyes: return "SPEED"
-        case .fisheye:    return "SIZE"
-        default:          return ""
+        case .lazerEyes:      return "SIZE"
+        case .googlyEyes:     return "SPEED"
+        case .fisheye:        return "SIZE"
+        case .heartVignette:  return "SIZE"
+        case .rainbow:        return "SPEED"
+        default:              return ""
         }
     }
 
@@ -62,12 +69,19 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable {
             case ..<0.75: return "FAST"
             default:      return "HYPER"
             }
-        case .lazerEyes, .fisheye:
+        case .lazerEyes, .fisheye, .heartVignette:
             switch value {
             case ..<0.3:  return "SMALL"
             case ..<0.6:  return "MEDIUM"
             case ..<0.85: return "LARGE"
             default:      return "MAX"
+            }
+        case .rainbow:
+            switch value {
+            case ..<0.25: return "SLOW"
+            case ..<0.5:  return "MEDIUM"
+            case ..<0.75: return "FAST"
+            default:      return "HYPER"
             }
         default:
             return "MEDIUM"
@@ -93,12 +107,16 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable {
         case .squeeze:    return SqueezeEffect(intensity: clamped)
         case .handsome:   return HandsomeEffect(intensity: clamped)
 
+        case .heartVignette: return HeartVignetteEffect(intensity: clamped, size: clampedSecond)
+        case .heartEyes:     return HeartEyesEffect(intensity: clamped)
+
         case .fisheye:    return FaceVisualEffect(effect: FisheyeEffect(intensity: clamped, size: clampedSecond), skipDelay: true)
         case .swirl:      return FaceVisualEffect(effect: SwirlEffect(intensity: clamped), skipDelay: true)
         case .pixelate:   return FaceVisualEffect(effect: PixelateEffect(intensity: clamped), skipDelay: true, passRawProgress: true)
         case .ripple:     return FaceVisualEffect(effect: RippleEffect(intensity: clamped), skipDelay: true)
         case .fadeToBW:   return FaceVisualEffect(effect: FadeToBWEffect(intensity: clamped), skipDelay: true)
         case .chromaShift: return FaceVisualEffect(effect: ChromaticAberrationEffect(intensity: clamped), skipDelay: true)
+        case .rainbow:    return RainbowFaceEffect(intensity: clamped, pulses: clampedSecond)
         }
     }
 }

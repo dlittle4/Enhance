@@ -11,6 +11,7 @@ struct ImageCanvasView: View {
     @State private var lastOffset: CGSize = .zero
     @State private var lastScale: CGFloat = 1.0
     @State private var localVisibleRect: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+    @State private var isPulsing: Bool = false
     
     private let canvasSize: CGFloat = 325
     private let mintGreen = Color(red: 96/255, green: 255/255, blue: 168/255)
@@ -22,6 +23,7 @@ struct ImageCanvasView: View {
                 .aspectRatio(contentMode: .fill)
                 .frame(width: canvasSize, height: canvasSize)
                 .overlay(faceBoxesOverlay)
+                .drawingGroup()
                 .scaleEffect(scale)
                 .onTapGesture(count: 2) {
                     withAnimation(.easeOut(duration: AppConstants.Animation.standard)) {
@@ -45,7 +47,7 @@ struct ImageCanvasView: View {
         .highPriorityGesture(magnificationGesture)
         .onChange(of: scale) { _, _ in calculateVisibleRect() }
         .onChange(of: localVisibleRect) { _, newRect in
-            DispatchQueue.main.async { visibleRect = newRect }
+            visibleRect = newRect
         }
         .onAppear { calculateVisibleRect() }
     }
@@ -72,7 +74,10 @@ struct ImageCanvasView: View {
                     let h = bb.height * renderedH
 
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(face.isSelected ? mintGreen : mintGreen.opacity(0.6), lineWidth: face.isSelected ? 3 : 2)
+                        .stroke(
+                            face.isSelected ? mintGreen.opacity(isPulsing ? 0.4 : 1.0) : mintGreen.opacity(0.6),
+                            lineWidth: face.isSelected ? 3 : 2
+                        )
                         .background(
                             RoundedRectangle(cornerRadius: 8, style: .continuous)
                                 .fill(face.isSelected ? mintGreen.opacity(0.15) : mintGreen.opacity(0.05))
@@ -84,6 +89,8 @@ struct ImageCanvasView: View {
                 }
             }
             .frame(width: renderedW, height: renderedH)
+            .animation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true), value: isPulsing)
+            .onAppear { isPulsing = true }
         }
     }
 

@@ -1,6 +1,6 @@
 # Enhance (ZoomGif) — Roadmap
 
-> Last updated: 2026-03-12 (session 7)
+> Last updated: 2026-03-13 (session 8)
 
 ## Vision
 
@@ -273,10 +273,53 @@ Each step should feel fast, tactile, and visually satisfying.
 - [x] GIF cache limit increased (100→150MB) to accommodate larger decoded frames
 - [x] Full-quality single-column mode — pinch-to-zoom to 1 column renders full resolution GIFs with full framerate (lowQuality: false)
 
-### Phase 11: Future Features
+### Phase 11: Bug Fixes & Stability
+
+- [x] Lock app to portrait orientation only (UIRequiresFullScreen + portrait-only orientations)
+- [x] Delete dead code: GalleryCarouselView.swift
+- [x] Audit and fix force-unwraps in save/generate flow (removed `image!` in `generateGIF`)
+- [x] Debug symbol format set to dwarf-with-dsym for Apple crash reporting
+- [ ] Fix: saving a photo sometimes uses a different photo's frame in the gallery thumbnail
+- [x] Fix: re-editing losing zoom coordinates — separated generation zoom from canvas zoom, persisted via UserDefaults
+
+### Phase 12: Performance & Core Polish
+
+- [x] Pan/zoom performance — `.drawingGroup()` rasterizes canvas to Metal texture, removed async binding hop
+- [x] Face detection — landmarks + rectangles run in parallel to catch side profiles; added `redetect()` support
+- [x] Face detection UI — pulse animation on selected face box outline
+- [x] Gallery press state — bounce/scale effect (0.95x) with brightness dim on tap
+- [x] Haptic feedback — `HapticService` utility with light/medium/heavy/selection/success/error; wired to gallery taps, long-press, pinch, editor buttons, effect toggles, face selection, save success
+
+### Phase 13: Effect Cleanup & New Effects ✓
+
+**Image effects**
+- [x] Added rainbow gradient overlay/animation effect (diagonal sweep, intensity controls opacity)
+- [x] Removed scanlines effect (deleted ScanlinesEffect.swift)
+- [x] Removed fade to B&W image effect (kept FadeToBWEffect for face filter use)
+- [x] Removed ripple image effect (kept RippleEffect for face filter use as "Intensify")
+- [x] Cleaned up stale GlitchEffect.swift
+
+**Face effects**
+- [x] Heart vignette — heart-shaped darkened vignette around the face, feathered edges
+- [x] Heart eyes — animated pink hearts over detected pupils with subtle bounce
+- [x] Anime background — radiating speed lines behind the face for dramatic focus
+- [x] Renamed ripple face effect to "Intensify"
+
+### Phase 14: Onboarding & NUX
+
+- [ ] Add 5 default onboarding photos to show how the app works (think Tom from MySpace)
+- [ ] Viral unlock: "Give the gift of a GIF" — send a GIF to unlock face effects
+
+### Phase 15: Customization & Themes
+
+- [ ] Custom app icons (pick a GIF from gallery, set thumbnail as app icon)
+- [ ] Custom app themes (fonts and colors)
+- [ ] Create custom pixel-art icons for remaining UI elements
+
+### Phase 16: Future Features
 
 **Editor UX**
-- [ ] Refine face detection UI
+- [ ] Fix copy text for action buttons
 - [ ] Stateful save button (show saving state, success confirmation, error feedback)
 - [ ] Pause/edit during animation preview (pause playback, adjust zoom point, resume)
 - [ ] Fix RESET/X spacing in editor header (RESET looks like a label for X — add visual separation)
@@ -297,12 +340,6 @@ Each step should feel fast, tactile, and visually satisfying.
 
 **Settings & Preferences**
 - [ ] General settings sheet (expandable: auto-play, export format, future preferences)
-
-## Phase 9: Bug Fixes & Polish
-
-- [ ] Fix: re-editing a GIF with existing effects sometimes loses or changes the zoom coordinates
-- [ ] Delete dead code: GalleryCarouselView.swift
-- [ ] Add haptic feedback on key interactions
 
 ---
 

@@ -165,6 +165,7 @@ struct EditorView: View {
                             visibleRect: $viewModel.visibleRect,
                             faceOverlays: activeFaceOverlays,
                             onFaceSelected: { index in
+                                HapticService.selection()
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     viewModel.selectedFaceIndex = viewModel.selectedFaceIndex == index ? nil : index
                                 }
@@ -195,6 +196,7 @@ struct EditorView: View {
                             visibleRect: $viewModel.visibleRect,
                             faceOverlays: activeFaceOverlays,
                             onFaceSelected: { index in
+                                HapticService.selection()
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     viewModel.selectedFaceIndex = viewModel.selectedFaceIndex == index ? nil : index
                                 }
@@ -318,6 +320,7 @@ struct EditorView: View {
     private var speedPauseRow: some View {
         HStack(spacing: 8) {
             Button {
+                HapticService.light()
                 viewModel.cycleSpeed()
             } label: {
                 VStack(spacing: 2) {
@@ -339,6 +342,7 @@ struct EditorView: View {
             .disabled(viewModel.isRegenerating)
 
             Button {
+                HapticService.light()
                 viewModel.cyclePause()
             } label: {
                 VStack(spacing: 2) {
@@ -376,6 +380,7 @@ struct EditorView: View {
     private func visualEffectToggle(_ effectType: VisualEffectType) -> some View {
         let isActive = viewModel.selectedVisualEffect == effectType
         return Button {
+            HapticService.light()
             withAnimation(.easeInOut(duration: 0.2)) {
                 viewModel.selectedVisualEffect = isActive ? nil : effectType
             }
@@ -499,6 +504,7 @@ struct EditorView: View {
     private func faceFilterToggle(_ filterType: FaceFilterType) -> some View {
         let isActive = viewModel.selectedFaceFilter == filterType
         return Button {
+            HapticService.light()
             withAnimation(.easeInOut(duration: 0.2)) {
                 viewModel.selectedFaceFilter = isActive ? nil : filterType
             }
@@ -622,6 +628,7 @@ struct EditorView: View {
     private func effectCategoryIcon(_ assetName: String, category: EffectCategory) -> some View {
         let isActive = viewModel.selectedEffectCategory == category
         return Button {
+            HapticService.selection()
             withAnimation(.easeInOut(duration: 0.2)) {
                 viewModel.selectedEffectCategory = category
             }
@@ -639,6 +646,7 @@ struct EditorView: View {
         ZStack {
             if !viewModel.isSplit {
                 Button {
+                    HapticService.heavy()
                     viewModel.generateGIF()
                 } label: {
                     Text(viewModel.enhanceState == .generating ? "GENERATING..." : "ENHANCE")

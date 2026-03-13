@@ -758,3 +758,33 @@ Added a red tint overlay using `CIImage(color:)` composited over the shaken imag
 **Fix:** Increased frame count to 30 (`count/30`), resolution to 350px, and GIF cache to 150MB. Also made quality adaptive based on grid layout: single-column mode (zoomed in via pinch) renders at full resolution with full framerate (`lowQuality: false`), while multi-column layouts keep the optimized mode.
 
 **Rule:** Don't over-optimize for performance without measuring actual impact. Modern devices can handle significantly more decoded image data than early optimization assumptions allow. Make quality adaptive based on context — a single large preview can afford full quality while a grid of 9 thumbnails benefits from optimization.
+
+---
+
+## 2026-03-13: Separating generation zoom from canvas zoom
+
+**Problem:** When re-editing an existing GIF, zoom coordinates were hardcoded (`currentScale = 2.0`, `visibleRect = (0.15, 0.15, 0.7, 0.7)`) regardless of the original zoom point. Additionally, navigating the image in face filter mode (panning/zooming to find faces) would modify `currentScale`/`visibleRect`, causing subsequent GIF regeneration to use the wrong zoom point.
+
+**Fix:** Introduced `generationScale` and `generationVisibleRect` as separate private properties in `EditorViewModel`. `generateGIF()` captures `currentScale`/`visibleRect` into these properties at generation time. `regenerateGIF()` always uses the generation properties, not the live canvas state. For existing GIFs, generation params are restored from UserDefaults (keyed by PHAsset identifier) when available, falling back to hardcoded values for first-time edits.
+
+**Rule:** When a view model property serves dual purposes (display state AND data input to a processing pipeline), split it into two: one for the UI binding and one frozen at the point of commitment. This prevents UI exploration from corrupting processing inputs.
+
+---
+
+## 2026-03-13: CGContext-based overlays for custom shapes in CIImage pipelines
+
+**Problem:** CIImage/CIFilter has no built-in heart shapes, speed lines, or complex geometry primitives. Face effects like heart vignette, heart eyes, and anime background require custom shapes composited onto CIImage.
+
+**Fix:** Render custom shapes into a CGImage via `UIGraphicsBeginImageContextWithOptions` + `CGContext` drawing (Bézier paths for hearts, line strokes for speed lines), convert to CIImage, then composite using `.composited(over:)` or `CIBlendWithMask`. Position by applying `CGAffineTransform(translationX:y:)` to align with face landmarks.
+
+**Rule:** Use CGContext as a bridge when CIFilter lacks the geometric primitives you need. Render to a bitmap at the target resolution, convert to CIImage, then use CIFilter compositing operations to blend. Keep the CGContext rendering isolated in a helper method for testability.
+
+---
+
+## 2026-03-13: Removing effects from enums while keeping underlying implementations
+
+**Problem:** Removing image effects (scanlines, fade to B&W, ripple) from `VisualEffectType` while their underlying effect classes (`FadeToBWEffect`, `RippleEffect`) are still used by `FaceFilterType` via `FaceVisualEffect` adapter.
+
+**Fix:** Removed only the enum cases from `VisualEffectType` and their `switch` branches. Kept the effect implementation files (`FadeToBWEffect.swift`, `RippleEffect.swift`) since they're instantiated directly by `FaceFilterType.effect()`. Only deleted `ScanlinesEffect.swift` (no face filter counterpart) and the stale `GlitchEffect.swift`.
+
+**Rule:** When removing features from a user-facing enum, trace all usages of the underlying implementation before deleting files. An effect class may be used directly by another subsystem even after it's removed from the primary enum.

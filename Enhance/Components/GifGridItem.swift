@@ -1,5 +1,15 @@
 import SwiftUI
 
+/// Press-state style that scales down and dims the grid item on tap.
+private struct GifGridItemButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
+            .brightness(configuration.isPressed ? -0.05 : 0)
+            .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
+    }
+}
+
 // Grid item for GIFs
 struct GifGridItem: View {
     let url: URL
@@ -14,42 +24,50 @@ struct GifGridItem: View {
     @State private var thumbnail: UIImage? = nil
 
     var body: some View {
-        ZStack {
-            if let thumbnail = thumbnail {
-                Image(uiImage: thumbnail)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-
-            AnimatedGifViewWithLoading(url: url, contentMode: .scaleAspectFill, lowQuality: lowQuality, isVisible: isVisible && autoPlay)
-                 .opacity(isVisible && autoPlay ? 1 : 0)
-                 .matchedGeometryEffect(id: "gif\(index)", in: namespace)
-        }
-        .aspectRatio(1, contentMode: .fit)
-        .background(Color.black.opacity(0.2))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color(hex: 0x60FFA8), lineWidth: 4)
-                .opacity(isSelected ? 1 : 0)
-        )
-        .shadow(color: Color(white: 0.12, opacity: 0.15), radius: 22, x: 0, y: 22)
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .onTapGesture {
+        Button {
+            HapticService.light()
             onTap()
+        } label: {
+            ZStack {
+                if let thumbnail = thumbnail {
+                    Image(uiImage: thumbnail)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+
+                AnimatedGifViewWithLoading(url: url, contentMode: .scaleAspectFill, lowQuality: lowQuality, isVisible: isVisible && autoPlay)
+                     .opacity(isVisible && autoPlay ? 1 : 0)
+                     .matchedGeometryEffect(id: "gif\(index)", in: namespace)
+            }
+            .aspectRatio(1, contentMode: .fit)
+            .background(Color.black.opacity(0.2))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Color(hex: 0x60FFA8), lineWidth: 4)
+                    .opacity(isSelected ? 1 : 0)
+            )
+            .shadow(color: Color(white: 0.12, opacity: 0.15), radius: 22, x: 0, y: 22)
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
+        .buttonStyle(GifGridItemButtonStyle())
         .onLongPressGesture {
+            HapticService.medium()
             onLongPress?()
         }
         .onAppear {
             isVisible = true
-            loadThumbnail() // Load thumbnail when appearing
+            loadThumbnail()
         }
         .onDisappear {
             isVisible = false
+        }
+        .onChange(of: url) { _, _ in
+            thumbnail = nil
+            loadThumbnail()
         }
         // Use visibility detector to potentially trigger thumbnail load
         // if it wasn't loaded on initial appear for some reason,

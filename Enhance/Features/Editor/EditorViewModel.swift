@@ -15,6 +15,11 @@ class EditorViewModel {
     var lastOffset: CGSize = .zero
     var currentScale: CGFloat = 1.0
     var visibleRect: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+
+    /// Zoom parameters captured at generation time, used for regeneration so that
+    /// navigating in face filter mode doesn't alter the GIF's zoom point.
+    private var generationScale: CGFloat = 1.0
+    private var generationVisibleRect: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)
     
     var enhanceState: EnhanceState = .ready
     var isGenerating: Bool = false
@@ -225,6 +230,25 @@ class EditorViewModel {
         }
     }
 
+    func redetectFaces() {
+        guard !isDetectingFaces else { return }
+        guard let source = image ?? sourceImage else { return }
+
+        detectedFaces = []
+        selectedFaceIndex = nil
+        isDetectingFaces = true
+        Task {
+            let faces = await faceDetectionService.redetect(in: source)
+            await MainActor.run {
+                self.detectedFaces = faces
+                self.isDetectingFaces = false
+                if faces.count == 1 {
+                    self.selectedFaceIndex = 0
+                }
+            }
+        }
+    }
+
     func updateFaceFilterPreview() {
         updateCombinedPreview()
     }
@@ -328,8 +352,9 @@ class EditorViewModel {
                     let vpCenterX = (rect.origin.x + rect.width / 2) * imgW
                     let vpCenterY = (1.0 - (rect.origin.y + rect.height / 2)) * imgH
                     let center = CGPoint(x: vpCenterX, y: vpCenterY)
+                    let previewProg = self.selectedVisualEffect?.previewProgress ?? 1.0
                     for effect in visualEffects {
-                        result = effect.apply(to: result, progress: 1.0, frameIndex: 0, viewportCenter: center)
+                        result = effect.apply(to: result, progress: previewProg, frameIndex: 0, viewportCenter: center)
                     }
                 }
 
@@ -416,18 +441,29 @@ class EditorViewModel {
             }
             let image = UIImage(cgImage: cgImage)
             DispatchQueue.main.async {
-                self?.sourceImage = image
-                self?.currentScale = 2.0
-                self?.visibleRect = CGRect(x: 0.15, y: 0.15, width: 0.7, height: 0.7)
-                if self?.selectedEffectCategory == .faceFilters {
-                    self?.detectFacesIfNeeded()
+                guard let self else { return }
+                self.sourceImage = image
+
+                if let id = self.existingGifAssetIdentifier, let params = Self.loadZoomParams(for: id) {
+                    self.generationScale = params.scale
+                    self.generationVisibleRect = params.rect
+                } else {
+                    self.generationScale = 2.0
+                    self.generationVisibleRect = CGRect(x: 0.15, y: 0.15, width: 0.7, height: 0.7)
+                }
+
+                self.currentScale = self.generationScale
+                self.visibleRect = self.generationVisibleRect
+
+                if self.selectedEffectCategory == .faceFilters {
+                    self.detectFacesIfNeeded()
                 }
             }
         }
     }
     
     func generateGIF() {
-        guard image != nil else {
+        guard let imageToUse = image else {
             showToast("Error: No image selected")
             return
         }
@@ -443,6 +479,9 @@ class EditorViewModel {
             return
         }
         
+        generationScale = currentScale
+        generationVisibleRect = visibleRect
+
         withAnimation(.spring(response: AppConstants.Animation.slow, dampingFraction: 0.7)) {
             enhanceState = .generating
             isGenerating = true
@@ -452,8 +491,8 @@ class EditorViewModel {
             let animator = activeAnimator
             
             if let gifData = gifGenerator.generateGIF(
-                from: image!, currentScale: currentScale,
-                visibleRect: visibleRect, animator: animator,
+                from: imageToUse, currentScale: generationScale,
+                visibleRect: generationVisibleRect, animator: animator,
                 speed: playbackSpeed,
                 pauseDuration: Double(pauseDuration),
                 visualEffects: activeVisualEffectList,
@@ -490,7 +529,7 @@ class EditorViewModel {
     
     func regenerateGIF() {
         let sourceImg: UIImage? = image ?? sourceImage
-        guard let sourceImg, currentScale > 1.0 else { return }
+        guard let sourceImg, generationScale > 1.0 else { return }
         
         withAnimation { isRegenerating = true }
         
@@ -498,8 +537,8 @@ class EditorViewModel {
             let animator = activeAnimator
             
             if let gifData = gifGenerator.generateGIF(
-                from: sourceImg, currentScale: currentScale,
-                visibleRect: visibleRect, animator: animator,
+                from: sourceImg, currentScale: generationScale,
+                visibleRect: generationVisibleRect, animator: animator,
                 speed: playbackSpeed,
                 pauseDuration: Double(pauseDuration),
                 visualEffects: activeVisualEffectList,
@@ -546,6 +585,7 @@ class EditorViewModel {
             DispatchQueue.main.async {
                 guard let self else { return }
                 if success {
+                    HapticService.success()
                     self.showToast("GIF saved to My GIFs")
                     withAnimation(.spring(response: AppConstants.Animation.slow, dampingFraction: 0.7)) {
                         self.enhanceState = .saved
@@ -572,6 +612,7 @@ class EditorViewModel {
             return
         }
         
+        persistZoomParams(for: identifier)
         showToast("Updating GIF...")
         
         photoManager.deleteGifAsset(identifier: identifier) { [weak self] success, error in
@@ -581,6 +622,7 @@ class EditorViewModel {
                     DispatchQueue.main.async {
                         guard let self else { return }
                         if saveSuccess {
+                            HapticService.success()
                             self.showToast("GIF updated")
                             withAnimation(.spring(response: AppConstants.Animation.slow, dampingFraction: 0.7)) {
                                 self.enhanceState = .saved
@@ -612,5 +654,26 @@ class EditorViewModel {
             enhanceState = .ready
             isGenerating = false
         }
+    }
+
+    // MARK: - Zoom Param Persistence
+
+    private static let zoomParamsPrefix = "zoomParams_"
+
+    static func saveZoomParams(scale: CGFloat, rect: CGRect, for identifier: String) {
+        guard !identifier.isEmpty else { return }
+        let values: [Double] = [Double(scale), rect.origin.x, rect.origin.y, rect.width, rect.height]
+        UserDefaults.standard.set(values, forKey: "\(zoomParamsPrefix)\(identifier)")
+    }
+
+    static func loadZoomParams(for identifier: String) -> (scale: CGFloat, rect: CGRect)? {
+        guard !identifier.isEmpty,
+              let values = UserDefaults.standard.array(forKey: "\(zoomParamsPrefix)\(identifier)") as? [Double],
+              values.count == 5 else { return nil }
+        return (CGFloat(values[0]), CGRect(x: values[1], y: values[2], width: values[3], height: values[4]))
+    }
+
+    func persistZoomParams(for identifier: String) {
+        Self.saveZoomParams(scale: generationScale, rect: generationVisibleRect, for: identifier)
     }
 }

@@ -76,7 +76,7 @@ struct EditorViewModelTests {
     
     @Test func hasNonDefaultSettings_afterSelectingVisualEffect_isTrue() {
         let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
-        vm.selectedVisualEffect = .fadeToBW
+        vm.selectedVisualEffect = .chromaShift
         #expect(vm.hasNonDefaultSettings == true)
     }
 

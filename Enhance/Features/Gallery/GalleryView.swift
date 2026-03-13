@@ -17,6 +17,7 @@ struct GalleryView: View {
     @State private var showDeleteConfirmation = false
     @State private var gridScale: CGFloat = 1.0
     @State private var lastGridScale: CGFloat = 1.0
+    @State private var isPinching = false
     @State private var showCopiedToast = false
     @AppStorage("autoPlayGifs") private var autoPlayGifs = true
     @AppStorage("exportFormat") private var exportFormat = "gif"
@@ -221,6 +222,7 @@ struct GalleryView: View {
             .simultaneousGesture(
                 isSelectMode ? nil : MagnificationGesture()
                     .onChanged { value in
+                        isPinching = true
                         let newScale = min(max(1.0, lastGridScale * value), 2.2)
                         gridScale = newScale
                     }
@@ -232,10 +234,14 @@ struct GalleryView: View {
                         else if finalScale < 2.0 { snapped = 1.5 }
                         else { snapped = 2.0 }
 
+                        HapticService.selection()
                         withAnimation(.interactiveSpring(response: 0.35, dampingFraction: 0.86)) {
                             gridScale = snapped
                         }
                         lastGridScale = snapped
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            isPinching = false
+                        }
                     }
             )
 
@@ -256,6 +262,7 @@ struct GalleryView: View {
                                 url: url, index: index,
                                 namespace: animation,
                                 onTap: {
+                                    guard !isPinching else { return }
                                     if isSelectMode {
                                         toggleSelection(at: index)
                                     } else {

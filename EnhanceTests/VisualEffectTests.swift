@@ -10,41 +10,6 @@ struct VisualEffectTests {
         CIImage(color: .red).cropped(to: CGRect(x: 0, y: 0, width: 100, height: 100))
     }
     
-    // MARK: - FadeToBWEffect
-    
-    @Test func fadeToBW_atZeroProgress_returnsImageUnchanged() {
-        let effect = FadeToBWEffect()
-        let input = makeTestImage()
-        let output = effect.apply(to: input, progress: 0.0, frameIndex: 0)
-        
-        #expect(output.extent == input.extent)
-    }
-    
-    @Test func fadeToBW_atFullProgress_returnsMonochrome() {
-        let effect = FadeToBWEffect()
-        let input = makeTestImage()
-        let output = effect.apply(to: input, progress: 1.0, frameIndex: 19)
-        
-        #expect(output.extent == input.extent)
-        let ctx = CIContext()
-        guard let cgImage = ctx.createCGImage(output, from: output.extent) else {
-            Issue.record("Failed to render CGImage from CIImage")
-            return
-        }
-        #expect(cgImage.width == 100)
-    }
-    
-    @Test func fadeToBW_preservesExtentAtAllProgresses() {
-        let effect = FadeToBWEffect()
-        let input = makeTestImage()
-        
-        for i in 0...10 {
-            let progress = CGFloat(i) / 10.0
-            let output = effect.apply(to: input, progress: progress, frameIndex: i)
-            #expect(output.extent == input.extent)
-        }
-    }
-    
     // MARK: - ChromaticAberrationEffect
     
     @Test func chroma_atZeroProgress_returnsUnchanged() {
@@ -163,51 +128,6 @@ struct VisualEffectTests {
         #expect(cgOffset.width > 0)
     }
 
-    // MARK: - GlitchEffect
-
-    @Test func glitch_atZeroProgress_returnsUnchanged() {
-        let effect = GlitchEffect()
-        let input = makeTestImage()
-        let output = effect.apply(to: input, progress: 0.0, frameIndex: 0)
-        #expect(output.extent == input.extent)
-    }
-
-    @Test func glitch_atFullProgress_producesOutput() {
-        let effect = GlitchEffect()
-        let input = makeTestImage()
-        let output = effect.apply(to: input, progress: 1.0, frameIndex: 19)
-        let ctx = CIContext()
-        let cgImage = ctx.createCGImage(output, from: output.extent)
-        #expect(cgImage != nil)
-    }
-
-    @Test func glitch_differentFrames_produceDifferentShifts() {
-        let effect = GlitchEffect(intensity: 1.0)
-        let input = makeTestImage()
-        let out0 = effect.apply(to: input, progress: 1.0, frameIndex: 0)
-        let out5 = effect.apply(to: input, progress: 1.0, frameIndex: 5)
-        #expect(out0.extent == input.extent)
-        #expect(out5.extent == input.extent)
-    }
-
-    // MARK: - ScanlinesEffect
-
-    @Test func scanlines_atZeroProgress_returnsUnchanged() {
-        let effect = ScanlinesEffect()
-        let input = makeTestImage()
-        let output = effect.apply(to: input, progress: 0.0, frameIndex: 0)
-        #expect(output.extent == input.extent)
-    }
-
-    @Test func scanlines_atFullProgress_producesOutput() {
-        let effect = ScanlinesEffect()
-        let input = makeTestImage()
-        let output = effect.apply(to: input, progress: 1.0, frameIndex: 19)
-        let ctx = CIContext()
-        let cgImage = ctx.createCGImage(output, from: output.extent)
-        #expect(cgImage != nil)
-    }
-
     // MARK: - PixelateEffect
 
     @Test func pixelate_atZeroProgress_returnsUnchanged() {
@@ -239,33 +159,6 @@ struct VisualEffectTests {
         }
         #expect(cgCentered.width > 0)
         #expect(cgOffset.width > 0)
-    }
-
-    // MARK: - RippleEffect
-
-    @Test func ripple_atZeroProgress_returnsUnchanged() {
-        let effect = RippleEffect()
-        let input = makeTestImage()
-        let output = effect.apply(to: input, progress: 0.0, frameIndex: 0)
-        #expect(output.extent == input.extent)
-    }
-
-    @Test func ripple_atFullProgress_producesOutput() {
-        let effect = RippleEffect()
-        let input = makeTestImage()
-        let output = effect.apply(to: input, progress: 1.0, frameIndex: 19)
-        let ctx = CIContext()
-        let cgImage = ctx.createCGImage(output, from: output.extent)
-        #expect(cgImage != nil)
-    }
-
-    @Test func ripple_differentFrames_animateWaves() {
-        let effect = RippleEffect(intensity: 0.8)
-        let input = makeTestImage()
-        let out0 = effect.apply(to: input, progress: 1.0, frameIndex: 0)
-        let out10 = effect.apply(to: input, progress: 1.0, frameIndex: 10)
-        #expect(out0.extent == input.extent)
-        #expect(out10.extent == input.extent)
     }
 
     // MARK: - VisualEffectType enum

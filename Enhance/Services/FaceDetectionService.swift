@@ -37,12 +37,8 @@ final class FaceDetectionService {
             imageHeight = CGFloat(cgImage.height)
         }
 
-        // Human detection (three-tier fallback)
+        // Human detection: landmarks + rectangles run in parallel, then CIDetector fallback
         var humanFaces = detectWithLandmarks(cgImage: cgImage, orientation: orientation, imageWidth: imageWidth, imageHeight: imageHeight)
-
-        if humanFaces == nil {
-            humanFaces = detectWithRectanglesOnly(cgImage: cgImage, orientation: orientation, imageWidth: imageWidth, imageHeight: imageHeight)
-        }
 
         if humanFaces == nil {
             humanFaces = detectWithCIDetector(image: image)
@@ -62,28 +58,54 @@ final class FaceDetectionService {
         return result
     }
 
-    /// Primary path: full landmark detection.
+    /// Primary path: run landmarks and rectangles in parallel, merge results.
+    /// Landmarks provide precise eye/brow positions; rectangles catch side profiles
+    /// and partially occluded faces that landmarks miss.
     private func detectWithLandmarks(cgImage: CGImage, orientation: CGImagePropertyOrientation, imageWidth: CGFloat, imageHeight: CGFloat) -> [DetectedFace]? {
-        let request = VNDetectFaceLandmarksRequest()
+        let landmarkRequest = VNDetectFaceLandmarksRequest()
+        let rectRequest = VNDetectFaceRectanglesRequest()
         let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
 
         do {
-            try handler.perform([request])
+            try handler.perform([landmarkRequest, rectRequest])
         } catch {
             #if DEBUG
-            print("FaceDetectionService: landmarks failed, will try rectangles fallback — \(error.localizedDescription)")
+            print("FaceDetectionService: parallel detection failed — \(error.localizedDescription)")
             #endif
             return nil
         }
 
-        guard let observations = request.results, !observations.isEmpty else { return nil }
-
-        return observations.compactMap { obs in
+        let landmarkFaces = (landmarkRequest.results ?? []).compactMap { obs in
             buildDetectedFace(from: obs, imageWidth: imageWidth, imageHeight: imageHeight)
         }
+
+        let rectOnlyFaces = (rectRequest.results ?? []).compactMap { obs in
+            buildEstimatedFace(from: obs, imageWidth: imageWidth, imageHeight: imageHeight)
+        }
+
+        if landmarkFaces.isEmpty && rectOnlyFaces.isEmpty { return nil }
+        if landmarkFaces.isEmpty { return rectOnlyFaces }
+        if rectOnlyFaces.isEmpty { return landmarkFaces }
+
+        // Merge: keep all landmark faces, add rectangle-only faces that don't overlap
+        var merged = landmarkFaces
+        for rectFace in rectOnlyFaces {
+            let overlaps = landmarkFaces.contains { existing in
+                existing.boundingBox.intersects(rectFace.boundingBox)
+            }
+            if !overlaps { merged.append(rectFace) }
+        }
+
+        #if DEBUG
+        if merged.count > landmarkFaces.count {
+            print("FaceDetectionService: rectangles found \(merged.count - landmarkFaces.count) extra face(s) landmarks missed")
+        }
+        #endif
+
+        return merged
     }
 
-    /// Fallback path: bounding-box only detection with estimated landmark positions.
+    /// Standalone rectangle fallback for CIDetector path.
     private func detectWithRectanglesOnly(cgImage: CGImage, orientation: CGImagePropertyOrientation, imageWidth: CGFloat, imageHeight: CGFloat) -> [DetectedFace]? {
         let request = VNDetectFaceRectanglesRequest()
         let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
@@ -543,6 +565,12 @@ final class FaceDetectionService {
             leftEyebrowPoints: leftBrow, rightEyebrowPoints: rightBrow,
             faceContourPoints: contour, normalizedBoundingBox: normalizedBB
         )
+    }
+
+    /// Force re-detection by clearing cache first, then running detection.
+    func redetect(in image: UIImage) async -> [DetectedFace] {
+        clearCache()
+        return await detectFaces(in: image)
     }
 
     func clearCache() {
