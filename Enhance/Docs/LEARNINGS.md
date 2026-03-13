@@ -788,3 +788,23 @@ Added a red tint overlay using `CIImage(color:)` composited over the shaken imag
 **Fix:** Removed only the enum cases from `VisualEffectType` and their `switch` branches. Kept the effect implementation files (`FadeToBWEffect.swift`, `RippleEffect.swift`) since they're instantiated directly by `FaceFilterType.effect()`. Only deleted `ScanlinesEffect.swift` (no face filter counterpart) and the stale `GlitchEffect.swift`.
 
 **Rule:** When removing features from a user-facing enum, trace all usages of the underlying implementation before deleting files. An effect class may be used directly by another subsystem even after it's removed from the primary enum.
+
+---
+
+## 2026-03-13: Replacing SwiftUI gestures with UIScrollView for smooth pinch/zoom
+
+**Problem:** The editor canvas used SwiftUI `MagnificationGesture` + `scaleEffect` + `DragGesture` for pinch/zoom. Every gesture frame triggered a full SwiftUI view body re-evaluation, causing janky, laggy zoom — especially with the `ZoomFrameOverlay` minimap and face box overlays also redrawing on each change.
+
+**Fix:** Rewrote `ImageCanvasView` as a two-layer architecture: a `UIViewRepresentable` wrapping `UIScrollView` (with `UIImageView` as zoomable content) for hardware-accelerated `CALayer` transforms, wrapped in a SwiftUI `View` that layers `ZoomFrameOverlay` on top. Face box overlays became `UIView` subviews of the `UIImageView` (scaling naturally with the zoom transform) with `CAShapeLayer` borders and `CABasicAnimation` pulse. The public API stayed identical so `EditorView` required zero changes.
+
+**Rule:** When SwiftUI gesture-driven transforms cause frame drops, replace with `UIScrollView` via `UIViewRepresentable`. UIScrollView provides native 60fps zoom with inertia, rubber-banding, and no layout passes. Keep SwiftUI overlays (like minimaps) outside the `UIViewRepresentable` in a `ZStack`, reading the same bindings.
+
+---
+
+## 2026-03-13: UIViewRepresentable image swap must not reset scroll state
+
+**Problem:** After switching to `UIScrollView`, applying a face effect caused the image to jump to the top-right corner. The effect pipeline generates a new `UIImage` on every preview update, and `updateUIView` detected this via `imageView.image !== image` (identity check), triggering a full content size reconfiguration that reset the scroll offset. The preview images are also downscaled (650px max) compared to the source, so the offset restoration math produced wrong values.
+
+**Fix:** Changed `updateUIView` to only swap `imageView.image` without touching `contentSize`, `zoomScale`, or `contentOffset`. The scroll geometry is configured once in `makeUIView` based on the source image. Since `UIImageView` uses `.scaleAspectFill`, images of different resolutions display identically within the same frame — no content size reconfiguration needed for preview swaps.
+
+**Rule:** In `UIViewRepresentable.updateUIView`, distinguish between state changes that require scroll geometry reconfiguration (source image with different aspect ratio) versus cosmetic updates (preview image swap at same or different resolution). For the latter, only update `UIImageView.image` and leave all scroll view properties untouched. Never use `!==` identity comparison to decide whether to reconfigure layout — preview pipelines create new `UIImage` instances every frame.

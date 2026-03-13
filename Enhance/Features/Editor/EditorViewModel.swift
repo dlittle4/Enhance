@@ -4,6 +4,23 @@ import CoreImage
 import ImageIO
 import Vision
 
+// MARK: - EditorSnapshot
+
+struct EditorSnapshot {
+    let animatorType: AnimatorType
+    let modifier: ModifierType
+    let playbackSpeed: Double
+    let pauseDuration: Int
+    let visualEffect: VisualEffectType?
+    let effectIntensity: Double
+    let effectSize: Double
+    let effectCategory: EffectCategory
+    let faceFilter: FaceFilterType?
+    let faceFilterIntensity: Double
+    let faceFilterSpeed: Double
+    let selectedFaceIndex: Int?
+}
+
 @Observable
 class EditorViewModel {
     var content: DetailContent
@@ -52,6 +69,80 @@ class EditorViewModel {
     var faceFilterSpeed: Double = 0.5
     var isDetectingFaces: Bool = false
     private let faceDetectionService = FaceDetectionService()
+
+    // MARK: - Undo / Redo
+
+    private var undoStack: [EditorSnapshot] = []
+    private var redoStack: [EditorSnapshot] = []
+    private let maxUndoDepth = 50
+
+    var canUndo: Bool { !undoStack.isEmpty }
+    var canRedo: Bool { !redoStack.isEmpty }
+
+    func pushUndo() {
+        undoStack.append(currentSnapshot())
+        if undoStack.count > maxUndoDepth {
+            undoStack.removeFirst()
+        }
+        redoStack.removeAll()
+    }
+
+    func undo() {
+        guard let snapshot = undoStack.popLast() else { return }
+        redoStack.append(currentSnapshot())
+        restore(snapshot)
+    }
+
+    func redo() {
+        guard let snapshot = redoStack.popLast() else { return }
+        undoStack.append(currentSnapshot())
+        restore(snapshot)
+    }
+
+    private func currentSnapshot() -> EditorSnapshot {
+        EditorSnapshot(
+            animatorType: selectedAnimatorType,
+            modifier: selectedModifier,
+            playbackSpeed: playbackSpeed,
+            pauseDuration: pauseDuration,
+            visualEffect: selectedVisualEffect,
+            effectIntensity: effectIntensity,
+            effectSize: effectSize,
+            effectCategory: selectedEffectCategory,
+            faceFilter: selectedFaceFilter,
+            faceFilterIntensity: faceFilterIntensity,
+            faceFilterSpeed: faceFilterSpeed,
+            selectedFaceIndex: selectedFaceIndex
+        )
+    }
+
+    private func restore(_ snapshot: EditorSnapshot) {
+        selectedAnimatorType = snapshot.animatorType
+        selectedModifier = snapshot.modifier
+        playbackSpeed = snapshot.playbackSpeed
+        pauseDuration = snapshot.pauseDuration
+        selectedVisualEffect = snapshot.visualEffect
+        effectIntensity = snapshot.effectIntensity
+        effectSize = snapshot.effectSize
+        selectedEffectCategory = snapshot.effectCategory
+        selectedFaceFilter = snapshot.faceFilter
+        faceFilterIntensity = snapshot.faceFilterIntensity
+        faceFilterSpeed = snapshot.faceFilterSpeed
+        selectedFaceIndex = snapshot.selectedFaceIndex
+
+        updateCombinedPreview()
+
+        if selectedEffectCategory == .faceFilters {
+            detectFacesIfNeeded()
+        }
+
+        if case .existingGif = content {
+            hasModifiedSettings = true
+            regenerateGIF()
+        } else if isSplit {
+            regenerateGIF()
+        }
+    }
 
     var selectedFace: DetectedFace? {
         guard let idx = selectedFaceIndex, idx < detectedFaces.count else { return nil }
@@ -141,6 +232,8 @@ class EditorViewModel {
     }
 
     func resetEffects() {
+        pushUndo()
+
         selectedAnimatorType = .zoomIn
         selectedModifier = .straight
         playbackSpeed = 0.5

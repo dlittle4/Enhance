@@ -22,9 +22,14 @@ struct GifGridItem: View {
     var onLongPress: (() -> Void)? = nil
     @State private var isVisible: Bool = false
     @State private var thumbnail: UIImage? = nil
+    @State private var longPressTriggered: Bool = false
 
     var body: some View {
         Button {
+            if longPressTriggered {
+                longPressTriggered = false
+                return
+            }
             HapticService.light()
             onTap()
         } label: {
@@ -54,10 +59,14 @@ struct GifGridItem: View {
             .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         }
         .buttonStyle(GifGridItemButtonStyle())
-        .onLongPressGesture {
-            HapticService.medium()
-            onLongPress?()
-        }
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.5)
+                .onEnded { _ in
+                    longPressTriggered = true
+                    HapticService.medium()
+                    onLongPress?()
+                }
+        )
         .onAppear {
             isVisible = true
             loadThumbnail()

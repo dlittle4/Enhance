@@ -8,14 +8,14 @@ struct SimpleGradientBackground: View {
     var height: Int = 3
     // Two sets of colors to toggle between.
     var primaryColors: [Color] = [
-        Color(red: 0.0, green: 0.28, blue: 0.30),   Color(red: 0.0, green: 0.45, blue: 0.30),   Color(red: 0.0, green: 0.30, blue: 0.40),
-        Color(red: 0.10, green: 0.55, blue: 0.40),   Color(red: 0.0, green: 0.48, blue: 0.35),   Color(red: 0.0, green: 0.35, blue: 0.45),
-        Color(red: 0.0, green: 0.25, blue: 0.35),   Color(red: 0.0, green: 0.42, blue: 0.28),   Color(red: 0.0, green: 0.30, blue: 0.22)
+        Color(red: 0.376, green: 1.0, blue: 0.659),   Color(red: 0.37, green: 0.93, blue: 0.62),   Color(red: 0.35, green: 0.75, blue: 0.50),
+        Color(red: 0.37, green: 0.93, blue: 0.62),    Color(red: 0.35, green: 0.85, blue: 0.55),   Color(red: 0.32, green: 0.60, blue: 0.42),
+        Color(red: 0.35, green: 0.80, blue: 0.55),    Color(red: 0.33, green: 0.65, blue: 0.45),   Color(red: 0.31, green: 0.44, blue: 0.37)
     ]
     var secondaryColors: [Color] = [
-        Color(red: 0.10, green: 0.65, blue: 0.55),   Color(red: 0.22, green: 0.75, blue: 0.52),   Color(red: 0.30, green: 0.85, blue: 0.58),
-        Color(red: 0.12, green: 0.60, blue: 0.65),   Color(red: 0.30, green: 0.85, blue: 0.58),   Color(red: 0.15, green: 0.70, blue: 0.70),
-        Color(red: 0.08, green: 0.50, blue: 0.55),   Color(red: 0.18, green: 0.70, blue: 0.48),   Color(red: 0.10, green: 0.55, blue: 0.45)
+        Color(red: 0.37, green: 0.95, blue: 0.63),   Color(red: 0.376, green: 1.0, blue: 0.659),   Color(red: 0.37, green: 0.85, blue: 0.58),
+        Color(red: 0.376, green: 1.0, blue: 0.659),   Color(red: 0.37, green: 0.90, blue: 0.60),    Color(red: 0.34, green: 0.70, blue: 0.48),
+        Color(red: 0.37, green: 0.88, blue: 0.58),    Color(red: 0.35, green: 0.75, blue: 0.50),    Color(red: 0.33, green: 0.55, blue: 0.42)
     ]
     // Animation durations
     var positionAnimationDuration: Double = 3.0

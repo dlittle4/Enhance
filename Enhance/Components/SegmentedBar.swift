@@ -5,6 +5,7 @@ struct SegmentedBar<T: Hashable>: View {
     @Binding var selection: T
     let label: (T) -> String
     var onChange: (() -> Void)? = nil
+    var onWillChange: (() -> Void)? = nil
 
     private let mintGreen = Color(red: 96/255, green: 255/255, blue: 168/255)
 
@@ -13,6 +14,8 @@ struct SegmentedBar<T: Hashable>: View {
             ForEach(items, id: \.self) { item in
                 let isSelected = selection == item
                 Button {
+                    guard selection != item else { return }
+                    onWillChange?()
                     withAnimation(.easeOut(duration: AppConstants.Animation.quick)) {
                         selection = item
                     }
@@ -29,7 +32,7 @@ struct SegmentedBar<T: Hashable>: View {
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(isSelected ? mintGreen : .clear, lineWidth: 1)
+                                .stroke(isSelected ? mintGreen : .clear, lineWidth: 2)
                         )
                 }
                 .buttonStyle(.plain)

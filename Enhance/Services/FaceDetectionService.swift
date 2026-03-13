@@ -433,7 +433,7 @@ final class FaceDetectionService {
         }
 
         // Bounding box from all head points + derived eyes
-        var boxPts = allHeadPts + [leftEye, rightEye]
+        let boxPts = allHeadPts + [leftEye, rightEye]
         let xs = boxPts.map(\.x)
         let ys = boxPts.map(\.y)
         guard let minX = xs.min(), let maxX = xs.max(),

@@ -145,7 +145,7 @@ struct GalleryView: View {
             PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
                 Text("CREATE YOUR FIRST GIF")
                     .font(.custom("Silkscreen-Regular", size: 17))
-                    .foregroundColor(.white)
+                    .foregroundColor(Color(red: 0.09, green: 0.09, blue: 0.09))
                     .frame(width: 361, height: 60)
                     .background(
                         SimpleGradientBackground()
@@ -304,7 +304,7 @@ struct GalleryView: View {
         PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
             Text("MAKE A GIF")
                 .font(.custom("Silkscreen-Regular", size: 16))
-                .foregroundColor(.white)
+                .foregroundColor(Color(red: 0.09, green: 0.09, blue: 0.09))
                 .frame(maxWidth: .infinity)
                 .frame(height: 60)
                 .background(

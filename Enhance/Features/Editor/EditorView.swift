@@ -8,13 +8,14 @@ struct EditorView: View {
     @EnvironmentObject var photoManager: PhotoManager
 
     private let canvasSize: CGFloat = 325
-    private let borderInset: CGFloat = 10
+    private let borderInset: CGFloat = 5
     private let outerRadius: CGFloat = 28
     private var innerRadius: CGFloat { outerRadius - borderInset }
     private var borderedSize: CGFloat { canvasSize + borderInset * 2 }
 
     private let mintGreen = Color(red: 96/255, green: 255/255, blue: 168/255)
     private let buttonHeight: CGFloat = 60
+    @State private var sliderUndoPushed = false
 
     var body: some View {
         ZStack {
@@ -118,22 +119,38 @@ struct EditorView: View {
     // MARK: - Top Bar
 
     private var topBar: some View {
-        HStack {
-            Text(viewModel.existingGifURL != nil ? "EDIT GIF" : "EDIT PHOTO")
-                .font(.custom("Silkscreen-Bold", size: 16))
-                .foregroundColor(.white)
+        HStack(spacing: 0) {
+            HStack(spacing: 24) {
+                if viewModel.hasNonDefaultSettings {
+                    Button {
+                        viewModel.resetEffects()
+                    } label: {
+                        Text("RESET")
+                            .font(.custom("Silkscreen-Bold", size: 16))
+                            .foregroundColor(.white)
+                    }
+                }
+
+                Button {
+                    viewModel.undo()
+                } label: {
+                    Image("icon-undo")
+                        .renderingMode(.template)
+                        .foregroundColor(.white.opacity(viewModel.canUndo ? 1.0 : 0.3))
+                }
+                .disabled(!viewModel.canUndo)
+
+                Button {
+                    viewModel.redo()
+                } label: {
+                    Image("icon-redo")
+                        .renderingMode(.template)
+                        .foregroundColor(.white.opacity(viewModel.canRedo ? 1.0 : 0.3))
+                }
+                .disabled(!viewModel.canRedo)
+            }
 
             Spacer()
-
-            if viewModel.hasNonDefaultSettings {
-                Button {
-                    viewModel.resetEffects()
-                } label: {
-                    Text("RESET")
-                        .font(.custom("Silkscreen-Regular", size: 16))
-                        .foregroundColor(.white)
-                }
-            }
 
             Button {
                 withAnimation(.spring(response: AppConstants.Animation.standard, dampingFraction: 0.8)) {
@@ -165,6 +182,7 @@ struct EditorView: View {
                             visibleRect: $viewModel.visibleRect,
                             faceOverlays: activeFaceOverlays,
                             onFaceSelected: { index in
+                                viewModel.pushUndo()
                                 HapticService.selection()
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     viewModel.selectedFaceIndex = viewModel.selectedFaceIndex == index ? nil : index
@@ -196,6 +214,7 @@ struct EditorView: View {
                             visibleRect: $viewModel.visibleRect,
                             faceOverlays: activeFaceOverlays,
                             onFaceSelected: { index in
+                                viewModel.pushUndo()
                                 HapticService.selection()
                                 withAnimation(.easeInOut(duration: 0.2)) {
                                     viewModel.selectedFaceIndex = viewModel.selectedFaceIndex == index ? nil : index
@@ -218,12 +237,9 @@ struct EditorView: View {
             content()
                 .clipShape(RoundedRectangle(cornerRadius: innerRadius, style: .continuous))
 
-            SimpleGradientBackground()
+            RoundedRectangle(cornerRadius: outerRadius, style: .continuous)
+                .fill(mintGreen)
                 .frame(width: borderedSize, height: borderedSize)
-                .mask(
-                    RoundedRectangle(cornerRadius: outerRadius, style: .continuous)
-                        .frame(width: borderedSize, height: borderedSize)
-                )
                 .reverseMask {
                     RoundedRectangle(cornerRadius: innerRadius, style: .continuous)
                         .frame(width: canvasSize, height: canvasSize)
@@ -302,14 +318,16 @@ struct EditorView: View {
             SegmentedBar(
                 items: AnimatorType.allCases,
                 selection: $viewModel.selectedAnimatorType,
-                label: { $0.rawValue.uppercased() }
+                label: { $0.rawValue.uppercased() },
+                onWillChange: { viewModel.pushUndo() }
             )
             .disabled(viewModel.isRegenerating)
 
             SegmentedBar(
                 items: ModifierType.allCases,
                 selection: $viewModel.selectedModifier,
-                label: { $0.rawValue }
+                label: { $0.rawValue },
+                onWillChange: { viewModel.pushUndo() }
             )
             .disabled(viewModel.isRegenerating)
 
@@ -320,6 +338,7 @@ struct EditorView: View {
     private var speedPauseRow: some View {
         HStack(spacing: 8) {
             Button {
+                viewModel.pushUndo()
                 HapticService.light()
                 viewModel.cycleSpeed()
             } label: {
@@ -342,6 +361,7 @@ struct EditorView: View {
             .disabled(viewModel.isRegenerating)
 
             Button {
+                viewModel.pushUndo()
                 HapticService.light()
                 viewModel.cyclePause()
             } label: {
@@ -374,12 +394,14 @@ struct EditorView: View {
                     visualEffectToggle(effectType)
                 }
             }
+            .padding(.vertical, 2)
         }
     }
 
     private func visualEffectToggle(_ effectType: VisualEffectType) -> some View {
         let isActive = viewModel.selectedVisualEffect == effectType
         return Button {
+            viewModel.pushUndo()
             HapticService.light()
             withAnimation(.easeInOut(duration: 0.2)) {
                 viewModel.selectedVisualEffect = isActive ? nil : effectType
@@ -396,7 +418,7 @@ struct EditorView: View {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(isActive ? mintGreen : .clear, lineWidth: 1)
+                        .stroke(isActive ? mintGreen : .clear, lineWidth: 2)
                 )
         }
         .buttonStyle(.plain)
@@ -434,10 +456,15 @@ struct EditorView: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
+                        if !sliderUndoPushed {
+                            viewModel.pushUndo()
+                            sliderUndoPushed = true
+                        }
                         let newIntensity = max(0.05, min(1.0, value.location.x / geo.size.width))
                         viewModel.effectIntensity = newIntensity
                     }
                     .onEnded { _ in
+                        sliderUndoPushed = false
                         viewModel.onIntensityDragEnded()
                     }
             )
@@ -477,10 +504,15 @@ struct EditorView: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
+                        if !sliderUndoPushed {
+                            viewModel.pushUndo()
+                            sliderUndoPushed = true
+                        }
                         let newSize = max(0.05, min(1.0, value.location.x / geo.size.width))
                         viewModel.effectSize = newSize
                     }
                     .onEnded { _ in
+                        sliderUndoPushed = false
                         viewModel.onSizeDragEnded()
                     }
             )
@@ -498,12 +530,14 @@ struct EditorView: View {
                     faceFilterToggle(filterType)
                 }
             }
+            .padding(.vertical, 2)
         }
     }
 
     private func faceFilterToggle(_ filterType: FaceFilterType) -> some View {
         let isActive = viewModel.selectedFaceFilter == filterType
         return Button {
+            viewModel.pushUndo()
             HapticService.light()
             withAnimation(.easeInOut(duration: 0.2)) {
                 viewModel.selectedFaceFilter = isActive ? nil : filterType
@@ -520,7 +554,7 @@ struct EditorView: View {
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(isActive ? mintGreen : .clear, lineWidth: 1)
+                        .stroke(isActive ? mintGreen : .clear, lineWidth: 2)
                 )
         }
         .buttonStyle(.plain)
@@ -558,10 +592,15 @@ struct EditorView: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
+                        if !sliderUndoPushed {
+                            viewModel.pushUndo()
+                            sliderUndoPushed = true
+                        }
                         let newVal = max(0.05, min(1.0, value.location.x / geo.size.width))
                         viewModel.faceFilterIntensity = newVal
                     }
                     .onEnded { _ in
+                        sliderUndoPushed = false
                         viewModel.onFaceFilterIntensityDragEnded()
                     }
             )
@@ -601,10 +640,15 @@ struct EditorView: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { value in
+                        if !sliderUndoPushed {
+                            viewModel.pushUndo()
+                            sliderUndoPushed = true
+                        }
                         let newVal = max(0.05, min(1.0, value.location.x / geo.size.width))
                         viewModel.faceFilterSpeed = newVal
                     }
                     .onEnded { _ in
+                        sliderUndoPushed = false
                         viewModel.onFaceFilterSpeedDragEnded()
                     }
             )
@@ -628,6 +672,8 @@ struct EditorView: View {
     private func effectCategoryIcon(_ assetName: String, category: EffectCategory) -> some View {
         let isActive = viewModel.selectedEffectCategory == category
         return Button {
+            guard viewModel.selectedEffectCategory != category else { return }
+            viewModel.pushUndo()
             HapticService.selection()
             withAnimation(.easeInOut(duration: 0.2)) {
                 viewModel.selectedEffectCategory = category
@@ -651,7 +697,7 @@ struct EditorView: View {
                 } label: {
                     Text(viewModel.enhanceState == .generating ? "GENERATING..." : "ENHANCE")
                         .font(.silkscreenButtonLabel)
-                        .foregroundColor(.white)
+                        .foregroundColor(Color(red: 0.09, green: 0.09, blue: 0.09))
                         .frame(maxWidth: .infinity)
                         .frame(height: buttonHeight)
                         .background(SimpleGradientBackground())
@@ -698,7 +744,7 @@ struct EditorView: View {
             } label: {
                 Text("SHARE")
                     .font(.silkscreenButtonLabel)
-                    .foregroundColor(.white)
+                    .foregroundColor(Color(red: 0.09, green: 0.09, blue: 0.09))
                     .frame(maxWidth: .infinity)
                     .frame(height: buttonHeight)
                     .background(SimpleGradientBackground())
