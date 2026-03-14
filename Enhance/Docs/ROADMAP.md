@@ -1,6 +1,6 @@
 # Enhance (ZoomGif) — Roadmap
 
-> Last updated: 2026-03-13 (session 9)
+> Last updated: 2026-03-13 (session 11)
 
 ## Vision
 
@@ -330,6 +330,27 @@ Each step should feel fast, tactile, and visually satisfying.
 - [x] SegmentedBar gained onWillChange callback for pre-change hooks
 - [x] Fixed gallery multi-select: simultaneousGesture for long press + tap suppression after long press
 
+### Phase 13c: Optional Controls & Laser Colors ✓
+
+**Deselectable zoom and modifier toggles**
+- [x] Replaced SegmentedBar for zoom types (ZOOM IN / ZOOM OUT / PULSE) with individual toggle buttons — tapping a selected item deselects it (no zoom animation)
+- [x] Replaced SegmentedBar for modifiers (LINEAR / SHAKE / SPIRAL) with individual toggle buttons — deselecting all means linear/no modifier
+- [x] Renamed ModifierType "STRAIGHT" to "LINEAR" to match Figma
+- [x] Added StaticAnimator — no-op Animator conformance that holds the user's zoom position unchanged
+- [x] Made `selectedAnimatorType` and `selectedModifier` optional in EditorViewModel and EditorSnapshot
+- [x] Effects-only GIF generation: removed hard `currentScale > 1.0` guard from GIFGenerator; users can generate GIFs with visual/face effects without zooming in
+- [x] Validation: zoom-type-selected requires zoom-in; no-zoom requires at least one effect applied
+
+**Laser color picker**
+- [x] LaserColor enum with 6 presets (red #FF0000, yellow #FFE600, green #00CC77, blue #0066FF, purple #AA33DD, magenta #FF2299)
+- [x] LazerEyesEffect parameterized with color — core tinted, inner glow/bloom/flares use selected color
+- [x] FaceFilterType.effect() accepts and forwards laserColor
+- [x] Color picker row (6 circles, 26pt, mint green border on selected) appears below face filter sliders when LAZER EYES is active
+- [x] laserColor included in EditorSnapshot for undo/redo support
+
+**Settings**
+- [x] Hidden themes section from settings sheet (placeholder until design is finalized)
+
 ### Phase 14: Onboarding & NUX
 
 - [ ] Add 5 default onboarding photos to show how the app works (think Tom from MySpace)
@@ -364,7 +385,8 @@ Each step should feel fast, tactile, and visually satisfying.
 - [ ] Text overlays with drag-to-position
 
 **Settings & Preferences**
-- [ ] General settings sheet (expandable: auto-play, export format, future preferences)
+- [x] General settings sheet (expandable: auto-play, app icon selection) — completed in Phase 10 (session 10)
+- [ ] App themes (fonts and colors) — section hidden in settings until design is finalized
 
 ---
 

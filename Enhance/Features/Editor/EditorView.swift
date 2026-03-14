@@ -104,6 +104,16 @@ struct EditorView: View {
                 viewModel.regenerateGIF()
             }
         }
+        .onChange(of: viewModel.laserColor) { _, _ in
+            viewModel.updateFaceFilterPreview()
+            guard !viewModel.isRegenerating else { return }
+            if case .existingGif = viewModel.content {
+                viewModel.hasModifiedSettings = true
+                viewModel.regenerateGIF()
+            } else if viewModel.isSplit {
+                viewModel.regenerateGIF()
+            }
+        }
         .sheet(isPresented: $viewModel.showSaveSheet) {
             saveSheetContent
         }
@@ -316,6 +326,11 @@ struct EditorView: View {
                             faceFilterIntensitySlider
                                 .transition(.opacity)
                         }
+
+                        if filter == .lazerEyes {
+                            laserColorPicker
+                                .transition(.opacity)
+                        }
                     }
                 }
                 .transition(.opacity)
@@ -338,24 +353,105 @@ struct EditorView: View {
 
     private var zoomControlsBars: some View {
         Group {
-            SegmentedBar(
-                items: AnimatorType.allCases,
-                selection: $viewModel.selectedAnimatorType,
-                label: { $0.rawValue.uppercased() },
-                onWillChange: { viewModel.pushUndo() }
-            )
+            HStack(spacing: 8) {
+                ForEach(AnimatorType.allCases) { animType in
+                    zoomToggle(animType)
+                }
+            }
             .disabled(viewModel.isRegenerating)
 
-            SegmentedBar(
-                items: ModifierType.allCases,
-                selection: $viewModel.selectedModifier,
-                label: { $0.rawValue },
-                onWillChange: { viewModel.pushUndo() }
-            )
+            HStack(spacing: 8) {
+                ForEach(ModifierType.allCases) { modType in
+                    modifierToggle(modType)
+                }
+            }
             .disabled(viewModel.isRegenerating)
 
             speedPauseRow
         }
+    }
+
+    private func zoomToggle(_ animType: AnimatorType) -> some View {
+        let isActive = viewModel.selectedAnimatorType == animType
+        return Button {
+            viewModel.pushUndo()
+            HapticService.light()
+            withAnimation(.easeOut(duration: AppConstants.Animation.quick)) {
+                viewModel.selectedAnimatorType = isActive ? nil : animType
+            }
+        } label: {
+            Text(animType.rawValue.uppercased())
+                .font(.silkscreenControl)
+                .foregroundColor(isActive ? mintGreen : .white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 60)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(isActive ? Color(red: 100/255, green: 148/255, blue: 122/255).opacity(0.7) : Color.white.opacity(0.04))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(isActive ? mintGreen : .clear, lineWidth: 2)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func modifierToggle(_ modType: ModifierType) -> some View {
+        let isActive = viewModel.selectedModifier == modType
+        return Button {
+            viewModel.pushUndo()
+            HapticService.light()
+            withAnimation(.easeOut(duration: AppConstants.Animation.quick)) {
+                viewModel.selectedModifier = isActive ? nil : modType
+            }
+        } label: {
+            Text(modType.rawValue)
+                .font(.silkscreenControl)
+                .foregroundColor(isActive ? mintGreen : .white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 60)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(isActive ? Color(red: 100/255, green: 148/255, blue: 122/255).opacity(0.7) : Color.white.opacity(0.04))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(isActive ? mintGreen : .clear, lineWidth: 2)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Laser Color Picker
+
+    private var laserColorPicker: some View {
+        HStack {
+            ForEach(LaserColor.allCases) { color in
+                Spacer()
+                Button {
+                    viewModel.pushUndo()
+                    HapticService.light()
+                    viewModel.laserColor = color
+                } label: {
+                    Circle()
+                        .fill(color.swiftUIColor)
+                        .frame(width: 26, height: 26)
+                        .overlay(
+                            Circle()
+                                .stroke(viewModel.laserColor == color ? mintGreen : .clear, lineWidth: 2)
+                                .frame(width: 32, height: 32)
+                        )
+                }
+                .buttonStyle(.plain)
+                Spacer()
+            }
+        }
+        .frame(height: 44)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        )
     }
 
     private var speedPauseRow: some View {

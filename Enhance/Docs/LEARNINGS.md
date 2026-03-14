@@ -848,3 +848,54 @@ Added a red tint overlay using `CIImage(color:)` composited over the shaken imag
 **Fix:** Removed `fill-opacity="0.5"` from all SVG rects, setting them to solid `fill="white"`. Template rendering uses the SVG's alpha channel as a mask — the 50% opacity in the SVG compounded with the SwiftUI foreground color, making the icons permanently dimmed.
 
 **Rule:** When using SVG assets with `template-rendering-intent: template`, ensure all fill elements use full opacity (`fill-opacity="1.0"` or omit it). Control opacity exclusively via SwiftUI's `.foregroundColor` or `.opacity` modifiers. Any alpha baked into the SVG source will multiply with the runtime tint.
+
+---
+
+## 2026-03-13: Toggle buttons vs segmented bars for optional selection
+
+**Problem:** The zoom type (ZOOM IN / ZOOM OUT / PULSE) and modifier (STRAIGHT / SHAKE / SPIRAL) controls used `SegmentedBar` — a component that always has one item selected. The design called for making all options deselectable so the user can create GIFs with only visual/face effects and no zoom animation.
+
+**Fix:** Replaced `SegmentedBar` (which binds to a non-optional `T`) with inline toggle buttons that bind to optional types (`AnimatorType?`, `ModifierType?`). Tapping a selected button sets the value to `nil`; tapping an unselected one sets it. The toggle button style matches the existing `SegmentedBar` appearance (green-tinted bg, mint border, mint text when selected).
+
+**Key design decision:** Rather than making `SegmentedBar` support optional bindings (which would complicate its API for a single use case), the toggle buttons were built inline in `EditorView` — they reuse the same visual pattern as `visualEffectToggle` and `faceFilterToggle`. This keeps `SegmentedBar` simple for cases where mandatory selection is needed.
+
+**Rule:** When converting from mandatory selection (always-one-selected) to optional selection (deselectable), prefer individual toggle buttons over modifying a segmented control. Optional bindings in segmented controls create confusing UX (which segment shows as "none"?) and complicate the component's generic API.
+
+---
+
+## 2026-03-13: StaticAnimator for effects-only GIF generation
+
+**Problem:** When the user deselects all zoom types, `activeAnimator` had nothing to return. The GIF generator still needs an `Animator` conformant to produce frames — each frame requires `AnimationParameters` (scale, centerX, centerY).
+
+**Fix:** Created `StaticAnimator` — a simple struct conforming to `Animator` that returns `context.userZoomParams` for every progress value. This holds the camera at the user's current zoom position without any movement. When the user hasn't zoomed in (`currentScale = 1.0`), the params represent the full image at 1x scale — each frame shows the identical view while visual/face effects animate over it.
+
+**Rule:** When an animation system requires a non-nil animator but the user wants "no animation," provide an identity/no-op implementation rather than making the animator optional throughout the pipeline. This avoids nil-checking in every consumer (GIF generator, preview, etc.) and keeps the type system clean.
+
+---
+
+## 2026-03-13: Removing the zoom requirement for GIF generation
+
+**Problem:** `GIFGenerator.prepareDrawingContext()` had a hard `guard currentScale > 1.0 else { return nil }` that prevented GIF generation at 1x scale. When the user applied visual/face effects without zooming in, the generator returned nil and the app showed "Error creating GIF."
+
+**Fix:** Two changes:
+1. **GIFGenerator:** Replaced the guard with `let effectiveScale = max(1.0, currentScale)` so the pipeline always proceeds. At 1x scale, the full image is rendered into each frame — effects still animate across frames.
+2. **EditorViewModel:** Added conditional validation in `generateGIF()` — if a zoom type is selected, zoom-in is required; if no zoom type but effects are applied, generation proceeds at 1x; if neither zoom nor effects, shows "Select an effect or zoom type first!" Also relaxed `regenerateGIF()` to allow regeneration at 1x when no zoom type is selected.
+
+**Rule:** When loosening a precondition in a lower-level service (GIF generator), move the user-facing validation to the calling layer (ViewModel) where context about user intent is available. The service should be permissive; the caller should be opinionated about when to invoke it.
+
+---
+
+## 2026-03-13: Parameterizing CIFilter effect colors via enum
+
+**Problem:** `LazerEyesEffect` had hardcoded red CIColor values for all glow layers (core, inner glow, bloom, flares). Adding color selection required replacing 5 separate color values that were carefully tuned relative to each other.
+
+**Fix:** Created a `LaserColor` enum with 6 presets, each providing an `rgb: (CGFloat, CGFloat, CGFloat)` tuple. The effect derives all layer colors from the base RGB:
+- **Core:** `0.5 + color * 0.5` — keeps a white-hot center with a slight tint
+- **Inner glow:** raw color at full saturation
+- **Bloom:** `color * 0.8` — slightly deeper for depth
+- **Narrow flare:** raw color — bright and punchy
+- **Wide flare:** `color * 0.7` — softer atmospheric glow
+
+The enum also provides `swiftUIColor` for the UI picker circles, keeping the color definition in one place.
+
+**Rule:** When parameterizing a multi-layer visual effect with color, define the base color once and derive all layer variants mathematically (multiply for deeper, add white for brighter). Don't store separate color values per layer — the relationships between layers should be formulaic so any base color produces a coherent result.

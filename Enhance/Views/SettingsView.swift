@@ -22,9 +22,6 @@ struct SettingsView: View {
                     autoPlayRow
                     divider
 
-                    themesSection
-                    divider
-
                     appIconSection
                 }
                 .padding(.horizontal, 16)

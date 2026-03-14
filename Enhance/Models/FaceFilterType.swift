@@ -98,11 +98,11 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    func effect(intensity: Double = 0.5, secondValue: Double = 0.5) -> FaceEffect {
+    func effect(intensity: Double = 0.5, secondValue: Double = 0.5, laserColor: LaserColor = .red) -> FaceEffect {
         let clamped = max(0, min(1, intensity))
         let clampedSecond = max(0, min(1, secondValue))
         switch self {
-        case .lazerEyes:  return LazerEyesEffect(intensity: clamped, size: clampedSecond)
+        case .lazerEyes:  return LazerEyesEffect(intensity: clamped, size: clampedSecond, laserColor: laserColor)
         case .googlyEyes: return GooglyEyesEffect(size: clamped, speed: clampedSecond)
         case .squeeze:    return SqueezeEffect(intensity: clamped)
         case .handsome:   return HandsomeEffect(intensity: clamped)

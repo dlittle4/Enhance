@@ -1,7 +1,7 @@
 import Foundation
 
 enum ModifierType: String, CaseIterable, Identifiable, Hashable {
-    case straight = "STRAIGHT"
+    case straight = "LINEAR"
     case shake = "SHAKE"
     case spiral = "SPIRAL"
 

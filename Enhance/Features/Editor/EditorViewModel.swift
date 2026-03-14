@@ -7,8 +7,8 @@ import Vision
 // MARK: - EditorSnapshot
 
 struct EditorSnapshot {
-    let animatorType: AnimatorType
-    let modifier: ModifierType
+    let animatorType: AnimatorType?
+    let modifier: ModifierType?
     let playbackSpeed: Double
     let pauseDuration: Int
     let visualEffect: VisualEffectType?
@@ -19,6 +19,7 @@ struct EditorSnapshot {
     let faceFilterIntensity: Double
     let faceFilterSpeed: Double
     let selectedFaceIndex: Int?
+    let laserColor: LaserColor
 }
 
 @Observable
@@ -47,8 +48,8 @@ class EditorViewModel {
     var showSaveMessage: Bool = false
     var saveMessage: String = ""
     var showControls: Bool = false
-    var selectedAnimatorType: AnimatorType = .zoomIn
-    var selectedModifier: ModifierType = .straight
+    var selectedAnimatorType: AnimatorType? = .zoomIn
+    var selectedModifier: ModifierType? = nil
     var isPlaying: Bool = true
     var playbackSpeed: Double = 0.5
     var pauseDuration: Int = 1
@@ -67,6 +68,7 @@ class EditorViewModel {
     var selectedFaceFilter: FaceFilterType? = nil
     var faceFilterIntensity: Double = 0.5
     var faceFilterSpeed: Double = 0.5
+    var laserColor: LaserColor = .red
     var isDetectingFaces: Bool = false
     private let faceDetectionService = FaceDetectionService()
 
@@ -112,7 +114,8 @@ class EditorViewModel {
             faceFilter: selectedFaceFilter,
             faceFilterIntensity: faceFilterIntensity,
             faceFilterSpeed: faceFilterSpeed,
-            selectedFaceIndex: selectedFaceIndex
+            selectedFaceIndex: selectedFaceIndex,
+            laserColor: laserColor
         )
     }
 
@@ -129,6 +132,7 @@ class EditorViewModel {
         faceFilterIntensity = snapshot.faceFilterIntensity
         faceFilterSpeed = snapshot.faceFilterSpeed
         selectedFaceIndex = snapshot.selectedFaceIndex
+        laserColor = snapshot.laserColor
 
         updateCombinedPreview()
 
@@ -163,7 +167,7 @@ class EditorViewModel {
 
     var activeFaceEffect: FaceEffect? {
         guard let filter = selectedFaceFilter else { return nil }
-        return filter.effect(intensity: faceFilterIntensity, secondValue: faceFilterSpeed)
+        return filter.effect(intensity: faceFilterIntensity, secondValue: faceFilterSpeed, laserColor: laserColor)
     }
 
     var activeVisualEffectList: [VisualEffect] {
@@ -172,19 +176,22 @@ class EditorViewModel {
     }
 
     var activeAnimator: Animator {
-        if selectedModifier == .straight {
-            return selectedAnimatorType.animator
+        guard let animType = selectedAnimatorType else {
+            return StaticAnimator()
         }
-        return CompositeAnimator(base: selectedAnimatorType.animator, modifier: selectedModifier.modifier)
+        guard let mod = selectedModifier, mod != .straight else {
+            return animType.animator
+        }
+        return CompositeAnimator(base: animType.animator, modifier: mod.modifier)
     }
 
     var hasNonDefaultSettings: Bool {
         let hasVisualEffect = selectedVisualEffect != nil
         let hasFaceFilter = selectedFaceFilter != nil
         if case .newImage = content {
-            return selectedAnimatorType != .zoomIn || selectedModifier != .straight || playbackSpeed != 0.5 || pauseDuration != 1 || isSplit || hasVisualEffect || hasFaceFilter
+            return selectedAnimatorType != .zoomIn || selectedModifier != nil || playbackSpeed != 0.5 || pauseDuration != 1 || isSplit || hasVisualEffect || hasFaceFilter
         }
-        return selectedAnimatorType != .zoomIn || selectedModifier != .straight || playbackSpeed != 0.5 || pauseDuration != 1 || hasVisualEffect || hasFaceFilter
+        return selectedAnimatorType != .zoomIn || selectedModifier != nil || playbackSpeed != 0.5 || pauseDuration != 1 || hasVisualEffect || hasFaceFilter
     }
 
     var speedLabel: String {
@@ -235,7 +242,7 @@ class EditorViewModel {
         pushUndo()
 
         selectedAnimatorType = .zoomIn
-        selectedModifier = .straight
+        selectedModifier = nil
         playbackSpeed = 0.5
         pauseDuration = 1
         selectedVisualEffect = nil
@@ -248,6 +255,7 @@ class EditorViewModel {
         selectedFaceIndex = nil
         faceFilterIntensity = 0.5
         faceFilterSpeed = 0.5
+        laserColor = .red
         detectedFaces = []
         faceDetectionService.clearCache()
 
@@ -555,13 +563,20 @@ class EditorViewModel {
         }
     }
     
+    /// Whether the user can generate without zooming in — true when a visual
+    /// effect, face filter, or modifier is applied that will animate on its own.
+    private var hasEffectsWithoutZoom: Bool {
+        selectedVisualEffect != nil || selectedFaceFilter != nil || selectedModifier != nil
+    }
+
     func generateGIF() {
         guard let imageToUse = image else {
             showToast("Error: No image selected")
             return
         }
         
-        if currentScale <= 1.0 {
+        let needsZoom = selectedAnimatorType != nil
+        if needsZoom && currentScale <= 1.0 {
             showToast("Zoom in on the image first!")
             withAnimation(.spring(response: AppConstants.Animation.standard, dampingFraction: 0.6)) {
                 currentScale = 1.2
@@ -569,6 +584,11 @@ class EditorViewModel {
                     withAnimation { self.currentScale = 1.0 }
                 }
             }
+            return
+        }
+
+        if !needsZoom && !hasEffectsWithoutZoom {
+            showToast("Select an effect or zoom type first!")
             return
         }
         
@@ -622,7 +642,8 @@ class EditorViewModel {
     
     func regenerateGIF() {
         let sourceImg: UIImage? = image ?? sourceImage
-        guard let sourceImg, generationScale > 1.0 else { return }
+        let canRegenerate = generationScale > 1.0 || selectedAnimatorType == nil
+        guard let sourceImg, canRegenerate else { return }
         
         withAnimation { isRegenerating = true }
         

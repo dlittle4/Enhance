@@ -64,15 +64,12 @@ public class GIFGenerator: GIFGenerating {
     // MARK: - Private Helpers
 
     private func prepareDrawingContext(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, speed: Double = 1.0, pauseDuration: Double = 1.0) -> DrawingContext? {
-        guard currentScale > 1.0 else {
-            return nil
-        }
-
+        let effectiveScale = max(1.0, currentScale)
         let normalizedImage = fixImageOrientation(image)
         let outputSize = CGSize(width: outputDimension, height: outputDimension)
         let drawRect = calculateDrawRect(imageSize: normalizedImage.size, outputSize: outputSize)
         let (fullViewParams, userZoomParams) = calculateAnimationParameters(
-            drawRect: drawRect, visibleRect: visibleRect, currentScale: currentScale
+            drawRect: drawRect, visibleRect: visibleRect, currentScale: effectiveScale
         )
 
         let clampedSpeed = max(0.25, min(4.0, speed))

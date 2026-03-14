@@ -4,6 +4,13 @@ public protocol Animator {
     func animationParameters(for progress: CGFloat, in context: GIFGenerator.DrawingContext) -> GIFGenerator.AnimationParameters
 }
 
+/// No-op animator that holds the user's zoom position without any movement.
+struct StaticAnimator: Animator {
+    func animationParameters(for progress: CGFloat, in context: GIFGenerator.DrawingContext) -> GIFGenerator.AnimationParameters {
+        context.userZoomParams
+    }
+}
+
 /// Logarithmic scale interpolation produces perceptually uniform zoom speed.
 /// Going from 1x→2x takes the same number of frames as 4x→8x.
 /// Center is interpolated linearly — at low zoom the pan is barely visible,

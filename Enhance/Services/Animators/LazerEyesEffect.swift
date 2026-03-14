@@ -7,10 +7,17 @@ import CoreImage
 struct LazerEyesEffect: FaceEffect {
     private let intensityScale: CGFloat
     private let sizeScale: CGFloat
+    private let colorR: CGFloat
+    private let colorG: CGFloat
+    private let colorB: CGFloat
 
-    init(intensity: Double = 0.5, size: Double = 0.5) {
+    init(intensity: Double = 0.5, size: Double = 0.5, laserColor: LaserColor = .red) {
         self.intensityScale = max(0.1, CGFloat(intensity))
         self.sizeScale = 0.3 + 1.7 * CGFloat(max(0, min(1, size)))
+        let (r, g, b) = laserColor.rgb
+        self.colorR = r
+        self.colorG = g
+        self.colorB = b
     }
 
     func apply(to image: CIImage, face: DetectedFace, progress: CGFloat, frameIndex: Int) -> CIImage {
@@ -44,45 +51,50 @@ struct LazerEyesEffect: FaceEffect {
         let flicker = flickerMultiplier(frameIndex: frameIndex, seed: seed)
         let alpha = opacity * flicker
 
-        // Bright white-hot core at each pupil
+        let coreR = 0.5 + colorR * 0.5
+        let coreG = 0.5 + colorG * 0.5
+        let coreB = 0.5 + colorB * 0.5
+
         let core = makeRadialGlow(
             center: center,
             innerRadius: max(1, coreRadius * 0.5),
             outerRadius: coreRadius,
-            color: CIColor(red: 1.0, green: 0.95, blue: 0.85, alpha: alpha)
+            color: CIColor(red: coreR, green: coreG, blue: coreB, alpha: alpha)
         )
 
-        // Orange-red inner glow
         let innerGlow = makeRadialGlow(
             center: center,
             innerRadius: max(1, glowRadius * 0.15),
             outerRadius: glowRadius,
-            color: CIColor(red: 1.0, green: 0.15, blue: 0.05, alpha: alpha * 0.95)
+            color: CIColor(red: colorR, green: colorG, blue: colorB, alpha: alpha * 0.95)
         )
 
-        // Wide soft red bloom
+        let deepR = colorR * 0.8
+        let deepG = colorG * 0.8
+        let deepB = colorB * 0.8
         let bloom = makeRadialGlow(
             center: center,
             innerRadius: max(1, bloomRadius * 0.08),
             outerRadius: bloomRadius,
-            color: CIColor(red: 0.9, green: 0.03, blue: 0.0, alpha: alpha * 0.5)
+            color: CIColor(red: deepR, green: deepG, blue: deepB, alpha: alpha * 0.5)
         )
 
         let flareWidth = imageWidth * sizeScale
-        // Narrow bright beam
         let narrowFlare = makeHorizontalFlare(
             center: center,
             width: flareWidth,
             height: eyeRadius * 0.4 * intensityScale * sizeScale,
-            color: CIColor(red: 1.0, green: 0.25, blue: 0.1, alpha: alpha * 0.85)
+            color: CIColor(red: colorR, green: colorG, blue: colorB, alpha: alpha * 0.85)
         )
 
-        // Wide soft atmospheric glow beam
+        let softR = colorR * 0.7
+        let softG = colorG * 0.7
+        let softB = colorB * 0.7
         let wideFlare = makeHorizontalFlare(
             center: center,
             width: flareWidth,
             height: eyeRadius * 2.0 * intensityScale * sizeScale,
-            color: CIColor(red: 0.8, green: 0.04, blue: 0.0, alpha: alpha * 0.35)
+            color: CIColor(red: softR, green: softG, blue: softB, alpha: alpha * 0.35)
         )
 
         guard let addFilter = CIFilter(name: "CIAdditionCompositing") else { return image }
