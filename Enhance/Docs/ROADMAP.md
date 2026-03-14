@@ -1,6 +1,6 @@
 # Enhance (ZoomGif) — Roadmap
 
-> Last updated: 2026-03-13 (session 11)
+> Last updated: 2026-03-13 (session 12)
 
 ## Vision
 
@@ -350,6 +350,30 @@ Each step should feel fast, tactile, and visually satisfying.
 
 **Settings**
 - [x] Hidden themes section from settings sheet (placeholder until design is finalized)
+
+### Phase 17: Bug Fixes & Polish ✓
+
+**Bug fixes**
+- [x] "No faces detected" now uses toast pattern instead of static text overlay
+- [x] Fixed regeneration guard blocking effects-only GIFs (scale 1.0) when re-editing existing GIFs
+- [x] Fixed first item in horizontal effect carousels getting clipped when selected (added horizontal padding)
+- [x] Fixed slider fill bar bleeding outside container bounds (changed fill from RoundedRectangle to Rectangle; parent clipShape handles rounding)
+- [x] Reordered effect category tabs: face filters now second (zoom → face → image)
+
+**Heart Eyes dual sliders**
+- [x] Added speed parameter to HeartEyesEffect controlling bounce animation frequency
+- [x] Heart Eyes first slider relabeled from INTENSITY to SIZE
+- [x] Speed buckets: SLOW / MEDIUM / FAST / HYPER
+
+**Editor UX**
+- [x] Auto-dismiss editor 1.5s after successful save (both new save and update original)
+- [x] Scroll position preserved when switching between effect category tabs (ScrollViewReader auto-scrolls to selected effect on tab reappear)
+
+**Gallery UX**
+- [x] Fixed header position shift when entering/exiting multi-select mode (stable left-aligned title with maxWidth frame)
+- [x] Smooth bottom bar transitions between normal and select modes (slide-from-bottom + opacity)
+- [x] Added EnhancePressButtonStyle (ButtonStyle-based) for press animation on PhotosPicker and all gallery buttons
+- [x] Applied consistent press animation to MAKE A GIF, CREATE YOUR FIRST GIF, COPY, SHARE, DELETE buttons
 
 ### Phase 14: Onboarding & NUX
 

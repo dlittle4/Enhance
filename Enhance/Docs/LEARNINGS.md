@@ -899,3 +899,43 @@ Added a red tint overlay using `CIImage(color:)` composited over the shaken imag
 The enum also provides `swiftUIColor` for the UI picker circles, keeping the color definition in one place.
 
 **Rule:** When parameterizing a multi-layer visual effect with color, define the base color once and derive all layer variants mathematically (multiply for deeper, add white for brighter). Don't store separate color values per layer — the relationships between layers should be formulaic so any base color produces a coherent result.
+
+---
+
+## 2026-03-13: Slider fill shape must be Rectangle, not RoundedRectangle
+
+**Problem:** Custom slider bars used a `RoundedRectangle(cornerRadius: 16)` for the fill indicator inside a `ZStack` that was clipped by `.clipShape(RoundedRectangle(cornerRadius: 16))`. At small fill widths, the fill's own rounded corners rendered correctly on the left but on the right edge the fill's independent rounding poked outside the expected region, creating a visible bulge.
+
+**Fix:** Changed the fill shape to `Rectangle()`. The parent `ZStack`'s `.clipShape()` already rounds the outer corners, so the fill only needs to be a flat rectangle that gets masked by the container.
+
+**Rule:** When building custom slider/progress bars with a rounded container, always use `Rectangle()` for the fill and let the parent's `clipShape` handle the rounding. If the fill itself is a `RoundedRectangle`, its corners fight with the container's corners at small and large fill fractions.
+
+---
+
+## 2026-03-13: Regeneration guard must account for effects-only existing GIFs
+
+**Problem:** `regenerateGIF()` had a guard `canRegenerate = generationScale > 1.0 || selectedAnimatorType == nil` that silently failed for existing GIFs that were originally created with effects-only (no zoom, scale = 1.0). When the user re-opened such a GIF and modified settings, `generationScale` was 1.0 (from persisted zoom params) and `selectedAnimatorType` was `.zoomIn` (default), so the guard returned early. The GIF was never regenerated, and saving showed an error.
+
+**Fix:** Added `hasEffectsWithoutZoom` to the guard: `canRegenerate = generationScale > 1.0 || selectedAnimatorType == nil || hasEffectsWithoutZoom`. This allows regeneration at 1x scale when visual effects, face filters, or modifiers are applied.
+
+**Rule:** When a precondition guard in a generation/regeneration path was loosened for the initial generation flow, apply the same loosening to the re-generation flow. Both paths share the same constraints — scale, effects, zoom type — and diverging their guards creates silent regressions for saved content that was produced under the loosened rules.
+
+---
+
+## 2026-03-13: ButtonStyle vs ViewModifier for press animations
+
+**Problem:** The existing `EnhanceButtonPressAnimationModifier` uses `DragGesture(minimumDistance: 0)` via `.simultaneousGesture()` to detect press/release. This works for regular `Button` views but fails with `PhotosPicker` because `PhotosPicker` internally consumes gestures, preventing the `DragGesture` from firing. The "MAKE A GIF" button had no press animation.
+
+**Fix:** Created `EnhancePressButtonStyle` as a `ButtonStyle` conformance that uses `configuration.isPressed` — a system-provided press state that works with all button types including `PhotosPicker`. The `ButtonStyle` approach is applied via `.buttonStyle(EnhancePressButtonStyle())` and doesn't interfere with the control's own gesture handling.
+
+**Rule:** For press animations on standard `Button` views, either approach works. For `PhotosPicker`, `ShareLink`, or any UIKit-bridged control that swallows gestures, you must use `ButtonStyle` with `configuration.isPressed`. Prefer `ButtonStyle` as the universal approach for consistency.
+
+---
+
+## 2026-03-13: ScrollViewReader for restoring carousel scroll position
+
+**Problem:** When switching between effect category tabs (zoom → face → image), the `ScrollView` for each tab is recreated by SwiftUI's conditional rendering (`switch viewModel.selectedEffectCategory`). This means the scroll offset resets to zero every time the user returns to a tab, even if they had scrolled to a specific effect.
+
+**Fix:** Wrapped each horizontal `ScrollView` in a `ScrollViewReader` and added `.onAppear` to auto-scroll to the currently selected effect using `proxy.scrollTo(selected, anchor: .center)` with a small delay (0.05s) to let the layout settle. Each effect toggle is tagged with `.id(effectType)`.
+
+**Rule:** When SwiftUI recreates a `ScrollView` on tab switch, use `ScrollViewReader` + `.onAppear` + `.scrollTo()` to restore position. The `.id()` on each item and a brief async delay are both necessary — without the delay, the scroll target may not be laid out yet.
