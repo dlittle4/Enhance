@@ -6,9 +6,11 @@ import UIKit
 /// Uses the same Heart_XS.svg path as the heart vignette.
 struct HeartEyesEffect: FaceEffect {
     private let sizeScale: CGFloat
+    private let speedMultiplier: CGFloat
 
-    init(intensity: Double = 0.5) {
+    init(intensity: Double = 0.5, speed: Double = 0.5) {
         self.sizeScale = 0.5 + 1.5 * CGFloat(max(0, min(1, intensity)))
+        self.speedMultiplier = 0.3 + 1.7 * CGFloat(max(0, min(1, speed)))
     }
 
     func apply(to image: CIImage, face: DetectedFace, progress: CGFloat, frameIndex: Int) -> CIImage {
@@ -90,7 +92,7 @@ struct HeartEyesEffect: FaceEffect {
     }
 
     private func bounceScale(frameIndex: Int, seed: Int) -> CGFloat {
-        let phase = Double(frameIndex * 3 + seed) * 0.25
+        let phase = Double(frameIndex * 3 + seed) * 0.25 * Double(speedMultiplier)
         return 1.0 + 0.06 * CGFloat(sin(phase))
     }
 }

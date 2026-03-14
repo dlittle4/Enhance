@@ -38,6 +38,11 @@ struct EditorView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + AppConstants.Animation.standard) {
                 withAnimation { viewModel.showControls = true }
             }
+            viewModel.onSaveComplete = {
+                withAnimation(.spring(response: AppConstants.Animation.standard, dampingFraction: 0.8)) {
+                    isPresented = false
+                }
+            }
         }
         .onChange(of: viewModel.selectedAnimatorType) { _, _ in
             guard !viewModel.isRegenerating else { return }
@@ -195,7 +200,12 @@ struct EditorView: View {
                                 viewModel.pushUndo()
                                 HapticService.selection()
                                 withAnimation(.easeInOut(duration: 0.2)) {
-                                    viewModel.selectedFaceIndex = viewModel.selectedFaceIndex == index ? nil : index
+                                    if viewModel.selectedFaceIndex == index {
+                                        viewModel.selectedFaceIndex = nil
+                                        viewModel.clearSingleFaceFilterIfNeeded()
+                                    } else {
+                                        viewModel.selectedFaceIndex = index
+                                    }
                                 }
                                 viewModel.updateFaceFilterPreview()
                             }
@@ -227,7 +237,12 @@ struct EditorView: View {
                                 viewModel.pushUndo()
                                 HapticService.selection()
                                 withAnimation(.easeInOut(duration: 0.2)) {
-                                    viewModel.selectedFaceIndex = viewModel.selectedFaceIndex == index ? nil : index
+                                    if viewModel.selectedFaceIndex == index {
+                                        viewModel.selectedFaceIndex = nil
+                                        viewModel.clearSingleFaceFilterIfNeeded()
+                                    } else {
+                                        viewModel.selectedFaceIndex = index
+                                    }
                                 }
                                 viewModel.updateFaceFilterPreview()
                             }
@@ -507,13 +522,26 @@ struct EditorView: View {
     // MARK: - Visual Effects Grid
 
     private var visualEffectsGrid: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(VisualEffectType.allCases) { effectType in
-                    visualEffectToggle(effectType)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(VisualEffectType.allCases) { effectType in
+                        visualEffectToggle(effectType)
+                            .id(effectType)
+                    }
+                }
+                .padding(.vertical, 2)
+                .padding(.horizontal, 2)
+            }
+            .onAppear {
+                if let selected = viewModel.selectedVisualEffect {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(selected, anchor: .center)
+                        }
+                    }
                 }
             }
-            .padding(.vertical, 2)
         }
     }
 
@@ -555,7 +583,7 @@ struct EditorView: View {
                     .fill(Color(hex: 0x323232))
 
                 HStack(spacing: 0) {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    Rectangle()
                         .fill(mintGreen.opacity(0.3))
                         .frame(width: fillWidth)
 
@@ -603,7 +631,7 @@ struct EditorView: View {
                     .fill(Color(hex: 0x323232))
 
                 HStack(spacing: 0) {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    Rectangle()
                         .fill(mintGreen.opacity(0.3))
                         .frame(width: fillWidth)
 
@@ -643,18 +671,32 @@ struct EditorView: View {
     // MARK: - Face Filters Grid
 
     private var faceFiltersGrid: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(FaceFilterType.allCases) { filterType in
-                    faceFilterToggle(filterType)
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(FaceFilterType.allCases) { filterType in
+                        faceFilterToggle(filterType)
+                            .id(filterType)
+                    }
+                }
+                .padding(.vertical, 2)
+                .padding(.horizontal, 2)
+            }
+            .onAppear {
+                if let selected = viewModel.selectedFaceFilter {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(selected, anchor: .center)
+                        }
+                    }
                 }
             }
-            .padding(.vertical, 2)
         }
     }
 
     private func faceFilterToggle(_ filterType: FaceFilterType) -> some View {
         let isActive = viewModel.selectedFaceFilter == filterType
+        let singleFaceBlocked = filterType.requiresSingleFace && viewModel.activeFaces.count != 1
         return Button {
             viewModel.pushUndo()
             HapticService.light()
@@ -677,7 +719,8 @@ struct EditorView: View {
                 )
         }
         .buttonStyle(.plain)
-        .disabled(viewModel.isRegenerating || viewModel.selectedFace == nil)
+        .disabled(viewModel.isRegenerating || singleFaceBlocked)
+        .opacity(singleFaceBlocked ? 0.35 : 1.0)
     }
 
     // MARK: - Face Filter Intensity Slider
@@ -691,7 +734,7 @@ struct EditorView: View {
                     .fill(Color(hex: 0x323232))
 
                 HStack(spacing: 0) {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    Rectangle()
                         .fill(mintGreen.opacity(0.3))
                         .frame(width: fillWidth)
 
@@ -739,7 +782,7 @@ struct EditorView: View {
                     .fill(Color(hex: 0x323232))
 
                 HStack(spacing: 0) {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    Rectangle()
                         .fill(mintGreen.opacity(0.3))
                         .frame(width: fillWidth)
 
@@ -781,8 +824,8 @@ struct EditorView: View {
     private var effectCategoryTabs: some View {
         HStack(spacing: 48) {
             effectCategoryIcon("icon-zoom-in", category: .zoomEffects)
-            effectCategoryIcon("icon-image", category: .visualEffects)
             effectCategoryIcon("icon-smile", category: .faceFilters)
+            effectCategoryIcon("icon-image", category: .visualEffects)
         }
         .frame(maxWidth: .infinity)
         .frame(height: 42)
@@ -923,23 +966,20 @@ struct EditorView: View {
         if case .newImage = viewModel.content {
             guard !viewModel.isSplit else { return [] }
         }
+        let singleSelected = viewModel.selectedFaceIndex
         return viewModel.detectedFaces.enumerated().map { index, face in
-            (id: face.id, rect: face.normalizedBoundingBox, isSelected: viewModel.selectedFaceIndex == index)
+            let isSelected = singleSelected == nil || singleSelected == index
+            return (id: face.id, rect: face.normalizedBoundingBox, isSelected: isSelected)
         }
     }
 
-    /// Shows status messages for face detection (loading spinner, no faces found).
+    /// Shows a loading spinner while face detection is in progress.
     private var faceStatusOverlay: some View {
         Group {
             if viewModel.selectedEffectCategory == .faceFilters && !viewModel.isSplit {
                 if viewModel.isDetectingFaces {
                     ProgressView()
                         .tint(mintGreen)
-                        .frame(width: canvasSize, height: canvasSize)
-                } else if viewModel.detectedFaces.isEmpty {
-                    Text("NO FACES DETECTED")
-                        .font(.silkscreenControl)
-                        .foregroundColor(.white.opacity(0.5))
                         .frame(width: canvasSize, height: canvasSize)
                 }
             }

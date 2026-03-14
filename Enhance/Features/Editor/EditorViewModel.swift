@@ -72,6 +72,9 @@ class EditorViewModel {
     var isDetectingFaces: Bool = false
     private let faceDetectionService = FaceDetectionService()
 
+    /// Called after a successful save to signal the editor should close.
+    var onSaveComplete: (() -> Void)?
+
     // MARK: - Undo / Redo
 
     private var undoStack: [EditorSnapshot] = []
@@ -151,6 +154,23 @@ class EditorViewModel {
     var selectedFace: DetectedFace? {
         guard let idx = selectedFaceIndex, idx < detectedFaces.count else { return nil }
         return detectedFaces[idx]
+    }
+
+    /// Faces that the active face effect should target. When no face is
+    /// explicitly selected, all detected faces are included. Tapping a
+    /// face isolates it; tapping it again reverts to all.
+    var activeFaces: [DetectedFace] {
+        if let idx = selectedFaceIndex, idx < detectedFaces.count {
+            return [detectedFaces[idx]]
+        }
+        return detectedFaces
+    }
+
+    /// Clears a single-face-only filter when switching back to all-faces mode.
+    func clearSingleFaceFilterIfNeeded() {
+        if selectedFaceFilter?.requiresSingleFace == true {
+            selectedFaceFilter = nil
+        }
     }
 
     var faceFilterSliderLabel: String {
@@ -324,8 +344,8 @@ class EditorViewModel {
             await MainActor.run {
                 self.detectedFaces = faces
                 self.isDetectingFaces = false
-                if faces.count == 1 {
-                    self.selectedFaceIndex = 0
+                if faces.isEmpty {
+                    self.showToast("NO FACES DETECTED")
                 }
             }
         }
@@ -343,9 +363,6 @@ class EditorViewModel {
             await MainActor.run {
                 self.detectedFaces = faces
                 self.isDetectingFaces = false
-                if faces.count == 1 {
-                    self.selectedFaceIndex = 0
-                }
             }
         }
     }
@@ -422,9 +439,9 @@ class EditorViewModel {
 
         let visualEffects = activeVisualEffectList
         let faceEffect = activeFaceEffect
-        let face = selectedFace
+        let faces = activeFaces
 
-        guard !visualEffects.isEmpty || (faceEffect != nil && face != nil) else {
+        guard !visualEffects.isEmpty || (faceEffect != nil && !faces.isEmpty) else {
             previewImage = nil
             return
         }
@@ -437,14 +454,16 @@ class EditorViewModel {
                       let cgImage = self.getPreviewSourceCGImage(from: source) else { return }
                 var result = CIImage(cgImage: cgImage)
 
-                if let faceEffect, let face {
+                if let faceEffect, !faces.isEmpty {
                     let orientedWidth = source.size.width * source.scale
                     let orientedHeight = source.size.height * source.scale
                     let scaleX = result.extent.width / orientedWidth
                     let scaleY = result.extent.height / orientedHeight
-                    let scaledFace = self.scaleFace(face, scaleX: scaleX, scaleY: scaleY)
                     let previewProg = self.selectedFaceFilter?.previewProgress ?? 1.0
-                    result = faceEffect.apply(to: result, face: scaledFace, progress: previewProg, frameIndex: 5)
+                    for face in faces {
+                        let scaledFace = self.scaleFace(face, scaleX: scaleX, scaleY: scaleY)
+                        result = faceEffect.apply(to: result, face: scaledFace, progress: previewProg, frameIndex: 5)
+                    }
                 }
 
                 if !visualEffects.isEmpty {
@@ -610,7 +629,7 @@ class EditorViewModel {
                 pauseDuration: Double(pauseDuration),
                 visualEffects: activeVisualEffectList,
                 faceEffect: activeFaceEffect,
-                detectedFace: selectedFace
+                detectedFaces: activeFaces
             ) {
                 let tempDir = FileManager.default.temporaryDirectory
                 let fileURL = tempDir.appendingPathComponent("\(UUID().uuidString).gif")
@@ -642,7 +661,7 @@ class EditorViewModel {
     
     func regenerateGIF() {
         let sourceImg: UIImage? = image ?? sourceImage
-        let canRegenerate = generationScale > 1.0 || selectedAnimatorType == nil
+        let canRegenerate = generationScale > 1.0 || selectedAnimatorType == nil || hasEffectsWithoutZoom
         guard let sourceImg, canRegenerate else { return }
         
         withAnimation { isRegenerating = true }
@@ -657,7 +676,7 @@ class EditorViewModel {
                 pauseDuration: Double(pauseDuration),
                 visualEffects: activeVisualEffectList,
                 faceEffect: activeFaceEffect,
-                detectedFace: selectedFace
+                detectedFaces: activeFaces
             ) {
                 let tempDir = FileManager.default.temporaryDirectory
                 let fileURL = tempDir.appendingPathComponent("\(UUID().uuidString).gif")
@@ -708,6 +727,9 @@ class EditorViewModel {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                         photoManager.forceRefreshGifs()
                     }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        self.onSaveComplete?()
+                    }
                 } else {
                     self.showToast("Error saving: \(error?.localizedDescription ?? "Unknown error")")
                     withAnimation { self.enhanceState = .share }
@@ -744,6 +766,9 @@ class EditorViewModel {
                             }
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                                 photoManager.forceRefreshGifs()
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                self.onSaveComplete?()
                             }
                         } else {
                             self.showToast("Error saving: \(saveError?.localizedDescription ?? "Unknown error")")

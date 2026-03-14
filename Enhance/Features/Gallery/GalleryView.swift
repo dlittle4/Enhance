@@ -164,7 +164,7 @@ struct GalleryView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(EnhancePressButtonStyle())
             .padding(.bottom, 36)
         }
     }
@@ -185,20 +185,19 @@ struct GalleryView: View {
     
     private var galleryHeader: some View {
         HStack {
-            if isSelectMode {
-                Text("\(selectedIndices.count) PHOTOS SELECTED")
-                    .font(.custom("Silkscreen-Bold", size: 16))
-                    .foregroundColor(.white)
-                    .contentTransition(.numericText())
-            } else {
-                let count = min(photoManager.myGifs.count, photoManager.myGifURLs.count)
-                Text("MY GIFS (\(count))")
-                    .font(.custom("Silkscreen-Bold", size: 16))
-                    .foregroundColor(.white)
-                    .contentTransition(.numericText())
+            Group {
+                if isSelectMode {
+                    Text("\(selectedIndices.count) PHOTOS SELECTED")
+                        .contentTransition(.numericText())
+                } else {
+                    let count = min(photoManager.myGifs.count, photoManager.myGifURLs.count)
+                    Text("MY GIFS (\(count))")
+                        .contentTransition(.numericText())
+                }
             }
-
-            Spacer()
+            .font(.custom("Silkscreen-Bold", size: 16))
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             if isSelectMode {
                 Button {
@@ -211,6 +210,7 @@ struct GalleryView: View {
                         .foregroundColor(.white)
                 }
                 .buttonStyle(.plain)
+                .transition(.opacity)
             } else {
                 Button { showSettings = true } label: {
                     Image("icon-settings")
@@ -219,8 +219,10 @@ struct GalleryView: View {
                         .foregroundColor(.white)
                 }
                 .buttonStyle(.plain)
+                .transition(.opacity)
             }
         }
+        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isSelectMode)
         .padding(.horizontal, 17)
         .padding(.top, 32)
         .padding(.bottom, 8)
@@ -304,10 +306,19 @@ struct GalleryView: View {
         Group {
             if isSelectMode {
                 selectModeBottomBar
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .bottom)),
+                        removal: .opacity
+                    ))
             } else {
                 normalBottomBar
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .bottom)),
+                        removal: .opacity
+                    ))
             }
         }
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isSelectMode)
         .padding(.horizontal, 10)
         .padding(.vertical, 16)
         .background(Color(hex: 0x171717))
@@ -325,7 +336,7 @@ struct GalleryView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(EnhancePressButtonStyle())
     }
     
     private var selectModeBottomBar: some View {
@@ -341,7 +352,7 @@ struct GalleryView: View {
                             .fill(Color(hex: 0x202020))
                     )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(EnhancePressButtonStyle())
 
             Button { shareSelectedGifs() } label: {
                 Text("SHARE")
@@ -354,7 +365,7 @@ struct GalleryView: View {
                             .fill(Color(hex: 0x202020))
                     )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(EnhancePressButtonStyle())
 
             Button { showDeleteConfirmation = true } label: {
                 Text("DELETE")
@@ -367,7 +378,7 @@ struct GalleryView: View {
                             .fill(Color(hex: 0x202020))
                     )
             }
-            .buttonStyle(.plain)
+            .buttonStyle(EnhancePressButtonStyle())
         }
         .disabled(selectedIndices.isEmpty)
         .opacity(selectedIndices.isEmpty ? 0.5 : 1.0)
