@@ -939,3 +939,35 @@ The enum also provides `swiftUIColor` for the UI picker circles, keeping the col
 **Fix:** Wrapped each horizontal `ScrollView` in a `ScrollViewReader` and added `.onAppear` to auto-scroll to the currently selected effect using `proxy.scrollTo(selected, anchor: .center)` with a small delay (0.05s) to let the layout settle. Each effect toggle is tagged with `.id(effectType)`.
 
 **Rule:** When SwiftUI recreates a `ScrollView` on tab switch, use `ScrollViewReader` + `.onAppear` + `.scrollTo()` to restore position. The `.id()` on each item and a brief async delay are both necessary — without the delay, the scroll target may not be laid out yet.
+
+---
+
+## 2026-03-14: PHPhotoLibrary.register() triggers permission dialog when status is .notDetermined
+
+**Problem:** The app was rejected by Apple (Guideline 2.1a — App Completeness) because it showed a blank screen on first launch. Root cause: `PHPhotoLibrary.shared().register(self)` was called in `PhotoManager.init()`, which runs at app startup via `@StateObject`. When permission status is `.notDetermined`, registering as a change observer triggers the system permission dialog immediately — before the user has any context about why the app needs access.
+
+Additionally, when the user denied permission, `hasLoadedGifs` was never set to `true` (since `fetchMyGifs()` was never called), leaving the UI stuck on an empty `Spacer()`.
+
+**Fix:** Deferred observer registration behind a `registerObserverIfAuthorized()` guard that only calls `PHPhotoLibrary.shared().register(self)` when status is `.authorized` or `.limited`. The registration is retried after `requestAuthorization()` succeeds and when `checkAuthorizationStatus()` finds the user is authorized. Also set `hasLoadedGifs = true` when permission is denied so the UI always progresses past the loading state.
+
+**Rule:** Never call `PHPhotoLibrary.shared().register(self)` unconditionally at init time. Check `authorizationStatus(for:)` first and only register when already authorized. Calling register with `.notDetermined` status triggers the permission dialog as a side effect — the system needs to observe the library to notify you, which requires access.
+
+---
+
+## 2026-03-14: Infinite carousel with center-scale requires cumulative position math
+
+**Problem:** A uniform `itemStep` for carousel positioning caused items to overlap when sizes varied. The center item was 305pt wide but the step was based on the smaller 265pt edge size, resulting in `step = 265 + 16 = 281` — less than the center item's half-width (152.5) plus the neighbor's half-width (132.5) plus spacing (16) = 301.
+
+**Fix:** Replaced uniform `itemStep * displayOffset` with cumulative `xPosition()` that walks from center outward, summing `(thisItemHalf + spacing + nextItemHalf)` for each step. This guarantees exactly `spacing` pixels between any two adjacent items regardless of their individual sizes.
+
+**Rule:** When items in a carousel have different sizes based on position (e.g., center-scale effect), you cannot use a uniform step for positioning. Compute positions cumulatively from center, using each item's actual half-width at its specific position. The gap between any two adjacent items is `halfWidth_A + spacing + halfWidth_B`.
+
+---
+
+## 2026-03-14: Drag gesture snap direction must account for auto-scroll offset
+
+**Problem:** The carousel auto-scrolled forward, making `dragStart` a non-integer (e.g., 2.3). For tiny swipes, `dragStart.rounded()` snapped to the nearest integer. Swiping left-to-right accidentally worked (round(2.3) = 2.0 matched the swipe direction), but swiping right-to-left also snapped to 2.0 — against the swipe direction.
+
+**Fix:** Lowered the directional drag threshold from 0.2 to 0.05 items so even small intentional swipes use `ceil(dragStart)` or `floor(dragStart)` based on drag direction. The fallback for truly accidental touches uses `position.rounded()` (current finger-up position) instead of `dragStart.rounded()`.
+
+**Rule:** When a carousel has auto-scroll, the drag start position is fractional. Never use plain `.rounded()` for snap targets — it ignores swipe direction. Always use `ceil`/`floor` based on the sign of the drag translation, with a very low threshold to distinguish intentional swipes from accidental touches.

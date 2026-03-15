@@ -16,6 +16,8 @@ class PhotoManager: NSObject, ObservableObject {
     @Published var isAuthorized = false
     @Published var isDenied = false
     
+    private var isObservingPhotoLibrary = false
+    
     override init() {
         super.init()
         
@@ -26,11 +28,24 @@ class PhotoManager: NSObject, ObservableObject {
         gifLibrary.$myGifAssetIdentifiers.assign(to: &$myGifAssetIdentifiers)
         gifLibrary.$hasLoaded.assign(to: &$hasLoadedGifs)
         
-        PHPhotoLibrary.shared().register(self)
+        registerObserverIfAuthorized()
     }
     
     deinit {
-        PHPhotoLibrary.shared().unregisterChangeObserver(self)
+        if isObservingPhotoLibrary {
+            PHPhotoLibrary.shared().unregisterChangeObserver(self)
+        }
+    }
+    
+    /// Only register for photo library changes after permission is granted.
+    /// Calling register() while status is .notDetermined triggers the system permission dialog.
+    private func registerObserverIfAuthorized() {
+        guard !isObservingPhotoLibrary else { return }
+        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+        if status == .authorized || status == .limited {
+            PHPhotoLibrary.shared().register(self)
+            isObservingPhotoLibrary = true
+        }
     }
     
     // MARK: - Public API
@@ -38,7 +53,10 @@ class PhotoManager: NSObject, ObservableObject {
     func requestAuthorization(completion: ((Bool) -> Void)? = nil) {
         permissions.requestAuthorization { [weak self] success in
             if success {
+                self?.registerObserverIfAuthorized()
                 self?.gifLibrary.fetchMyGifs()
+            } else {
+                self?.hasLoadedGifs = true
             }
             completion?(success)
         }
@@ -47,7 +65,10 @@ class PhotoManager: NSObject, ObservableObject {
     func checkAuthorizationStatus() {
         permissions.checkStatus()
         if permissions.isAuthorized {
+            registerObserverIfAuthorized()
             gifLibrary.fetchMyGifs()
+        } else {
+            hasLoadedGifs = true
         }
     }
     

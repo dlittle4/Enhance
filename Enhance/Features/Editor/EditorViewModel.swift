@@ -20,6 +20,7 @@ struct EditorSnapshot {
     let faceFilterSpeed: Double
     let selectedFaceIndex: Int?
     let laserColor: LaserColor
+    let duotoneColor: LaserColor
 }
 
 @Observable
@@ -59,6 +60,7 @@ class EditorViewModel {
     var selectedVisualEffect: VisualEffectType? = nil
     var effectIntensity: Double = 0.5
     var effectSize: Double = 0.5
+    var duotoneColor: LaserColor = .red
     var previewImage: UIImage? = nil
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
@@ -118,7 +120,8 @@ class EditorViewModel {
             faceFilterIntensity: faceFilterIntensity,
             faceFilterSpeed: faceFilterSpeed,
             selectedFaceIndex: selectedFaceIndex,
-            laserColor: laserColor
+            laserColor: laserColor,
+            duotoneColor: duotoneColor
         )
     }
 
@@ -136,6 +139,7 @@ class EditorViewModel {
         faceFilterSpeed = snapshot.faceFilterSpeed
         selectedFaceIndex = snapshot.selectedFaceIndex
         laserColor = snapshot.laserColor
+        duotoneColor = snapshot.duotoneColor
 
         updateCombinedPreview()
 
@@ -192,7 +196,7 @@ class EditorViewModel {
 
     var activeVisualEffectList: [VisualEffect] {
         guard let effect = selectedVisualEffect else { return [] }
-        return [effect.effect(intensity: effectIntensity, size: effectSize)]
+        return [effect.effect(intensity: effectIntensity, size: effectSize, duotoneColor: duotoneColor)]
     }
 
     var activeAnimator: Animator {
@@ -271,11 +275,14 @@ class EditorViewModel {
         selectedEffectCategory = .zoomEffects
         previewImage = nil
         previewSourceCGImage = nil
+        effectThumbnails = [:]
+        thumbnailSourceCGImage = nil
         selectedFaceFilter = nil
         selectedFaceIndex = nil
         faceFilterIntensity = 0.5
         faceFilterSpeed = 0.5
         laserColor = .red
+        duotoneColor = .red
         detectedFaces = []
         faceDetectionService.clearCache()
 
@@ -398,6 +405,60 @@ class EditorViewModel {
     private var previewDebounceItem: DispatchWorkItem?
     private var previewSourceCGImage: CGImage?
     private let previewMaxDimension: Int = 650
+
+    // MARK: - Effect Thumbnails
+
+    /// Cached mini-thumbnails showing each visual effect applied to the user's photo.
+    var effectThumbnails: [VisualEffectType: UIImage] = [:]
+    private var thumbnailSourceCGImage: CGImage?
+    private let thumbnailDimension: Int = 120
+
+    /// Generates small preview thumbnails for all visual effects on a background thread.
+    func generateEffectThumbnails() {
+        guard let source = image ?? sourceImage else { return }
+        guard effectThumbnails.isEmpty else { return }
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+            let thumb = self.getThumbnailSourceCGImage(from: source)
+            guard let thumb else { return }
+
+            let ciInput = CIImage(cgImage: thumb)
+            var results: [VisualEffectType: UIImage] = [:]
+
+            for effectType in VisualEffectType.allCases {
+                let effect = effectType.effect(intensity: 0.7, size: 0.5, duotoneColor: .purple)
+                let progress = effectType.previewProgress
+                let output = effect.apply(to: ciInput, progress: progress, frameIndex: 3)
+                if let cgOut = self.ciContext.createCGImage(output, from: output.extent) {
+                    results[effectType] = UIImage(cgImage: cgOut)
+                }
+            }
+
+            DispatchQueue.main.async {
+                self.effectThumbnails = results
+            }
+        }
+    }
+
+    private func getThumbnailSourceCGImage(from source: UIImage) -> CGImage? {
+        if let cached = thumbnailSourceCGImage { return cached }
+        guard let data = source.jpegData(compressionQuality: 0.7),
+              let imgSource = CGImageSourceCreateWithData(data as CFData, nil) else {
+            return source.cgImage
+        }
+        let options: [CFString: Any] = [
+            kCGImageSourceThumbnailMaxPixelSize: thumbnailDimension,
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true
+        ]
+        guard let thumb = CGImageSourceCreateThumbnailAtIndex(imgSource, 0, options as CFDictionary) else {
+            return source.cgImage
+        }
+        thumbnailSourceCGImage = thumb
+        return thumb
+    }
 
     private func getPreviewSourceCGImage(from source: UIImage) -> CGImage? {
         if let cached = previewSourceCGImage { return cached }

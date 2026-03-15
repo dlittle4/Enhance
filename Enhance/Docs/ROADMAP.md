@@ -1,6 +1,6 @@
 # Enhance (ZoomGif) — Roadmap
 
-> Last updated: 2026-03-13 (session 12)
+> Last updated: 2026-03-14 (session 13)
 
 ## Vision
 
@@ -375,18 +375,56 @@ Each step should feel fast, tactile, and visually satisfying.
 - [x] Added EnhancePressButtonStyle (ButtonStyle-based) for press animation on PhotosPicker and all gallery buttons
 - [x] Applied consistent press animation to MAKE A GIF, CREATE YOUR FIRST GIF, COPY, SHARE, DELETE buttons
 
-### Phase 14: Onboarding & NUX
+### Phase 17b: App Store Rejection Fix & Onboarding Redesign ✓
+
+**App Store rejection fix (Guideline 2.1a — App Completeness)**
+- [x] Fixed blank screen on first launch: `PHPhotoLibrary.shared().register(self)` in PhotoManager.init() triggered the permission dialog immediately; deferred observer registration until after authorization is granted
+- [x] `hasLoadedGifs` now set to `true` when permission is denied (prevents permanent blank state)
+- [x] `onAppear` no longer requests authorization if status is `.notDetermined` — permission is deferred to user action
+
+**Onboarding redesign**
+- [x] New showcase carousel on first-launch screen with 8 bundled GIFs demonstrating app effects
+- [x] ShowcaseCarousel component: infinite loop, center-scale effect (305pt center / 265pt edge), swipe gestures, tap-to-center, slow auto-scroll (left-to-right drift)
+- [x] Carousel supports both static images (.image) and animated GIFs (.gif via AnimatedGifView)
+- [x] "MAKE YOUR FIRST GIF" button requests photo access permission, then presents PhotosPicker
+- [x] Centered "ENHANCE" title, tagline text blocks matching Figma design
+
+**Permission denied state**
+- [x] Dedicated denied-state view with carousel, explanation text, "OPEN SETTINGS" button, and "CREATE GIF WITHOUT SAVING" fallback PhotosPicker
+- [x] `scenePhase` observer re-checks authorization when returning from Settings (only when status is determined)
+- [x] SAVE button hidden in editor when photo access is denied; SHARE button remains available
+
+**Visual polish**
+- [x] Mesh gradient animation updated to diagonal sweep (3 mesh points animate diagonally)
+- [x] New image effects: Monotone, Duotone, Heat Haze, Bloom, Motion Blur, Inversion, Vintage Grain, Pop Art
+- [x] Duotone color selector using LaserColor enum presets
+- [x] Effect thumbnails on visual effect buttons (pixelated preview of image with effect applied)
+- [x] Face effect buttons disabled/dimmed when no faces detected
+- [x] Removed old StaircaseSquares NUX icon
+
+### Phase 18: Settings & Social
+
+- [ ] Add "RATE THE APP" row in settings with 5 star icons (opens SKStoreReviewController or App Store URL)
+- [ ] Add "SHARE WITH FRIENDS" row in settings (presents UIActivityViewController with App Store URL)
+
+### Phase 19: Effects Rethink (needs design)
+
+- [ ] IG-style color filters — add a "FILTERS" category with CIFilter-based color presets (warm, cool, vintage, vivid, etc.) alongside existing effects
+- [ ] Auto-zoom on enhance — when no zoom is set, auto-zoom slightly toward center or a detected face before generation
+- [ ] Toggling off all zoom types resets canvas to 1.0x / full frame (currently StaticAnimator holds the user's zoom position)
+
+### Phase 20: Onboarding & NUX
 
 - [ ] Add 5 default onboarding photos to show how the app works (think Tom from MySpace)
 - [ ] Viral unlock: "Give the gift of a GIF" — send a GIF to unlock face effects
 
-### Phase 15: Customization & Themes
+### Phase 21: Customization & Themes
 
 - [ ] Custom app icons (pick a GIF from gallery, set thumbnail as app icon)
 - [ ] Custom app themes (fonts and colors)
 - [ ] Create custom pixel-art icons for remaining UI elements
 
-### Phase 16: Future Features
+### Phase 22: Future Features
 
 **Editor UX**
 - [ ] Fix copy text for action buttons
@@ -424,10 +462,11 @@ Services/         → Business logic (GIF generation, photo library, permissions
 Features/
   Gallery/        → Gallery screen + pinch-to-reflow grid (GalleryView)
   Editor/         → Editor screen + logic (EditorView, EditorViewModel)
-Components/       → Shared reusable UI (14 components: ImageCanvasView, GIFPreviewView,
+Components/       → Shared reusable UI (15 components: ImageCanvasView, GIFPreviewView,
                     SegmentedBar, GifGridItem, ShareSheet, BottomSheet,
                     ZoomFrameOverlay, AnimatorPickerView, PreviewControlsView,
-                    GradientViews, AppButton, CircleButton, GifBadge, PermissionViews)
+                    GradientViews, AppButton, CircleButton, GifBadge,
+                    PermissionViews, ShowcaseCarousel)
 Design/           → Constants, modifiers, typography
 Extensions/       → Swift extensions
 Docs/             → This file + LEARNINGS.md

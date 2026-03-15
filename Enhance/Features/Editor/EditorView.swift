@@ -98,6 +98,9 @@ struct EditorView: View {
             if newValue == .faceFilters {
                 viewModel.detectFacesIfNeeded()
             }
+            if newValue == .visualEffects {
+                viewModel.generateEffectThumbnails()
+            }
         }
         .onChange(of: viewModel.selectedFaceFilter) { _, _ in
             viewModel.updateFaceFilterPreview()
@@ -111,6 +114,16 @@ struct EditorView: View {
         }
         .onChange(of: viewModel.laserColor) { _, _ in
             viewModel.updateFaceFilterPreview()
+            guard !viewModel.isRegenerating else { return }
+            if case .existingGif = viewModel.content {
+                viewModel.hasModifiedSettings = true
+                viewModel.regenerateGIF()
+            } else if viewModel.isSplit {
+                viewModel.regenerateGIF()
+            }
+        }
+        .onChange(of: viewModel.duotoneColor) { _, _ in
+            viewModel.updatePreviewImage()
             guard !viewModel.isRegenerating else { return }
             if case .existingGif = viewModel.content {
                 viewModel.hasModifiedSettings = true
@@ -323,6 +336,11 @@ struct EditorView: View {
                             intensitySlider
                                 .transition(.opacity)
                         }
+
+                        if effect.supportsColorPicker {
+                            duotoneColorPicker
+                                .transition(.opacity)
+                        }
                     }
                 }
                 .transition(.opacity)
@@ -438,6 +456,37 @@ struct EditorView: View {
         .buttonStyle(.plain)
     }
 
+    // MARK: - Duotone Color Picker
+
+    private var duotoneColorPicker: some View {
+        HStack {
+            ForEach(LaserColor.allCases) { color in
+                Spacer()
+                Button {
+                    viewModel.pushUndo()
+                    HapticService.light()
+                    viewModel.duotoneColor = color
+                } label: {
+                    Circle()
+                        .fill(color.swiftUIColor)
+                        .frame(width: 26, height: 26)
+                        .overlay(
+                            Circle()
+                                .stroke(viewModel.duotoneColor == color ? mintGreen : .clear, lineWidth: 2)
+                                .frame(width: 32, height: 32)
+                        )
+                }
+                .buttonStyle(.plain)
+                Spacer()
+            }
+        }
+        .frame(height: 44)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white.opacity(0.04))
+        )
+    }
+
     // MARK: - Laser Color Picker
 
     private var laserColorPicker: some View {
@@ -547,6 +596,7 @@ struct EditorView: View {
 
     private func visualEffectToggle(_ effectType: VisualEffectType) -> some View {
         let isActive = viewModel.selectedVisualEffect == effectType
+        let thumbnail = viewModel.effectThumbnails[effectType]
         return Button {
             viewModel.pushUndo()
             HapticService.light()
@@ -557,12 +607,26 @@ struct EditorView: View {
             Text(effectType.rawValue)
                 .font(.silkscreenControl)
                 .foregroundColor(isActive ? mintGreen : .white)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
                 .padding(.horizontal, 16)
                 .frame(height: 60)
                 .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(isActive ? Color(hex: 0x323232) : Color.white.opacity(0.04))
+                    GeometryReader { geo in
+                        if let thumbnail {
+                            Image(uiImage: thumbnail)
+                                .resizable()
+                                .aspectRatio(contentMode: .fill)
+                                .frame(width: geo.size.width, height: geo.size.height)
+                                .clipped()
+                                .overlay(Color.black.opacity(isActive ? 0.3 : 0.5))
+                        } else {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(isActive ? Color(hex: 0x323232) : Color.white.opacity(0.04))
+                        }
+                    }
                 )
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .stroke(isActive ? mintGreen : .clear, lineWidth: 2)
@@ -696,7 +760,9 @@ struct EditorView: View {
 
     private func faceFilterToggle(_ filterType: FaceFilterType) -> some View {
         let isActive = viewModel.selectedFaceFilter == filterType
+        let noFaces = viewModel.detectedFaces.isEmpty && !viewModel.isDetectingFaces
         let singleFaceBlocked = filterType.requiresSingleFace && viewModel.activeFaces.count != 1
+        let isBlocked = noFaces || singleFaceBlocked
         return Button {
             viewModel.pushUndo()
             HapticService.light()
@@ -719,8 +785,8 @@ struct EditorView: View {
                 )
         }
         .buttonStyle(.plain)
-        .disabled(viewModel.isRegenerating || singleFaceBlocked)
-        .opacity(singleFaceBlocked ? 0.35 : 1.0)
+        .disabled(viewModel.isRegenerating || isBlocked)
+        .opacity(isBlocked ? 0.35 : 1.0)
     }
 
     // MARK: - Face Filter Intensity Slider
@@ -881,25 +947,27 @@ struct EditorView: View {
 
     private var saveShareButtons: some View {
         HStack(spacing: 8) {
-            Button {
-                if case .existingGif = viewModel.content {
-                    viewModel.showSaveSheet = true
-                } else {
-                    viewModel.saveGIFToLibrary(photoManager: photoManager)
+            if photoManager.isAuthorized {
+                Button {
+                    if case .existingGif = viewModel.content {
+                        viewModel.showSaveSheet = true
+                    } else {
+                        viewModel.saveGIFToLibrary(photoManager: photoManager)
+                    }
+                } label: {
+                    Text("SAVE")
+                        .font(.silkscreenButtonLabel)
+                        .foregroundColor(viewModel.isSaveEnabled ? .white : .white.opacity(0.5))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: buttonHeight)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color(hex: 0x202020).opacity(0.8))
+                        )
                 }
-            } label: {
-                Text("SAVE")
-                    .font(.silkscreenButtonLabel)
-                    .foregroundColor(viewModel.isSaveEnabled ? .white : .white.opacity(0.5))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: buttonHeight)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color(hex: 0x202020).opacity(0.8))
-                    )
+                .enhanceButtonAnimation()
+                .disabled(!viewModel.isSaveEnabled)
             }
-            .enhanceButtonAnimation()
-            .disabled(!viewModel.isSaveEnabled)
 
             Button {
                 viewModel.showShareSheet = true

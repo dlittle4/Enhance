@@ -1,12 +1,20 @@
 import Foundation
 
 enum VisualEffectType: String, CaseIterable, Identifiable, Hashable {
-    case chromaShift = "CHROMA SHIFT"
-    case halftone    = "HALFTONE"
-    case fisheye     = "FISHEYE"
-    case swirl       = "SWIRL"
-    case pixelate    = "PIXELATE"
-    case rainbow     = "RAINBOW"
+    case chromaShift   = "CHROMA SHIFT"
+    case halftone      = "HALFTONE"
+    case fisheye       = "FISHEYE"
+    case swirl         = "SWIRL"
+    case pixelate      = "PIXELATE"
+    case rainbow       = "RAINBOW"
+    case monotone      = "MONOTONE"
+    case duotone       = "DUOTONE"
+    case heatHaze      = "HEAT HAZE"
+    case bloom         = "BLOOM"
+    case motionBlur    = "MOTION BLUR"
+    case inversion     = "INVERSION"
+    case vintageGrain  = "VINTAGE GRAIN"
+    case popArt        = "POP ART"
 
     var id: String { rawValue }
 
@@ -23,6 +31,11 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// Whether this effect shows a color/preset picker row.
+    var supportsColorPicker: Bool {
+        self == .duotone
+    }
+
     /// Progress value for the static live preview. Most effects look best
     /// at full strength (1.0). Pixelate reverses — it resolves as progress
     /// increases — so use a low value to show the pixelation.
@@ -33,15 +46,23 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    func effect(intensity: Double = 0.5, size: Double = 0.5) -> VisualEffect {
+    func effect(intensity: Double = 0.5, size: Double = 0.5, duotoneColor: LaserColor = .red) -> VisualEffect {
         let clamped = max(0, min(1, intensity))
         switch self {
-        case .chromaShift: return ChromaticAberrationEffect(intensity: clamped)
-        case .halftone:    return HalftoneEffect(intensity: clamped)
-        case .fisheye:     return FisheyeEffect(intensity: clamped, size: max(0, min(1, size)))
-        case .swirl:       return SwirlEffect(intensity: clamped)
-        case .pixelate:    return PixelateEffect(intensity: clamped)
-        case .rainbow:     return RainbowGradientEffect(intensity: clamped)
+        case .chromaShift:  return ChromaticAberrationEffect(intensity: clamped)
+        case .halftone:     return HalftoneEffect(intensity: clamped)
+        case .fisheye:      return FisheyeEffect(intensity: clamped, size: max(0, min(1, size)))
+        case .swirl:        return SwirlEffect(intensity: clamped)
+        case .pixelate:     return PixelateEffect(intensity: clamped)
+        case .rainbow:      return RainbowGradientEffect(intensity: clamped)
+        case .monotone:     return MonotoneEffect(intensity: clamped)
+        case .duotone:      return DuotoneEffect(intensity: clamped, color: duotoneColor)
+        case .heatHaze:     return HeatHazeEffect(intensity: clamped)
+        case .bloom:        return BloomEffect(intensity: clamped)
+        case .motionBlur:   return MotionBlurEffect(intensity: clamped)
+        case .inversion:    return InversionEffect(intensity: clamped)
+        case .vintageGrain: return VintageGrainEffect(intensity: clamped)
+        case .popArt:       return PopArtEffect(intensity: clamped)
         }
     }
 }

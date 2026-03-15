@@ -20,8 +20,10 @@ struct GalleryView: View {
     @State private var isPinching = false
     @State private var showCopiedToast = false
     @State private var showSettings = false
+    @State private var showPhotoPicker = false
     @AppStorage("autoPlayGifs") private var autoPlayGifs = true
     @AppStorage("exportFormat") private var exportFormat = "gif"
+    @Environment(\.scenePhase) private var scenePhase
     @Namespace private var animation
 
     private var gridColumns: [GridItem] {
@@ -43,13 +45,14 @@ struct GalleryView: View {
             Color(hex: 0x171717).ignoresSafeArea()
             
             VStack(spacing: 0) {
-                if !photoManager.hasLoadedGifs {
-                    Spacer()
-                } else if photoManager.myGifs.isEmpty || photoManager.myGifURLs.isEmpty {
-                    nuxHeader
-                    nuxView
-                } else {
+                if photoManager.isAuthorized && !photoManager.hasLoadedGifs {
+                    loadingView
+                } else if photoManager.hasLoadedGifs && !photoManager.myGifs.isEmpty && !photoManager.myGifURLs.isEmpty {
                     galleryContent
+                } else if photoManager.isDenied {
+                    permissionDeniedView
+                } else {
+                    onboardingView
                 }
             }
         }
@@ -94,10 +97,16 @@ struct GalleryView: View {
         }
         .onAppear {
             let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-            if status == .notDetermined {
-                photoManager.requestAuthorization()
-            } else {
+            if status != .notDetermined {
                 photoManager.checkAuthorizationStatus()
+            }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+                if status != .notDetermined {
+                    photoManager.checkAuthorizationStatus()
+                }
             }
         }
         .alert(isPresented: $showErrorAlert) {
@@ -116,66 +125,150 @@ struct GalleryView: View {
         } message: {
             Text("This will permanently remove the selected GIFs from your photo library.")
         }
-
+        .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItem, matching: .images)
 
     }
     
-    // MARK: - NUX Header
+    // MARK: - Showcase Header (shared by onboarding & denied)
     
-    private var nuxHeader: some View {
-        HStack {
-            Text("ENHANCE")
-                .font(.custom("Silkscreen-Bold", size: 16))
-                .foregroundColor(.white)
-
-            Spacer()
-
-            Button { showSettings = true } label: {
-                Image("icon-settings")
-                    .resizable()
-                    .frame(width: 24, height: 24)
-                    .foregroundColor(.white)
+    private var showcaseHeader: some View {
+        Text("ENHANCE")
+            .font(.custom("Silkscreen-Bold", size: 16))
+            .foregroundColor(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.top, 32)
+    }
+    
+    private var showcaseItems: [ShowcaseCarousel.CarouselItem] {
+        (0...7).compactMap { i in
+            if let url = Bundle.main.url(forResource: "showcase\(i)", withExtension: "gif") {
+                return .gif(url)
             }
-            .buttonStyle(.plain)
+            return nil
         }
-        .padding(.horizontal, 17)
-        .padding(.top, 32)
-        .padding(.bottom, 8)
     }
     
-    // MARK: - NUX (First-Run Empty State)
+    // MARK: - Onboarding (First Launch)
     
-    private var nuxView: some View {
-        VStack {
+    private var onboardingView: some View {
+        VStack(spacing: 0) {
+            showcaseHeader
+
+            ShowcaseCarousel(items: showcaseItems)
+                .padding(.top, 24)
+
             Spacer()
-            
-            nuxStaircaseIcon
-                .padding(.bottom, 40)
-            
+
+            VStack(spacing: 28) {
+                Text("Create animated GIFs from your photos with dramatic zooms and special effects.")
+                    .font(.custom("Silkscreen-Bold", size: 18))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(6)
+
+                Text("Enhance the moment.\nElevate the vibe.")
+                    .font(.custom("Silkscreen-Bold", size: 18))
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(6)
+            }
+            .padding(.horizontal, 27)
+
             Spacer()
-            
-            PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                Text("CREATE YOUR FIRST GIF")
-                    .font(.custom("Silkscreen-Regular", size: 17))
+
+            Button {
+                let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
+                if status == .notDetermined {
+                    photoManager.requestAuthorization { granted in
+                        if granted {
+                            showPhotoPicker = true
+                        }
+                    }
+                } else {
+                    showPhotoPicker = true
+                }
+            } label: {
+                Text("MAKE YOUR FIRST GIF")
+                    .font(.custom("Silkscreen-Regular", size: 16))
                     .foregroundColor(Color(red: 0.09, green: 0.09, blue: 0.09))
-                    .frame(width: 361, height: 60)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 60)
                     .background(
                         SimpleGradientBackground()
                             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     )
             }
             .buttonStyle(EnhancePressButtonStyle())
-            .padding(.bottom, 36)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 16)
         }
     }
     
-    private var nuxStaircaseIcon: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(hex: 0x0D0B08))
-                .frame(width: 224, height: 224)
+    // MARK: - Loading State
+    
+    private var loadingView: some View {
+        VStack {
+            Spacer()
+            ProgressView()
+                .tint(.white)
+                .scaleEffect(1.5)
+            Spacer()
+        }
+    }
+    
+    // MARK: - Permission Denied State
+    
+    private var permissionDeniedView: some View {
+        VStack(spacing: 0) {
+            showcaseHeader
+
+            ShowcaseCarousel(items: showcaseItems)
+                .padding(.top, 24)
             
-            StaircaseSquares()
+            Spacer()
+            
+            Text("Allow photo access so\nENHANCE can save and display\nyour animated masterpieces")
+                .font(.custom("Silkscreen-Bold", size: 18))
+                .foregroundColor(.white)
+                .multilineTextAlignment(.center)
+                .lineSpacing(6)
+                .padding(.horizontal, 27)
+            
+            Spacer()
+            
+            VStack(spacing: 16) {
+                Button {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    Text("OPEN SETTINGS")
+                        .font(.custom("Silkscreen-Regular", size: 16))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 60)
+                        .background(
+                            SimpleGradientBackground()
+                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        )
+                }
+                .buttonStyle(EnhancePressButtonStyle())
+                
+                PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                    Text("CREATE GIF WITHOUT SAVING")
+                        .font(.custom("Silkscreen-Regular", size: 13))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 60)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color(hex: 0x202020))
+                        )
+                }
+                .buttonStyle(EnhancePressButtonStyle())
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 16)
         }
     }
     
@@ -520,78 +613,3 @@ struct GalleryView: View {
     }
 }
 
-// MARK: - Staircase Squares (NUX Animated Icon)
-
-private struct StaircaseSquares: View {
-    @State private var animate = false
-    
-    private let squareConfigs: [(size: CGFloat, offset: (x: CGFloat, y: CGFloat), delay: Double)] = [
-        (size: 32.8, offset: (-40, 40),  delay: 0.0),
-        (size: 43.8, offset: (-15, 15),  delay: 0.15),
-        (size: 54.7, offset: (12, -12),  delay: 0.3),
-        (size: 65.6, offset: (40, -40),  delay: 0.45),
-    ]
-    
-    var body: some View {
-        ZStack {
-            ForEach(0..<squareConfigs.count, id: \.self) { i in
-                let config = squareConfigs[i]
-                SimpleGradientBackground(
-                    primaryColors: gradientColors(for: i).primary,
-                    secondaryColors: gradientColors(for: i).secondary,
-                    positionAnimationDuration: 2.5,
-                    colorAnimationDuration: 4.0
-                )
-                .frame(width: config.size, height: config.size)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .offset(x: config.offset.x, y: config.offset.y)
-                .scaleEffect(animate ? 1.08 : 0.92)
-                .animation(
-                    .easeInOut(duration: 1.6)
-                        .repeatForever(autoreverses: true)
-                        .delay(config.delay),
-                    value: animate
-                )
-            }
-        }
-        .onAppear { animate = true }
-    }
-    
-    private func gradientColors(for index: Int) -> (primary: [Color], secondary: [Color]) {
-        let palettes: [(primary: [Color], secondary: [Color])] = [
-            (
-                primary: [Color(hex: 0x18B273), Color(hex: 0x0D8A57), Color(hex: 0x18B273),
-                          Color(hex: 0x0D8A57), Color(hex: 0x18B273), Color(hex: 0x0D8A57),
-                          Color(hex: 0x18B273), Color(hex: 0x0D8A57), Color(hex: 0x18B273)],
-                secondary: [Color(hex: 0x43AE8F), Color(hex: 0x18B273), Color(hex: 0x43AE8F),
-                            Color(hex: 0x18B273), Color(hex: 0x43AE8F), Color(hex: 0x18B273),
-                            Color(hex: 0x43AE8F), Color(hex: 0x18B273), Color(hex: 0x43AE8F)]
-            ),
-            (
-                primary: [Color(hex: 0x43AE8F), Color(hex: 0x18B273), Color(hex: 0x43AE8F),
-                          Color(hex: 0x18B273), Color(hex: 0x43AE8F), Color(hex: 0x18B273),
-                          Color(hex: 0x43AE8F), Color(hex: 0x18B273), Color(hex: 0x43AE8F)],
-                secondary: [Color(hex: 0x6EAAAC), Color(hex: 0x43AE8F), Color(hex: 0x6EAAAC),
-                            Color(hex: 0x43AE8F), Color(hex: 0x6EAAAC), Color(hex: 0x43AE8F),
-                            Color(hex: 0x6EAAAC), Color(hex: 0x43AE8F), Color(hex: 0x6EAAAC)]
-            ),
-            (
-                primary: [Color(hex: 0x6EAAAC), Color(hex: 0x43AE8F), Color(hex: 0x6EAAAC),
-                          Color(hex: 0x43AE8F), Color(hex: 0x6EAAAC), Color(hex: 0x43AE8F),
-                          Color(hex: 0x6EAAAC), Color(hex: 0x43AE8F), Color(hex: 0x6EAAAC)],
-                secondary: [Color(hex: 0x18B273), Color(hex: 0x6EAAAC), Color(hex: 0x18B273),
-                            Color(hex: 0x6EAAAC), Color(hex: 0x18B273), Color(hex: 0x6EAAAC),
-                            Color(hex: 0x18B273), Color(hex: 0x6EAAAC), Color(hex: 0x18B273)]
-            ),
-            (
-                primary: [Color(hex: 0x6EAAAC), Color(hex: 0x6EAAAC), Color(hex: 0x6EAAAC),
-                          Color(hex: 0x43AE8F), Color(hex: 0x6EAAAC), Color(hex: 0x43AE8F),
-                          Color(hex: 0x6EAAAC), Color(hex: 0x6EAAAC), Color(hex: 0x6EAAAC)],
-                secondary: [Color(hex: 0x43AE8F), Color(hex: 0x18B273), Color(hex: 0x43AE8F),
-                            Color(hex: 0x18B273), Color(hex: 0x43AE8F), Color(hex: 0x18B273),
-                            Color(hex: 0x43AE8F), Color(hex: 0x18B273), Color(hex: 0x43AE8F)]
-            ),
-        ]
-        return palettes[index % palettes.count]
-    }
-}

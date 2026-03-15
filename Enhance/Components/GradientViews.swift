@@ -27,9 +27,9 @@ struct SimpleGradientBackground: View {
         GeometryReader { geo in
             MeshGradient(width: width, height: height,
                          locations: .points([
-                            SIMD2<Float>(0.0, 0.0), SIMD2<Float>(0.5, 0.0), SIMD2<Float>(1.0, 0.0),
-                            SIMD2<Float>(0.0, 0.5), SIMD2<Float>(isAnimating ? 0.1 : 0.8, 0.5), SIMD2<Float>(1.0, isAnimating ? 0.5 : 1.0),
-                            SIMD2<Float>(0.0, 1.0), SIMD2<Float>(0.5, 1.0), SIMD2<Float>(1.0, 1.0)
+                            SIMD2<Float>(0.0, 0.0), SIMD2<Float>(isAnimating ? 0.3 : 0.7, 0.0), SIMD2<Float>(1.0, 0.0),
+                            SIMD2<Float>(0.0, 0.5), SIMD2<Float>(isAnimating ? 0.2 : 0.8, isAnimating ? 0.3 : 0.7), SIMD2<Float>(1.0, isAnimating ? 0.4 : 0.6),
+                            SIMD2<Float>(0.0, 1.0), SIMD2<Float>(isAnimating ? 0.7 : 0.3, 1.0), SIMD2<Float>(1.0, 1.0)
                          ]),
                          colors: .colors(isColorToggled ? secondaryColors : primaryColors),
                          smoothsColors: true)
