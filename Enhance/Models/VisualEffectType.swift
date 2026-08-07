@@ -7,16 +7,38 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable {
     case swirl         = "SWIRL"
     case pixelate      = "PIXELATE"
     case rainbow       = "RAINBOW"
+    case heatHaze      = "HEAT HAZE"
+    case motionBlur    = "MOTION BLUR"
+
+    // MARK: - Retired
+    // Hidden from the picker but kept compiled and tested — see `retired` below.
+
     case monotone      = "MONOTONE"
     case duotone       = "DUOTONE"
-    case heatHaze      = "HEAT HAZE"
     case bloom         = "BLOOM"
-    case motionBlur    = "MOTION BLUR"
     case inversion     = "INVERSION"
     case vintageGrain  = "VINTAGE GRAIN"
     case popArt        = "POP ART"
 
     var id: String { rawValue }
+
+    /// Effects withdrawn from the UI on 2026-08-07 without deleting their
+    /// implementations. They stay compiled, so they cannot silently rot, and the
+    /// test suite still exercises them via `allCases`.
+    ///
+    /// To bring one back, delete it from this set — nothing else is needed.
+    static let retired: Set<VisualEffectType> = [
+        .monotone, .duotone, .bloom, .inversion, .vintageGrain, .popArt
+    ]
+
+    /// The effects the picker offers, in carousel order. Everything that walks the
+    /// effect list for the *user* should use this; `allCases` still returns all of
+    /// them and is what keeps retired effects under test.
+    static var selectable: [VisualEffectType] {
+        allCases.filter { !retired.contains($0) }
+    }
+
+    var isRetired: Bool { Self.retired.contains(self) }
 
     /// Whether this effect supports the separate size slider.
     var supportsSizeControl: Bool {

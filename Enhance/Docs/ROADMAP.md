@@ -530,6 +530,21 @@ Each entry names the file and line where the defect lives.
       semantics and `ThumbnailCache` directory recovery
 - [x] Suite green: 92 passing / 0 failing (was 89 / 3)
 
+**Effect retirement (soft-remove, implementations kept)**
+- [x] Retired 6 image effects from the picker: MONOTONE, DUOTONE, BLOOM, INVERSION,
+      VINTAGE GRAIN, POP ART. Verified none are used by `FaceFilterType` before retiring.
+- [x] Added `VisualEffectType.retired` (a `Set`) and `VisualEffectType.selectable`. The picker
+      and thumbnail generation walk `selectable`; the test suite keeps walking `allCases` so the
+      retired implementations stay compiled and exercised. Re-enabling = delete one set entry.
+- [x] Visible effects now 8: CHROMA SHIFT, HALFTONE, FISHEYE, SWIRL, PIXELATE, RAINBOW,
+      HEAT HAZE, MOTION BLUR
+- [x] 3 tests added covering the retirement mechanism; suite 95 passing / 0 failing
+- [ ] **`supportsColorPicker` now has no visible consumer** — Duotone was its only one. The
+      `duotoneColor` plumbing (`EditorViewModel`, `EditorSnapshot`, `EditorView.duotoneColorPicker`,
+      the `.onChange` regeneration handler) is intact but dormant. Intended next use is Gradient
+      map; rename `duotoneColor` → `effectColor` when that lands. A test asserts this state so it
+      fails loudly the moment a new effect claims the picker. **Do not delete as dead code.**
+
 ### Phase 18: Settings & Social
 
 - [ ] Add "RATE THE APP" row in settings with 5 star icons (opens SKStoreReviewController or App Store URL)

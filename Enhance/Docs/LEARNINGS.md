@@ -1038,3 +1038,24 @@ Three ways to get pixel data back out of a `PHAsset`, and they are not interchan
 **Cost:** A permanently red suite is worse than no suite. It trains you to ignore failures, so it could not be used to check the cache fix for regressions until it was repaired first — exactly when a trustworthy signal was most useful.
 
 **Rule:** When you deliberately change a contract, grep the test suite for it *in the same change* — the tests encoding the old behaviour are a feature of having tests, not noise to triage later. Before trusting a suite as a regression signal, confirm it is green on the untouched baseline; if it is not, fix that first and separately, so a pre-existing failure is never mistaken for one you just introduced. Stashing changes and re-running is the cheap way to tell those apart.
+
+---
+
+## 2026-08-07: Retiring features via a `retired` set, not deletion or comments
+
+**Problem:** Six image effects (Monotone, Duotone, Bloom, Inversion, Vintage Grain, Pop Art) needed to come out of the app, but not out of the codebase — they might be wanted again after a redesign. The obvious options are both bad. Deleting means re-deriving them later from git archaeology. Commenting them out means they stop compiling against the rest of the app and quietly rot until re-enabling turns into a debugging session.
+
+**Fix:** Keep every case in `VisualEffectType` and gate visibility on a static set:
+
+```swift
+static let retired: Set<VisualEffectType> = [.monotone, .duotone, .bloom, ...]
+static var selectable: [VisualEffectType] { allCases.filter { !retired.contains($0) } }
+```
+
+Then split the callers by audience. Anything enumerating effects *for the user* — the picker carousel, thumbnail generation — walks `selectable`. The test that renders every effect deliberately keeps walking `allCases`, so retired implementations stay compiled **and** exercised. Re-enabling is deleting one entry from the set; nothing else changes.
+
+The order matters too: `selectable` filters `allCases`, so it inherits declaration order and retiring an effect can't reshuffle the ones still on show.
+
+**Second-order consequence to watch:** retiring an effect can strand shared UI plumbing. Duotone was the only effect with `supportsColorPicker`, so retiring it left the whole `duotoneColor` path (view model property, `EditorSnapshot` field, picker view, regeneration handler) intact but with no visible consumer — exactly the shape that looks like dead code to a future tidy-up. The defence is a test that asserts the dormant state (`no selectable effect supports the color picker`), which both documents the situation and fails the moment a new effect claims it.
+
+**Rule:** To withdraw a feature you may want back, hide it behind a `retired` set rather than deleting or commenting it. Route user-facing enumeration through a filtered list and leave test enumeration on the unfiltered one — that combination is what keeps retired code honest. Before retiring, grep for other subsystems consuming the same implementation (see the 2026-03-13 entry: face filters use visual effect classes directly), and afterwards check whether any shared UI hook has just lost its last consumer.

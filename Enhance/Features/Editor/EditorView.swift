@@ -574,7 +574,7 @@ struct EditorView: View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(VisualEffectType.allCases) { effectType in
+                    ForEach(VisualEffectType.selectable) { effectType in
                         visualEffectToggle(effectType)
                             .id(effectType)
                     }

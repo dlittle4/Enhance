@@ -173,15 +173,49 @@ struct VisualEffectTests {
 
     // MARK: - VisualEffectType enum
     
+    /// Deliberately walks `allCases`, not `selectable`: retired effects are hidden
+    /// from the picker but still compiled, and this is what stops them rotting while
+    /// they're out of the UI. If a retired effect breaks, it should fail here.
     @Test func visualEffectType_allCasesProduceOutput() {
         let input = makeTestImage()
         let ctx = CIContext()
-        
+
         for type in VisualEffectType.allCases {
             let effect = type.effect(size: 0.5)
             let output = effect.apply(to: input, progress: 0.5, frameIndex: 10)
             let cgImage = ctx.createCGImage(output, from: output.extent)
             #expect(cgImage != nil)
         }
+    }
+
+    // MARK: - Retirement
+
+    @Test func selectable_excludesRetiredAndKeepsTheRest() {
+        let selectable = VisualEffectType.selectable
+
+        #expect(!selectable.isEmpty)
+        #expect(selectable.count == VisualEffectType.allCases.count - VisualEffectType.retired.count)
+        for retired in VisualEffectType.retired {
+            #expect(!selectable.contains(retired))
+        }
+        for type in selectable {
+            #expect(!type.isRetired)
+        }
+    }
+
+    /// Retiring an effect must not disturb the order of the ones still on show —
+    /// the carousel's ordering comes straight from this list.
+    @Test func selectable_preservesDeclarationOrder() {
+        let selectable = VisualEffectType.selectable
+        let expected = VisualEffectType.allCases.filter { !$0.isRetired }
+        #expect(selectable == expected)
+    }
+
+    /// The color picker row is driven by `supportsColorPicker`. Duotone is currently
+    /// its only consumer and is retired, so no visible effect shows the picker —
+    /// this documents that, and will fail loudly when a new effect claims it.
+    @Test func colorPicker_hasNoVisibleConsumerWhileDuotoneIsRetired() {
+        #expect(VisualEffectType.duotone.isRetired)
+        #expect(!VisualEffectType.selectable.contains { $0.supportsColorPicker })
     }
 }

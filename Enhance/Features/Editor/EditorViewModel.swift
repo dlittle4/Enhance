@@ -426,7 +426,7 @@ class EditorViewModel {
             let ciInput = CIImage(cgImage: thumb)
             var results: [VisualEffectType: UIImage] = [:]
 
-            for effectType in VisualEffectType.allCases {
+            for effectType in VisualEffectType.selectable {
                 let effect = effectType.effect(intensity: 0.7, size: 0.5, duotoneColor: .purple)
                 let progress = effectType.previewProgress
                 let output = effect.apply(to: ciInput, progress: progress, frameIndex: 3)
