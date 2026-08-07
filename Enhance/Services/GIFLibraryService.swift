@@ -11,6 +11,10 @@ class GIFLibraryService {
     private let albumName = "My GIFs"
     private var pendingWorkItem: DispatchWorkItem?
     private var isFetching = false
+
+    /// Ceiling on a single fetch. Generous enough for a cold iCloud download of a
+    /// full album, short enough that a wedged request self-clears within one session.
+    private static let fetchTimeout: DispatchTimeInterval = .seconds(30)
     
     private var gifsCacheDir: URL {
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
@@ -71,14 +75,19 @@ class GIFLibraryService {
         var urlResults: [Int: URL] = [:]
         var idResults: [Int: String] = [:]
         let group = DispatchGroup()
-        
+        let expectedCount = assets.count
+
         ensureCacheDirectory()
-        
+
         assets.enumerateObjects { [weak self] asset, index, _ in
             guard let self else { return }
             syncQueue.sync { idResults[index] = asset.localIdentifier }
-            
-            group.enter()
+
+            // A degraded delivery is skipped so only the final high-quality image
+            // counts, but PHImageManager gives no guarantee that a final delivery
+            // ever arrives. LeaveGuard makes the balancing leave idempotent so a
+            // repeated or missing callback can never over- or under-balance the group.
+            let thumbToken = LeaveGuard(group)
             imageManager.requestImage(
                 for: asset, targetSize: thumbnailSize,
                 contentMode: .aspectFill, options: imgOptions
@@ -88,26 +97,30 @@ class GIFLibraryService {
                 if let image {
                     syncQueue.sync { gifResults[index] = image }
                 }
-                group.leave()
+                thumbToken.leave()
             }
-            
-            group.enter()
+
+            let urlToken = LeaveGuard(group)
             self.stableGifURL(for: asset) { url in
                 if let url {
                     syncQueue.sync { urlResults[index] = url }
                 }
-                group.leave()
+                urlToken.leave()
             }
         }
-        
-        group.notify(queue: .main) { [weak self] in
-            guard let self else { return }
+
+        // Wait with a ceiling rather than group.notify: an iCloud download that
+        // stalls forever must not leave isFetching pinned true, which would make
+        // every later refresh a silent no-op for the rest of the session.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let waitResult = group.wait(timeout: .now() + Self.fetchTimeout)
+
+            var localGifs: [UIImage] = []
+            var localURLs: [URL] = []
+            var localIDs: [String] = []
+
             syncQueue.sync {
                 let sortedIndices = Array(Set(gifResults.keys).intersection(urlResults.keys)).sorted()
-                var localGifs: [UIImage] = []
-                var localURLs: [URL] = []
-                var localIDs: [String] = []
-                
                 for index in sortedIndices {
                     if let image = gifResults[index], let url = urlResults[index] {
                         localGifs.append(image)
@@ -115,15 +128,27 @@ class GIFLibraryService {
                         if let id = idResults[index] { localIDs.append(id) }
                     }
                 }
-                
+            }
+
+            // Only a complete, untimed-out fetch is trusted to describe the full set
+            // of valid cache files. Sweeping after a partial fetch deletes cached GIFs
+            // for assets that merely failed to resolve this time round, turning a
+            // transient network failure into permanent cache loss.
+            let isComplete = (waitResult == .success) && (localURLs.count == expectedCount)
+
+            DispatchQueue.main.async {
+                guard let self else { return }
                 self.myGifs = localGifs
                 self.myGifURLs = localURLs
                 self.myGifAssetIdentifiers = localIDs
+                self.hasLoaded = true
+                self.isFetching = false
+
+                if isComplete {
+                    self.cleanupStaleCacheFiles()
+                    ThumbnailCache.shared.cleanupStaleFiles(keeping: localURLs)
+                }
             }
-            self.hasLoaded = true
-            self.isFetching = false
-            self.cleanupStaleCacheFiles()
-            ThumbnailCache.shared.cleanupStaleFiles(keeping: self.myGifURLs)
         }
     }
     
@@ -255,24 +280,37 @@ class GIFLibraryService {
         if isVideo {
             fallbackVideoURL(for: asset, destination: stableURL, completion: completion)
         } else {
-            let options = PHContentEditingInputRequestOptions()
-            options.canHandleAdjustmentData = { _ in true }
+            copyOriginalImageData(for: asset, destination: stableURL, completion: completion)
+        }
+    }
 
-            asset.requestContentEditingInput(with: options) { [weak self] input, _ in
-                if let url = input?.fullSizeImageURL {
-                    do {
-                        try FileManager.default.copyItem(at: url, to: stableURL)
-                        completion(stableURL)
-                    } catch {
-                        completion(nil)
-                    }
-                } else {
-                    self?.fallbackVideoURL(for: asset, destination: stableURL, completion: completion)
-                }
+    /// Writes the asset's original image data — the animated GIF bytes — to `destination`.
+    ///
+    /// Network access is allowed because the system purges `Caches/` when storage is tight,
+    /// preferentially for apps that haven't been used recently. That is exactly when the
+    /// asset is also most likely to have been offloaded to iCloud, so the re-copy that
+    /// repopulates the cache has to be able to pull it back down.
+    private func copyOriginalImageData(for asset: PHAsset, destination: URL, completion: @escaping (URL?) -> Void) {
+        let options = PHImageRequestOptions()
+        options.version = .original
+        options.deliveryMode = .highQualityFormat
+        options.isNetworkAccessAllowed = true
+        options.isSynchronous = false
+
+        PHImageManager.default().requestImageDataAndOrientation(for: asset, options: options) { data, _, _, _ in
+            guard let data else {
+                completion(nil)
+                return
+            }
+            do {
+                try data.write(to: destination, options: .atomic)
+                completion(destination)
+            } catch {
+                completion(nil)
             }
         }
     }
-    
+
     private func fallbackVideoURL(for asset: PHAsset, destination: URL, completion: @escaping (URL?) -> Void) {
         let videoOptions = PHVideoRequestOptions()
         videoOptions.version = .original
@@ -299,15 +337,44 @@ class GIFLibraryService {
     }
     
     /// Removes cached GIF files that no longer correspond to assets in the album.
+    /// Only safe to call after a fetch that resolved every asset — see `performFetch`.
     private func cleanupStaleCacheFiles() {
         let validFilenames = Set(myGifURLs.map { $0.lastPathComponent })
+        guard !validFilenames.isEmpty else { return }
         let cacheDir = gifsCacheDir
-        
+
         DispatchQueue.global(qos: .utility).async {
             guard let files = try? FileManager.default.contentsOfDirectory(atPath: cacheDir.path) else { return }
-            for file in files where !validFilenames.contains(file) {
+            for file in files where file != ThumbnailCache.directoryName && !validFilenames.contains(file) {
                 try? FileManager.default.removeItem(at: cacheDir.appendingPathComponent(file))
             }
         }
+    }
+}
+
+// MARK: - LeaveGuard
+
+/// Balances a single `DispatchGroup.enter()` with at most one `leave()`.
+///
+/// Photos callbacks are not guaranteed to fire exactly once — a request may deliver a
+/// degraded image and then a final one, deliver nothing at all, or be cancelled. Routing
+/// every leave through this type means a repeated callback cannot crash on an unbalanced
+/// group, and a missing one cannot hang the fetch (the caller's timeout covers that).
+final class LeaveGuard {
+    private let group: DispatchGroup
+    private let lock = NSLock()
+    private var hasLeft = false
+
+    init(_ group: DispatchGroup) {
+        self.group = group
+        group.enter()
+    }
+
+    func leave() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !hasLeft else { return }
+        hasLeft = true
+        group.leave()
     }
 }

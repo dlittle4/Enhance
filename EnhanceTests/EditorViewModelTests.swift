@@ -113,8 +113,10 @@ struct EditorViewModelTests {
         vm.resetEffects()
         
         #expect(vm.selectedAnimatorType == .zoomIn)
-        #expect(vm.selectedModifier == .straight)
-        #expect(vm.playbackSpeed == 1.0)
+        // Phase 13c made modifiers deselectable, so the reset state is nil rather
+        // than an explicit .straight pass-through.
+        #expect(vm.selectedModifier == nil)
+        #expect(vm.playbackSpeed == 0.5)
         #expect(vm.selectedVisualEffect == nil)
         #expect(vm.selectedEffectCategory == .zoomEffects)
         #expect(vm.effectSize == 0.5)

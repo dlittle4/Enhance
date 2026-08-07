@@ -12,14 +12,26 @@ class ThumbnailCache {
         return c
     }()
     
+    /// Name of the thumbnails subdirectory inside `Caches/MyGIFs/`. Exposed so
+    /// `GIFLibraryService`'s stale-file sweep can skip it — it lives inside the
+    /// directory being swept and would otherwise be deleted as an unrecognised entry.
+    static let directoryName = "Thumbs"
+
     private let thumbsDir: URL = {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        return caches.appendingPathComponent("MyGIFs/Thumbs", isDirectory: true)
+        return caches.appendingPathComponent("MyGIFs/\(ThumbnailCache.directoryName)", isDirectory: true)
     }()
-    
+
     private let ioQueue = DispatchQueue(label: "com.enhance.thumbcache.io", qos: .utility)
-    
+
     private init() {
+        ensureDirectory()
+    }
+
+    /// The system can purge `Caches/` at any point, so the directory is re-created on
+    /// every write rather than assumed to survive from `init`.
+    private func ensureDirectory() {
+        guard !FileManager.default.fileExists(atPath: thumbsDir.path) else { return }
         try? FileManager.default.createDirectory(at: thumbsDir, withIntermediateDirectories: true)
     }
     
@@ -40,9 +52,10 @@ class ThumbnailCache {
     
     func set(_ image: UIImage, for url: URL) {
         setMemory(image, for: url)
-        
+
         let diskPath = diskURL(for: url)
-        ioQueue.async {
+        ioQueue.async { [weak self] in
+            self?.ensureDirectory()
             if let data = image.jpegData(compressionQuality: 0.85) {
                 try? data.write(to: diskPath, options: .atomic)
             }

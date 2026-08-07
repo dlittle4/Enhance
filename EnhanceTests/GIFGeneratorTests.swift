@@ -46,7 +46,10 @@ struct GIFGeneratorTests {
         #expect(header == gif89a || header == gif87a)
     }
     
-    @Test func generateGIF_withScaleTooLow_returnsNil() {
+    /// Phase 13c removed the hard `currentScale > 1.0` guard so effects-only GIFs
+    /// (visual/face effects with no zoom) can be generated. Generation at 1x must
+    /// succeed; it is the ViewModel's job to decide whether 1x is meaningful.
+    @Test func generateGIF_atUnityScale_stillProducesData() {
         let generator = GIFGenerator()
         let image = makeTestImage()
         let data = generator.generateGIF(
@@ -55,7 +58,7 @@ struct GIFGeneratorTests {
             visibleRect: CGRect(x: 0.15, y: 0.15, width: 0.7, height: 0.7),
             animator: ZoomInAnimator()
         )
-        #expect(data == nil)
+        #expect(data != nil)
     }
     
     @Test func generateGIF_withDifferentAnimators_allProduceData() {

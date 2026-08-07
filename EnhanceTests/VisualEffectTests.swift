@@ -130,10 +130,20 @@ struct VisualEffectTests {
 
     // MARK: - PixelateEffect
 
-    @Test func pixelate_atZeroProgress_returnsUnchanged() {
+    /// Pixelate's progress is inverted relative to other effects: it starts fully
+    /// blocky and resolves to sharp, so progress 0 is maximum pixelation and
+    /// progress 1 is the pass-through. See LEARNINGS 2026-03-11.
+    @Test func pixelate_atZeroProgress_isFullyPixelated() {
         let effect = PixelateEffect()
         let input = makeTestImage()
         let output = effect.apply(to: input, progress: 0.0, frameIndex: 0)
+        #expect(output !== input)
+    }
+
+    @Test func pixelate_atFullProgress_returnsUnchanged() {
+        let effect = PixelateEffect()
+        let input = makeTestImage()
+        let output = effect.apply(to: input, progress: 1.0, frameIndex: 0)
         #expect(output.extent == input.extent)
     }
 
