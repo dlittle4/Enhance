@@ -1,6 +1,6 @@
 # Enhance (ZoomGif) — Roadmap
 
-> Last updated: 2026-03-14 (session 13)
+> Last updated: 2026-08-07 (session 14)
 
 ## Vision
 
@@ -8,6 +8,111 @@ Enhance is built around a simple creative flow:
 **choose a photo → define a focal point → generate motion → refine → save or share.**
 
 Each step should feel fast, tactile, and visually satisfying.
+
+---
+
+## Known Bugs — Session 14 Audit (2026-08-07)
+
+Found by code review, not yet reproduced on device unless noted. Ordered by severity.
+Each entry names the file and line where the defect lives.
+
+### P0 — Data loss (perceived)
+
+- **Gallery GIFs disappear after the app sits unused.** *(user-reported)*
+  Four defects composed into one failure. The assets were never lost — they stay intact in
+  Photos — but the gallery could not re-resolve them and then deleted its own cache.
+  **Stage A fixed 2026-08-07; Stage B still open.**
+  - [x] GIF originals are cached in `Library/Caches/MyGIFs/`, which iOS purges under storage
+        pressure, preferentially for apps not used recently. *(Root trigger — left as-is for now;
+        recovery is what was broken. See Stage B for the alternative.)*
+  - [x] The cache-miss recovery path could not reach iCloud: `PHContentEditingInputRequestOptions`
+        never set `isNetworkAccessAllowed = true`, while the thumbnail options on the same fetch did.
+        Offloaded assets returned a nil `fullSizeImageURL`. → Replaced with
+        `copyOriginalImageData(for:destination:)` using `requestImageDataAndOrientation`
+        (`version = .original`, network access allowed), the correct API for original GIF bytes.
+  - [x] The photo fallback called `requestAVAsset(forVideo:)` on a *photo* asset and always
+        returned nil. → `requestAVAsset` is now used only for genuine video assets.
+  - [x] `cleanupStaleCacheFiles()` deleted cache files for dropped entries, escalating a partial
+        failure into permanent cache loss, and wiped everything if the fetch fully failed.
+        → Now runs only after a complete, untimed-out fetch that resolved every asset.
+  - [x] A stalled request could leave `isFetching` pinned true for the session. → `group.notify`
+        replaced with `group.wait(timeout: 30s)`, and every leave routed through `LeaveGuard`
+        so a repeated or missing Photos callback can neither over- nor under-balance the group.
+  - [ ] **Stage B (open):** a GIF is still only displayed when *both* thumbnail and URL resolve
+        (`GIFLibraryService` intersection, `GalleryView.swift:50`), so any future URL failure
+        still removes it from the grid. Decouple display from URL resolution — replace the three
+        parallel arrays with one `[GifItem]` (`assetIdentifier`, `thumbnail`, `url: URL?`) and
+        resolve the URL lazily on tap. Touches ~9 sites in `GalleryView`.
+  - [ ] **Stage B (open):** consider moving originals from `Caches/` to
+        `Application Support/MyGIFs/` with `isExcludedFromBackup = true` so the system never
+        purges them in the first place.
+
+### Test suite
+
+- [x] Fixed three stale tests that asserted behaviour deliberately removed in earlier phases and
+      had been failing on `main`: `generateGIF_withScaleTooLow_returnsNil` (Phase 13c removed the
+      `currentScale > 1.0` guard), `resetEffects_restoresDefaults` (Phase 13c made modifiers
+      deselectable; default speed is 0.5 not 1.0), and `pixelate_atZeroProgress_returnsUnchanged`
+      (2026-03-11 inverted pixelate's progress). Suite was 89 passing / 3 failing → **92 / 0**.
+- [x] Added `EnhanceTests/GIFLibraryCacheTests.swift` covering `LeaveGuard` balance semantics
+      and `ThumbnailCache` directory recovery after a purge.
+
+### P1 — Correctness
+
+- [ ] **Edits are silently dropped during regeneration.** `guard !isRegenerating else { return }`
+      appears in 12 places. A change made while a regeneration is in flight is discarded with
+      nothing queued and no re-check on completion — the UI shows the new setting, the GIF shows
+      the old one. The four sliders are *not* `.disabled` during regeneration
+      (`EditorView.swift:641`, `:689`, `:794`, `:842`), so slider edits are the most likely to vanish.
+      Root cause: the same 6-line "mark modified + regenerate" block is copy-pasted ~13 times
+      across 8 `.onChange` handlers, 4 drag-end methods, and `restore()` (31 `regenerateGIF()` callsites).
+- [ ] **Newly-saved GIFs never persist their zoom params.** `persistZoomParams` is called only from
+      `updateOriginalGIF` (`EditorViewModel.swift:812`). `saveGIFToLibrary` — which handles first-time
+      saves *and* "SAVE NEW COPY" — never calls it, so re-opening falls back to the hardcoded
+      `scale = 2.0, rect = (0.15, 0.15, 0.7, 0.7)` (`:632`). Structural blocker: the save callback
+      does not return the new PHAsset identifier, so there is currently no key to store against.
+- [ ] **RESET on an existing GIF leaves the preview stale.** `resetEffects()` (`:265`) clears all
+      effects but only touches `enhanceState` in the `.newImage` branch. For an existing GIF it never
+      regenerates and never sets `hasModifiedSettings` — buttons go inactive, the displayed GIF keeps
+      the old effects, and SAVE stays disabled so the reset cannot be committed.
+- [ ] **`saveGIFToLibrary` can save the wrong file.** It reads `gifURL` (`:771`), which falls back to
+      `existingGifURL`. If regeneration failed on an existing GIF, "SAVE NEW COPY" silently duplicates
+      the original, unmodified GIF. `updateOriginalGIF` correctly requires `generatedGifURL`.
+- [x] **A stalled iCloud download can wedge the gallery for the whole session.** *(fixed 2026-08-07 —
+      see P0 above.)* The degraded-image early return skips `group.leave()` by design, which is
+      correct only if a final delivery always arrives. If it did not, `group.notify` never fired,
+      `isFetching` stayed `true`, and `guard !isFetching` made every later refresh a silent no-op
+      until relaunch.
+
+### P2 — Performance
+
+- [ ] **Face-effect GIF generation does ~25 full-resolution GPU renders.** `faceEffectedSource`
+      (`GIFGenerator.swift:157`) builds a CIImage from the full-size source, applies the effect, and
+      calls `createCGImage` once per animation frame plus the pause frame — for a 600×600 output.
+      The preview path already downscales to 650px; the GIF path never got the same treatment.
+- [x] **The disk thumbnail cache is destroyed on every refresh.** *(fixed 2026-08-07)*
+      `ThumbnailCache` stores at `Caches/MyGIFs/Thumbs/`, *inside* the directory
+      `cleanupStaleCacheFiles()` sweeps. `Thumbs` was not in `validFilenames`, so it was
+      recursively deleted; `thumbsDir` was only created in the singleton's `init`, so after the
+      first cleanup it never returned and all disk writes failed silently through `try?`.
+      → Directory name exposed as `ThumbnailCache.directoryName` and skipped by the sweep;
+      the directory is now re-created on every write rather than assumed to persist.
+
+### P3 — Polish / open questions
+
+- [ ] **"NO FACES DETECTED" toast repeats.** `detectFacesIfNeeded` guards on `detectedFaces.isEmpty`
+      (`EditorViewModel.swift:346`), which stays true forever when detection legitimately finds nothing,
+      so every return to the face tab re-runs detection and re-toasts. Needs a separate "has run" flag.
+- [ ] **Undo does not capture zoom.** `EditorSnapshot` (`:9`) has no `currentScale` / `visibleRect`.
+      Pinch/pan is not undoable, and undo after a zoom restores effects against different framing.
+      May be intentional — needs a decision either way.
+- [ ] **Preview images may change aspect ratio.** `configureContentSize` runs only in `makeUIView`
+      (`ImageCanvasView.swift:70`). Effects that alter the CIImage extent would make the preview's
+      aspect ratio diverge from the source, and `.scaleAspectFill` would crop differently than the
+      canvas expects. Unverified — needs checking against the strip-compositing effects.
+- [ ] **`PhotoManager` uses `assign(to:)` for `@Published` forwarding** (`PhotoManager.swift:24-29`),
+      which contradicts the documented rule in LEARNINGS.md (2026-03-08, "use `sink` with explicit
+      assignment"). Either the code or the learning is wrong; reconcile them.
 
 ---
 
@@ -401,6 +506,29 @@ Each step should feel fast, tactile, and visually satisfying.
 - [x] Effect thumbnails on visual effect buttons (pixelated preview of image with effect applied)
 - [x] Face effect buttons disabled/dimmed when no faces detected
 - [x] Removed old StaircaseSquares NUX icon
+
+### Phase 17c: Codebase Audit & Gallery Cache Recovery ✓ (session 14)
+
+**Full-codebase bug audit**
+- [x] Reviewed all ~8,600 lines plus both docs; catalogued 12 defects across 4 severity tiers
+      in the "Known Bugs" section at the top of this file, each anchored to file and line
+
+**Gallery cache recovery (P0 — user-reported disappearing GIFs), Stage A**
+- [x] Replaced the photo URL path: `requestContentEditingInput` → `requestImageDataAndOrientation`
+      (`version = .original`, `isNetworkAccessAllowed = true`) in `copyOriginalImageData(for:destination:)`
+- [x] `requestAVAsset` restricted to genuine video assets (it can never succeed for a photo)
+- [x] `cleanupStaleCacheFiles()` gated on a complete, untimed-out fetch that resolved every asset
+- [x] `group.notify` → `group.wait(timeout: 30s)` so a stalled request cannot pin `isFetching`
+- [x] Added `LeaveGuard` — idempotent `DispatchGroup` leave, safe against repeated or missing
+      Photos callbacks
+- [x] `ThumbnailCache.directoryName` exposed and skipped by the stale-file sweep; thumbs directory
+      re-created on every write instead of only in `init`
+
+**Test suite**
+- [x] Repaired 3 stale tests that had been failing on `main` (see "Test suite" section above)
+- [x] Added `EnhanceTests/GIFLibraryCacheTests.swift` — 5 tests covering `LeaveGuard` balance
+      semantics and `ThumbnailCache` directory recovery
+- [x] Suite green: 92 passing / 0 failing (was 89 / 3)
 
 ### Phase 18: Settings & Social
 

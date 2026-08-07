@@ -971,3 +971,70 @@ Additionally, when the user denied permission, `hasLoadedGifs` was never set to 
 **Fix:** Lowered the directional drag threshold from 0.2 to 0.05 items so even small intentional swipes use `ceil(dragStart)` or `floor(dragStart)` based on drag direction. The fallback for truly accidental touches uses `position.rounded()` (current finger-up position) instead of `dragStart.rounded()`.
 
 **Rule:** When a carousel has auto-scroll, the drag start position is fractional. Never use plain `.rounded()` for snap targets — it ignores swipe direction. Always use `ceil`/`floor` based on the sign of the drag translation, with a very low threshold to distinguish intentional swipes from accidental touches.
+
+---
+
+## 2026-08-07: Caches/ is purged for apps that sit unused — the recovery path is the feature
+
+**Problem:** Users reported that GIFs vanished from the gallery if the app hadn't been opened for a while. The assets were intact in Photos the whole time — the gallery simply stopped showing them, and reinstalling was the only apparent fix.
+
+**Root cause — four defects composing into one failure:**
+
+1. GIF originals are cached in `Library/Caches/MyGIFs/`. iOS purges `Caches` under storage pressure and **preferentially targets apps the user hasn't opened recently** — which is precisely the reported trigger.
+2. The cache-miss recovery path could not reach iCloud. `PHContentEditingInputRequestOptions` never set `isNetworkAccessAllowed = true`, while the thumbnail options *in the same fetch* did. A device that sits unused also offloads photos to iCloud, so `input?.fullSizeImageURL` came back nil exactly when recovery mattered most.
+3. The nil fallback called `requestAVAsset(forVideo:)` on a **photo** asset — an API that can never succeed for a photo. So the fallback was structurally dead code.
+4. `cleanupStaleCacheFiles()` then deleted cache files for every asset that had failed to resolve, converting a transient network failure into permanent cache loss. If the whole fetch failed, it wiped everything.
+
+The amplifier: a GIF is only displayed when **both** its thumbnail and its file URL resolve (`Set(gifResults.keys).intersection(urlResults.keys)`), and `GalleryView` only renders the grid when both arrays are non-empty. So a URL failure didn't degrade the cell — it removed the GIF entirely, and a total failure dropped the user to the empty/onboarding state.
+
+**Fix:** Replaced the photo path with `PHImageManager.requestImageDataAndOrientation(for:options:)` using `version = .original` and `isNetworkAccessAllowed = true`. This is the correct API for retrieving original animated-GIF bytes — `requestContentEditingInput` is designed for edit sessions, returns a URL that may not exist locally, and offers no clean network policy. `requestAVAsset` is now used only for genuine video assets. `cleanupStaleCacheFiles()` runs only after a complete fetch that resolved every asset.
+
+**Rule:** `Caches/` is not storage, it is a hint. Anything placed there **will** be deleted, and specifically when the app has been idle — the worst possible moment, because that is also when the source may have been offloaded to iCloud. If you cache derived copies of Photos assets, the re-fetch path must set `isNetworkAccessAllowed = true` and must be exercised in testing, because it is the only thing standing between a routine system purge and what users experience as data loss. Test it by deleting the cache directory out from under a running app, not by waiting for the system to do it.
+
+**Rule:** Never let a cleanup routine act on a partial result set. Derive "what is still valid" only from a fetch known to be complete; otherwise a transient failure teaches the cache to delete data it will need again. Gate the sweep on an explicit completeness flag, never on "whatever we happened to load this time."
+
+---
+
+## 2026-08-07: requestImageDataAndOrientation vs requestContentEditingInput for original bytes
+
+Three ways to get pixel data back out of a `PHAsset`, and they are not interchangeable:
+
+- **`requestImageDataAndOrientation`** — returns the original file's `Data`. With `version = .original` this preserves animated GIF frames intact. Honours `isNetworkAccessAllowed`, so it can pull an iCloud-offloaded asset back down. **This is the right call for "give me the original file."**
+- **`requestContentEditingInput`** — designed for building an *edit session*. Its `fullSizeImageURL` points at a local file that may simply not exist for an offloaded asset, and `PHContentEditingInputRequestOptions` has no straightforward network policy. Reaching for it to copy a file is using an edit API as a download API.
+- **`requestImage`** — returns a rendered `UIImage` at a target size. Fine for thumbnails, useless for GIFs: it flattens the animation to a single frame.
+
+**Rule:** To copy an asset's original bytes, use `requestImageDataAndOrientation` with `version = .original`. Reserve `requestContentEditingInput` for actual editing flows. And whenever a fetch sets `isNetworkAccessAllowed` on one request, check every *other* request in the same operation — the bug here was one options object having it and its sibling not.
+
+---
+
+## 2026-08-07: DispatchGroup + Photos callbacks needs idempotent leaves and a timeout
+
+**Problem:** `PHImageManager.requestImage` with `deliveryMode = .highQualityFormat` can invoke its handler more than once — a degraded placeholder followed by the final image. The fetch handled this by returning early on `PHImageResultIsDegradedKey` without calling `group.leave()`, so only the final delivery balanced the group. Correct — but only if a final delivery always arrives. When an iCloud download stalled, it never did: `group.notify` never fired, `isFetching` stayed `true`, and the `guard !isFetching` at the top of the fetch turned every subsequent refresh into a silent no-op for the rest of the session. Only relaunching recovered.
+
+**Fix:** Two changes. Every `enter()`/`leave()` pair is now brokered by a small `LeaveGuard` class that holds a lock and a `hasLeft` flag, so a repeated callback cannot over-balance the group (a runtime trap) and the intent stays readable at the call site. And `group.notify` was replaced with `group.wait(timeout: 30s)` on a background queue, so the completion path runs whether or not every request reported in — `isFetching` always clears.
+
+**Rule:** Never balance a `DispatchGroup` directly inside a Photos callback. Those handlers may fire twice, once, or never, and each of those has a different failure: a trap, a hang, or a silent stall. Route leaves through an idempotent token, and always pair `DispatchGroup` with `wait(timeout:)` rather than `notify` when the work depends on the network. Any "is in flight" boolean guarding re-entry must have a guaranteed path back to `false` — otherwise one stalled request disables the feature until the process restarts.
+
+---
+
+## 2026-08-07: Never sweep a directory that contains another cache's directory
+
+**Problem:** `ThumbnailCache` stored disk thumbnails at `Caches/MyGIFs/Thumbs/` — *inside* the directory that `GIFLibraryService.cleanupStaleCacheFiles()` sweeps for stale files. The sweep listed the directory's contents, found the entry `Thumbs`, failed to match it against the set of valid `.gif` filenames, and recursively deleted it. Because `thumbsDir` was created only in the singleton's `init`, it never came back: every later write failed silently through `try?`. The disk thumbnail cache had almost certainly never survived past the first gallery refresh.
+
+**Fix:** Exposed the name as `ThumbnailCache.directoryName` so the sweep skips it by shared constant rather than a duplicated string literal, and moved directory creation into an `ensureDirectory()` call on every write instead of once at `init`.
+
+**Rule:** A "delete everything I don't recognise" sweep is only safe over a directory it exclusively owns. If two caches share a parent, the sweep must skip the other's entries via a shared constant — never a hardcoded string in the sweeping file. And any directory under `Caches/` must be re-created lazily at write time, because `init`-time creation assumes a lifetime the system does not guarantee. Silent `try?` writes into a missing directory fail invisibly, so this class of bug produces no logs at all.
+
+---
+
+## 2026-08-07: Stale tests encode behaviour you deliberately removed
+
+**Problem:** The suite had three tests failing on `main`, and had for several sessions. None represented a real defect — each asserted a contract that had been intentionally changed:
+
+- `generateGIF_withScaleTooLow_returnsNil` — Phase 13c removed the hard `currentScale > 1.0` guard so effects-only GIFs could be generated. There is no longer any low-scale nil path.
+- `resetEffects_restoresDefaults` — asserted `selectedModifier == .straight` and `playbackSpeed == 1.0`. Phase 13c made modifiers deselectable (reset is `nil`), and the default speed is 0.5.
+- `pixelate_atZeroProgress_returnsUnchanged` — the 2026-03-11 progress inversion made progress 0 *maximum* pixelation. The pass-through moved to progress 1.
+
+**Cost:** A permanently red suite is worse than no suite. It trains you to ignore failures, so it could not be used to check the cache fix for regressions until it was repaired first — exactly when a trustworthy signal was most useful.
+
+**Rule:** When you deliberately change a contract, grep the test suite for it *in the same change* — the tests encoding the old behaviour are a feature of having tests, not noise to triage later. Before trusting a suite as a regression signal, confirm it is green on the untouched baseline; if it is not, fix that first and separately, so a pre-existing failure is never mistaken for one you just introduced. Stashing changes and re-running is the cheap way to tell those apart.
