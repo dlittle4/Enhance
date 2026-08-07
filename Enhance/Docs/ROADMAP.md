@@ -545,6 +545,48 @@ Each entry names the file and line where the defect lives.
       map; rename `duotoneColor` → `effectColor` when that lands. A test asserts this state so it
       fails loudly the moment a new effect claims the picker. **Do not delete as dead code.**
 
+### Phase 17d: New Image Effects — Phase 1 ✓ (session 14)
+
+Carousel rebuilt from 8 → 20 visible effects, all stock Core Image, no new build infrastructure.
+
+**Groundwork**
+- [x] `EffectOptions` struct replaces the growing positional parameter list on
+      `VisualEffectType.effect(intensity:options:)`
+- [x] Renamed `duotoneColor` → `tintColor` throughout (a param named for a retired effect
+      is a trap — Colored Edges shares it)
+- [x] `EffectPickerKind` replaces the hardcoded `supportsColorPicker` view; `supportsColorPicker`
+      is now derived so the two cannot drift
+- [x] Deduplicated `duotoneColorPicker` / `laserColorPicker` into one `colorSwatchRow(selection:)`
+- [x] `requiredFilterNames_exist` test — `applyingFilter` fails *silently* on an unknown name
+
+**Effects**
+- [x] **9 filter presets** (SEPIA, VINTAGE, WARM, COOL, FADE, VIVID, CONTRAST, NOIR, MONO) —
+      `FilterPreset` defines each as a fully-graded target image, shared `FilterPresetEffect`
+      dissolves toward it so intensity works uniformly across all nine
+- [x] **GRADIENT** — luminance → multi-stop ramp via a memoised 32³ `CIColorCubeWithColorSpace`.
+      6 ramps in `GradientRamp` (sunset, ice, toxic, ember, violet, mint) with a capsule picker
+- [x] **EDGES** — Sobel via `CIEdges`, tinted from `LaserColor`, over a darkened original
+- [x] **DITHER** — `CIDither` then `CIColorPosterize` (that order is the effect: noise pushes
+      values across posterise boundaries so gradients stipple instead of banding)
+
+**Verification**
+- [x] Rendered every new effect to PNG against a rich test fixture and inspected them — caught two
+      bugs that all structural tests passed (see LEARNINGS 2026-08-07 on the linear working space)
+- [x] Suite 95 → **111 passing / 0 failing**
+- [ ] **Not yet verified on device.** Specifically: does DITHER survive GIF palettisation, or does
+      it read as noise? The reserve mitigation is a `CIPixellate` pass before the dither for chunkier
+      stipple — held back because it overlaps conceptually with `PixelateEffect`.
+- [ ] **Carousel at 20 items** — confirm horizontal scrolling is tolerable and that entering the
+      IMAGE tab doesn't stutter while 20 thumbnails render (was 8)
+
+### Phase 17e: New Image Effects — Phase 2 (not started)
+
+- [ ] CIKernel infrastructure: build rule scoped to `*.ci.metal` so `-fcikernel` does **not** hit
+      `Pixellate.metal` (target-scope flags would break the animated canvas border at runtime)
+- [ ] Derisking gate: passthrough kernel + confirm `ShaderLibrary.pixellate` still renders
+- [ ] Riso Print kernel — per-channel halftone at 15°/45°/75°, subtractive ink compositing,
+      misregistration, grain. Built from algorithm description; original WGSL unavailable.
+
 ### Phase 18: Settings & Social
 
 - [ ] Add "RATE THE APP" row in settings with 5 star icons (opens SKStoreReviewController or App Store URL)

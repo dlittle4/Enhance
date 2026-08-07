@@ -181,7 +181,7 @@ struct VisualEffectTests {
         let ctx = CIContext()
 
         for type in VisualEffectType.allCases {
-            let effect = type.effect(size: 0.5)
+            let effect = type.effect()
             let output = effect.apply(to: input, progress: 0.5, frameIndex: 10)
             let cgImage = ctx.createCGImage(output, from: output.extent)
             #expect(cgImage != nil)
@@ -211,11 +211,164 @@ struct VisualEffectTests {
         #expect(selectable == expected)
     }
 
-    /// The color picker row is driven by `supportsColorPicker`. Duotone is currently
-    /// its only consumer and is retired, so no visible effect shows the picker —
-    /// this documents that, and will fail loudly when a new effect claims it.
-    @Test func colorPicker_hasNoVisibleConsumerWhileDuotoneIsRetired() {
+    /// `supportsColorPicker` is derived from `colorPickerKind`; the two must never
+    /// drift apart.
+    @Test func colorPicker_flagAgreesWithKind() {
+        for type in VisualEffectType.allCases {
+            #expect(type.supportsColorPicker == (type.colorPickerKind != nil))
+        }
+    }
+
+    /// Every visible effect claiming a picker slot must be one EditorView knows how
+    /// to render. Fails loudly when a new effect claims the picker without the view
+    /// gaining a matching branch. Duotone still claims `.tintColor` but stays retired.
+    @Test func colorPicker_visibleConsumersAreTheExpectedSet() {
         #expect(VisualEffectType.duotone.isRetired)
-        #expect(!VisualEffectType.selectable.contains { $0.supportsColorPicker })
+        let visible = Set(VisualEffectType.selectable.filter(\.supportsColorPicker))
+        #expect(visible == [.gradientMap, .coloredEdges])
+    }
+
+    // MARK: - Required filter names
+
+    /// `applyingFilter` fails *silently* on an unknown filter name — it returns an
+    /// unchanged image rather than throwing — so a typo would surface as a subtly
+    /// wrong look rather than a test failure. This is the cheapest guard available.
+    @Test func requiredFilterNames_exist() {
+        let names = FilterPreset.requiredFilterNames + [
+            "CIColorCubeWithColorSpace", "CIEdges", "CIMaximumComponent",
+            "CIGammaAdjust", "CIColorMatrix", "CIAdditionCompositing",
+            "CIDither", "CIColorPosterize", "CIDissolveTransition"
+        ]
+        for name in names {
+            #expect(CIFilter(name: name) != nil, "missing CIFilter: \(name)")
+        }
+    }
+
+    // MARK: - Filter Presets
+
+    @Test func filterPreset_atZeroProgress_returnsUnchanged() {
+        let effect = FilterPresetEffect(preset: .sepia)
+        let input = makeTestImage()
+        let output = effect.apply(to: input, progress: 0.0, frameIndex: 0)
+        #expect(output.extent == input.extent)
+    }
+
+    @Test func filterPreset_atFullProgress_producesOutput() {
+        let effect = FilterPresetEffect(intensity: 1.0, preset: .sepia)
+        let input = makeTestImage()
+        let output = effect.apply(to: input, progress: 1.0, frameIndex: 0)
+        #expect(CIContext().createCGImage(output, from: output.extent) != nil)
+    }
+
+    /// Renders every preset's grade. This is what catches a mistyped filter name or
+    /// a bad parameter key, both of which `applyingFilter` swallows silently.
+    @Test func filterPreset_allPresetsRender() {
+        let ctx = CIContext()
+        let input = makeTestImage()
+        for preset in FilterPreset.allCases {
+            let graded = preset.graded(input)
+            #expect(ctx.createCGImage(graded, from: graded.extent) != nil, "preset failed: \(preset.rawValue)")
+        }
+    }
+
+    // MARK: - Gradient Map
+
+    @Test func gradientMap_atZeroProgress_returnsUnchanged() {
+        let effect = GradientMapEffect(ramp: .sunset)
+        let input = makeTestImage()
+        let output = effect.apply(to: input, progress: 0.0, frameIndex: 0)
+        #expect(output.extent == input.extent)
+    }
+
+    @Test func gradientMap_atFullProgress_producesOutput() {
+        let effect = GradientMapEffect(intensity: 1.0, ramp: .sunset)
+        let input = makeTestImage()
+        let output = effect.apply(to: input, progress: 1.0, frameIndex: 0)
+        #expect(CIContext().createCGImage(output, from: output.extent) != nil)
+    }
+
+    @Test func gradientMap_allRampsRender() {
+        let ctx = CIContext()
+        let input = makeTestImage()
+        for ramp in GradientRamp.allCases {
+            let effect = GradientMapEffect(intensity: 1.0, ramp: ramp)
+            let output = effect.apply(to: input, progress: 1.0, frameIndex: 0)
+            #expect(ctx.createCGImage(output, from: output.extent) != nil, "ramp failed: \(ramp.rawValue)")
+        }
+    }
+
+    /// Every ramp must span the full luminance range so a lookup at any point in
+    /// [0,1] is bracketed by two stops.
+    @Test func gradientRamp_stopsAreSortedAndSpanZeroToOne() {
+        for ramp in GradientRamp.allCases {
+            let stops = ramp.stops
+            #expect(stops.count >= 2, "\(ramp.rawValue) needs at least 2 stops")
+            #expect(stops.first?.location == 0.0, "\(ramp.rawValue) must start at 0")
+            #expect(stops.last?.location == 1.0, "\(ramp.rawValue) must end at 1")
+            let locations = stops.map(\.location)
+            #expect(locations == locations.sorted(), "\(ramp.rawValue) stops out of order")
+        }
+    }
+
+    @Test func gradientRamp_colorAtEndpointsMatchesStops() {
+        for ramp in GradientRamp.allCases {
+            let first = ramp.stops.first!.rgb
+            let last = ramp.stops.last!.rgb
+            let low = ramp.color(at: 0.0)
+            let high = ramp.color(at: 1.0)
+            #expect(abs(low.r - first.r) < 0.001 && abs(low.g - first.g) < 0.001)
+            #expect(abs(high.r - last.r) < 0.001 && abs(high.g - last.g) < 0.001)
+        }
+    }
+
+    /// Out-of-range lookups must clamp rather than extrapolate or crash.
+    @Test func gradientRamp_colorClampsOutOfRangeInput() {
+        let ramp = GradientRamp.sunset
+        let below = ramp.color(at: -0.5)
+        let above = ramp.color(at: 1.5)
+        #expect(below.r == ramp.color(at: 0.0).r)
+        #expect(above.r == ramp.color(at: 1.0).r)
+    }
+
+    // MARK: - Colored Edges
+
+    @Test func coloredEdges_atZeroProgress_returnsUnchanged() {
+        let effect = ColoredEdgesEffect()
+        let input = makeTestImage()
+        let output = effect.apply(to: input, progress: 0.0, frameIndex: 0)
+        #expect(output.extent == input.extent)
+    }
+
+    @Test func coloredEdges_atFullProgress_producesOutput() {
+        let effect = ColoredEdgesEffect(intensity: 1.0, color: .blue)
+        let input = makeTestImage()
+        let output = effect.apply(to: input, progress: 1.0, frameIndex: 0)
+        #expect(CIContext().createCGImage(output, from: output.extent) != nil)
+    }
+
+    /// CIEdges is a convolution: without `clampedToExtent()` before it and a crop
+    /// after, it samples off-image and paints a false border on all four sides.
+    /// This fails if either is dropped.
+    @Test func coloredEdges_outputExtentMatchesInput() {
+        let effect = ColoredEdgesEffect(intensity: 1.0)
+        let input = makeTestImage()
+        let output = effect.apply(to: input, progress: 1.0, frameIndex: 0)
+        #expect(output.extent == input.extent)
+    }
+
+    // MARK: - Dither
+
+    @Test func dither_atZeroProgress_returnsUnchanged() {
+        let effect = DitherEffect()
+        let input = makeTestImage()
+        let output = effect.apply(to: input, progress: 0.0, frameIndex: 0)
+        #expect(output.extent == input.extent)
+    }
+
+    @Test func dither_atFullProgress_producesOutput() {
+        let effect = DitherEffect(intensity: 1.0)
+        let input = makeTestImage()
+        let output = effect.apply(to: input, progress: 1.0, frameIndex: 0)
+        #expect(CIContext().createCGImage(output, from: output.extent) != nil)
     }
 }

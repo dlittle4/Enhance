@@ -20,7 +20,8 @@ struct EditorSnapshot {
     let faceFilterSpeed: Double
     let selectedFaceIndex: Int?
     let laserColor: LaserColor
-    let duotoneColor: LaserColor
+    let tintColor: LaserColor
+    let gradientRamp: GradientRamp
 }
 
 @Observable
@@ -60,7 +61,8 @@ class EditorViewModel {
     var selectedVisualEffect: VisualEffectType? = nil
     var effectIntensity: Double = 0.5
     var effectSize: Double = 0.5
-    var duotoneColor: LaserColor = .red
+    var tintColor: LaserColor = .red
+    var gradientRamp: GradientRamp = .sunset
     var previewImage: UIImage? = nil
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
@@ -121,7 +123,8 @@ class EditorViewModel {
             faceFilterSpeed: faceFilterSpeed,
             selectedFaceIndex: selectedFaceIndex,
             laserColor: laserColor,
-            duotoneColor: duotoneColor
+            tintColor: tintColor,
+            gradientRamp: gradientRamp
         )
     }
 
@@ -139,7 +142,8 @@ class EditorViewModel {
         faceFilterSpeed = snapshot.faceFilterSpeed
         selectedFaceIndex = snapshot.selectedFaceIndex
         laserColor = snapshot.laserColor
-        duotoneColor = snapshot.duotoneColor
+        tintColor = snapshot.tintColor
+        gradientRamp = snapshot.gradientRamp
 
         updateCombinedPreview()
 
@@ -196,7 +200,8 @@ class EditorViewModel {
 
     var activeVisualEffectList: [VisualEffect] {
         guard let effect = selectedVisualEffect else { return [] }
-        return [effect.effect(intensity: effectIntensity, size: effectSize, duotoneColor: duotoneColor)]
+        let options = EffectOptions(size: effectSize, tintColor: tintColor, gradientRamp: gradientRamp)
+        return [effect.effect(intensity: effectIntensity, options: options)]
     }
 
     var activeAnimator: Animator {
@@ -282,7 +287,8 @@ class EditorViewModel {
         faceFilterIntensity = 0.5
         faceFilterSpeed = 0.5
         laserColor = .red
-        duotoneColor = .red
+        tintColor = .red
+        gradientRamp = .sunset
         detectedFaces = []
         faceDetectionService.clearCache()
 
@@ -427,7 +433,8 @@ class EditorViewModel {
             var results: [VisualEffectType: UIImage] = [:]
 
             for effectType in VisualEffectType.selectable {
-                let effect = effectType.effect(intensity: 0.7, size: 0.5, duotoneColor: .purple)
+                let options = EffectOptions(size: 0.5, tintColor: .purple, gradientRamp: .sunset)
+                let effect = effectType.effect(intensity: 0.7, options: options)
                 let progress = effectType.previewProgress
                 let output = effect.apply(to: ciInput, progress: progress, frameIndex: 3)
                 if let cgOut = self.ciContext.createCGImage(output, from: output.extent) {

@@ -122,7 +122,17 @@ struct EditorView: View {
                 viewModel.regenerateGIF()
             }
         }
-        .onChange(of: viewModel.duotoneColor) { _, _ in
+        .onChange(of: viewModel.tintColor) { _, _ in
+            viewModel.updatePreviewImage()
+            guard !viewModel.isRegenerating else { return }
+            if case .existingGif = viewModel.content {
+                viewModel.hasModifiedSettings = true
+                viewModel.regenerateGIF()
+            } else if viewModel.isSplit {
+                viewModel.regenerateGIF()
+            }
+        }
+        .onChange(of: viewModel.gradientRamp) { _, _ in
             viewModel.updatePreviewImage()
             guard !viewModel.isRegenerating else { return }
             if case .existingGif = viewModel.content {
@@ -337,9 +347,15 @@ struct EditorView: View {
                                 .transition(.opacity)
                         }
 
-                        if effect.supportsColorPicker {
-                            duotoneColorPicker
+                        switch effect.colorPickerKind {
+                        case .tintColor:
+                            colorSwatchRow(selection: $viewModel.tintColor)
                                 .transition(.opacity)
+                        case .gradientRamp:
+                            gradientRampPicker
+                                .transition(.opacity)
+                        case .none:
+                            EmptyView()
                         }
                     }
                 }
@@ -361,7 +377,7 @@ struct EditorView: View {
                         }
 
                         if filter == .lazerEyes {
-                            laserColorPicker
+                            colorSwatchRow(selection: $viewModel.laserColor)
                                 .transition(.opacity)
                         }
                     }
@@ -456,23 +472,25 @@ struct EditorView: View {
         .buttonStyle(.plain)
     }
 
-    // MARK: - Duotone Color Picker
+    // MARK: - Pickers
 
-    private var duotoneColorPicker: some View {
+    /// Shared colour swatch row. Used by visual effects (writing `tintColor`) and
+    /// face filters (writing `laserColor`) — previously two near-identical copies.
+    private func colorSwatchRow(selection: Binding<LaserColor>) -> some View {
         HStack {
             ForEach(LaserColor.allCases) { color in
                 Spacer()
                 Button {
                     viewModel.pushUndo()
                     HapticService.light()
-                    viewModel.duotoneColor = color
+                    selection.wrappedValue = color
                 } label: {
                     Circle()
                         .fill(color.swiftUIColor)
                         .frame(width: 26, height: 26)
                         .overlay(
                             Circle()
-                                .stroke(viewModel.duotoneColor == color ? mintGreen : .clear, lineWidth: 2)
+                                .stroke(selection.wrappedValue == color ? mintGreen : .clear, lineWidth: 2)
                                 .frame(width: 32, height: 32)
                         )
                 }
@@ -487,24 +505,30 @@ struct EditorView: View {
         )
     }
 
-    // MARK: - Laser Color Picker
-
-    private var laserColorPicker: some View {
+    /// Ramp picker for Gradient Map. Same row structure as the colour swatches —
+    /// a ramp is still a single selection — with capsules previewing each ramp.
+    private var gradientRampPicker: some View {
         HStack {
-            ForEach(LaserColor.allCases) { color in
+            ForEach(GradientRamp.allCases) { ramp in
                 Spacer()
                 Button {
                     viewModel.pushUndo()
                     HapticService.light()
-                    viewModel.laserColor = color
+                    viewModel.gradientRamp = ramp
                 } label: {
-                    Circle()
-                        .fill(color.swiftUIColor)
-                        .frame(width: 26, height: 26)
+                    Capsule()
+                        .fill(
+                            LinearGradient(
+                                colors: ramp.swiftUIColors,
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: 34, height: 22)
                         .overlay(
-                            Circle()
-                                .stroke(viewModel.laserColor == color ? mintGreen : .clear, lineWidth: 2)
-                                .frame(width: 32, height: 32)
+                            Capsule()
+                                .stroke(viewModel.gradientRamp == ramp ? mintGreen : .clear, lineWidth: 2)
+                                .frame(width: 40, height: 28)
                         )
                 }
                 .buttonStyle(.plain)

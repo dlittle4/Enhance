@@ -1059,3 +1059,19 @@ The order matters too: `selectable` filters `allCases`, so it inherits declarati
 **Second-order consequence to watch:** retiring an effect can strand shared UI plumbing. Duotone was the only effect with `supportsColorPicker`, so retiring it left the whole `duotoneColor` path (view model property, `EditorSnapshot` field, picker view, regeneration handler) intact but with no visible consumer — exactly the shape that looks like dead code to a future tidy-up. The defence is a test that asserts the dormant state (`no selectable effect supports the color picker`), which both documents the situation and fails the moment a new effect claims it.
 
 **Rule:** To withdraw a feature you may want back, hide it behind a `retired` set rather than deleting or commenting it. Route user-facing enumeration through a filtered list and leave test enumeration on the unfiltered one — that combination is what keeps retired code honest. Before retiring, grep for other subsystems consuming the same implementation (see the 2026-03-13 entry: face filters use visual effect classes directly), and afterwards check whether any shared UI hook has just lost its last consumer.
+
+---
+
+## 2026-08-07: The CIContext working space is linear — additive brightness lies
+
+**Problem:** `ColoredEdgesEffect` darkens the photo so tinted edges read as neon. `CIColorControls` with `kCIInputBrightnessKey: -0.55` looked like it should more than halve the brightness. Rendered, the image was barely dimmed and the edges were swamped.
+
+**Root cause:** `CIContext(options: [.useSoftwareRenderer: false])` — used in both `GIFGenerator` and `EditorViewModel` — has a **linear sRGB** working space. `CIColorControls` brightness is an *additive offset applied in that space*. White at 1.0 linear minus 0.55 is 0.45 linear, which converts back to roughly **0.70 sRGB**. A parameter that reads as "darken by 55%" delivers about 30%.
+
+**Fix:** Darken **multiplicatively** with `CIColorMatrix` scaling the RGB rows. Scaling is proportional, so it behaves the same in either space. The coefficient still has to account for the gamma curve — keeping 12% of a linear value renders near 38% in sRGB, so genuinely dark backgrounds need to keep 4% or less.
+
+**A second trap in the same effect:** tinting the edges by multiplying magnitude by `tint * gain` with `gain > 1` clipped channels *unevenly*. `LaserColor.green` is `(0, 0.8, 0.467)`; at `gain = 3` that becomes `(0, 2.4, 1.4)`, which clamps to `(0, 1, 1)` — the edges rendered **cyan instead of green**. Core Image works in unclamped float, so this doesn't clip until the final render, well after the hue is destroyed. Fix: normalise the tint so its brightest channel is 1, and boost magnitude only *before* the tint multiply, never after.
+
+**Rule:** Never reason about a Core Image chain's brightness or contrast in sRGB terms — the working space is linear unless you explicitly set `workingColorSpace`, and don't change that globally because every existing effect is tuned against the current one. Prefer multiplicative scaling (`CIColorMatrix`) over additive offsets (`CIColorControls` brightness) whenever the intent is "make this a fraction as bright." And when tinting a grayscale mask, keep the colour coefficients within [0,1]: scaling past 1 clips per channel and silently shifts hue.
+
+**Corollary — structural tests cannot catch any of this.** Both bugs passed `output.extent == input.extent` and `createCGImage != nil`. They were only found by rendering the effects to PNG against a test image with a full luminance sweep, colour patches, and hard edges, then *looking at them*. Build that dump harness when adding visual effects; a solid-colour fixture would have shown nothing.
