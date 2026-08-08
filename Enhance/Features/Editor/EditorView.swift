@@ -13,7 +13,7 @@ struct EditorView: View {
     private var innerRadius: CGFloat { outerRadius - borderInset }
     private var borderedSize: CGFloat { canvasSize + borderInset * 2 }
 
-    private let mintGreen = Color(red: 96/255, green: 255/255, blue: 168/255)
+    private let mintGreen = Color.enhanceMint
     private let buttonHeight: CGFloat = 60
     @State private var sliderUndoPushed = false
 

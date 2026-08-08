@@ -7,7 +7,7 @@ struct SegmentedBar<T: Hashable>: View {
     var onChange: (() -> Void)? = nil
     var onWillChange: (() -> Void)? = nil
 
-    private let mintGreen = Color(red: 96/255, green: 255/255, blue: 168/255)
+    private let mintGreen = Color.enhanceMint
 
     var body: some View {
         HStack(spacing: 0) {

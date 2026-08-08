@@ -52,7 +52,7 @@ struct GifGridItem: View {
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Color(hex: 0x60FFA8), lineWidth: 4)
+                    .strokeBorder(Color.enhanceMint, lineWidth: 4)
                     .opacity(isSelected ? 1 : 0)
             )
             .shadow(color: Color(white: 0.12, opacity: 0.15), radius: 22, x: 0, y: 22)

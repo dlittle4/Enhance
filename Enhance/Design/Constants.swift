@@ -60,6 +60,15 @@ enum AppConstants {
         
         /// Preload margin for lazy loading content in scroll views (200pt)
         static let preloadMargin: CGFloat = 200
+
+        /// Side of a square effect card in the editor's effect gallery (110pt)
+        static let effectCardSize: CGFloat = 110
+
+        /// Height of one control row in the effect detail panel (44pt)
+        static let parameterRowHeight: CGFloat = 44
+
+        /// Corner radius for the effect detail panel and effect cards (20pt)
+        static let panelCornerRadius: CGFloat = 20
     }
 }
  

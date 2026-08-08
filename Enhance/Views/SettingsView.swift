@@ -6,7 +6,7 @@ struct SettingsView: View {
     @AppStorage("appTheme") private var selectedTheme: String = "PIXEL"
     @AppStorage("selectedAppIcon") private var selectedAppIcon: String = "AppIcon"
 
-    private let mintGreen = Color(hex: 0x60FFA8)
+    private let mintGreen = Color.enhanceMint
     private let themes = ["PIXEL", "THEME 2", "THEME 3"]
     private let appIcons: [(name: String, preview: String, identifier: String?)] = [
         ("AppIcon", "icon-preview-default", nil),

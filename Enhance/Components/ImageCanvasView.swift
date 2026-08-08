@@ -114,7 +114,7 @@ private struct ScrollableCanvasView: UIViewRepresentable {
 
         private var faceBoxViews: [FaceBoxView] = []
 
-        private let mintGreen = UIColor(red: 96/255, green: 255/255, blue: 168/255, alpha: 1)
+        private let mintGreen = UIColor.enhanceMint
 
         init(parent: ScrollableCanvasView) {
             self.parent = parent
