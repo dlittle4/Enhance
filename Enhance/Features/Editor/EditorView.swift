@@ -678,9 +678,9 @@ struct EditorView: View {
 
         return EffectCardView(
             title: filterType.rawValue,
-            // No face thumbnail path yet — face effects need a DetectedFace, which
-            // arrives asynchronously and may never arrive. The plain treatment covers it.
-            thumbnail: nil,
+            // nil until detection completes, and stays nil when the photo has no
+            // faces — where a thumbnail would be meaningless anyway.
+            thumbnail: viewModel.faceFilterThumbnails[filterType],
             isActive: viewModel.selectedFaceFilter == filterType,
             isBlocked: viewModel.isRegenerating || noFaces || singleFaceBlocked,
             size: cardSize

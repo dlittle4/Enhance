@@ -420,5 +420,42 @@ struct EditorViewModelTests {
         #expect(vm.editingParameters.isEmpty)
         #expect(vm.editingTitle == "")
     }
+
+    // MARK: - Face filter thumbnails
+
+    /// The specific trap: fired before detection completes there are no faces, the
+    /// generator would produce thirteen unmodified copies of the photo, and the
+    /// `isEmpty` memo would cache them for the session — cards silently showing no
+    /// effect. The guard must leave the cache untouched so a later run can fill it.
+    @Test func faceFilterThumbnails_withNoFaces_leaveCacheEmpty() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        #expect(vm.detectedFaces.isEmpty)
+
+        vm.generateFaceFilterThumbnails()
+
+        #expect(vm.faceFilterThumbnails.isEmpty, "an empty cache must stay fillable")
+    }
+
+    @Test func resetEffects_clearsBothThumbnailCaches() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.effectThumbnails[.dither] = makeImage()
+        vm.faceFilterThumbnails[.googlyEyes] = makeImage()
+
+        vm.resetEffects()
+
+        #expect(vm.effectThumbnails.isEmpty)
+        #expect(vm.faceFilterThumbnails.isEmpty)
+    }
+
+    /// A new detection targets a different face, so thumbnails cropped to the old one
+    /// must not survive it.
+    @Test func redetectFaces_invalidatesFaceThumbnails() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.faceFilterThumbnails[.lazerEyes] = makeImage()
+
+        vm.redetectFaces()
+
+        #expect(vm.faceFilterThumbnails.isEmpty)
+    }
 }
 

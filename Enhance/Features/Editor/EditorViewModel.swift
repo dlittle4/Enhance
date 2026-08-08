@@ -426,6 +426,7 @@ class EditorViewModel {
         previewImage = nil
         previewSourceCGImage = nil
         effectThumbnails = [:]
+        faceFilterThumbnails = [:]
         thumbnailSourceCGImage = nil
         selectedFaceFilter = nil
         selectedFaceIndex = nil
@@ -469,6 +470,9 @@ class EditorViewModel {
                 self.isDetectingFaces = false
                 if faces.isEmpty {
                     self.showToast("NO FACES DETECTED")
+                } else {
+                    // Here, not on the category change — see the doc comment.
+                    self.generateFaceFilterThumbnails()
                 }
             }
         }
@@ -480,41 +484,23 @@ class EditorViewModel {
 
         detectedFaces = []
         selectedFaceIndex = nil
+        // Thumbnails are cropped to a specific face; a new detection invalidates them.
+        faceFilterThumbnails = [:]
         isDetectingFaces = true
         Task {
             let faces = await faceDetectionService.redetect(in: source)
             await MainActor.run {
                 self.detectedFaces = faces
                 self.isDetectingFaces = false
+                if !faces.isEmpty {
+                    self.generateFaceFilterThumbnails()
+                }
             }
         }
     }
 
     func updateFaceFilterPreview() {
         updateCombinedPreview()
-    }
-
-    /// Scale face landmark coordinates to match the downscaled preview image.
-    private func scaleFace(_ face: DetectedFace, scaleX: CGFloat, scaleY: CGFloat) -> DetectedFace {
-        DetectedFace(
-            boundingBox: CGRect(
-                x: face.boundingBox.origin.x * scaleX,
-                y: face.boundingBox.origin.y * scaleY,
-                width: face.boundingBox.width * scaleX,
-                height: face.boundingBox.height * scaleY
-            ),
-            faceCenter: CGPoint(x: face.faceCenter.x * scaleX, y: face.faceCenter.y * scaleY),
-            faceWidth: face.faceWidth * scaleX,
-            faceHeight: face.faceHeight * scaleY,
-            leftPupilCenter: face.leftPupilCenter.map { CGPoint(x: $0.x * scaleX, y: $0.y * scaleY) },
-            rightPupilCenter: face.rightPupilCenter.map { CGPoint(x: $0.x * scaleX, y: $0.y * scaleY) },
-            leftEyeWidth: face.leftEyeWidth * scaleX,
-            rightEyeWidth: face.rightEyeWidth * scaleX,
-            leftEyebrowPoints: face.leftEyebrowPoints.map { CGPoint(x: $0.x * scaleX, y: $0.y * scaleY) },
-            rightEyebrowPoints: face.rightEyebrowPoints.map { CGPoint(x: $0.x * scaleX, y: $0.y * scaleY) },
-            faceContourPoints: face.faceContourPoints.map { CGPoint(x: $0.x * scaleX, y: $0.y * scaleY) },
-            normalizedBoundingBox: face.normalizedBoundingBox
-        )
     }
 
     private var previewWorkItem: DispatchWorkItem?
@@ -526,6 +512,13 @@ class EditorViewModel {
 
     /// Cached mini-thumbnails showing each visual effect applied to the user's photo.
     var effectThumbnails: [VisualEffectType: UIImage] = [:]
+
+    /// The same, for face filters — cropped to the first detected face.
+    ///
+    /// Separate from `effectThumbnails` because it cannot be built at the same time:
+    /// face effects need a `DetectedFace`, which arrives asynchronously and may never
+    /// arrive at all.
+    var faceFilterThumbnails: [FaceFilterType: UIImage] = [:]
     private var thumbnailSourceCGImage: CGImage?
     private let thumbnailDimension: Int = 120
 
@@ -554,6 +547,59 @@ class EditorViewModel {
 
             DispatchQueue.main.async {
                 self.effectThumbnails = results
+            }
+        }
+    }
+
+    /// Builds face-filter card thumbnails, cropped to the first detected face.
+    ///
+    /// **Must be called from face detection's completion, never from the category
+    /// change.** Fired early it runs with zero faces, returns thirteen unmodified
+    /// copies of the photo, and the `isEmpty` memo below caches them for the rest of
+    /// the session — the cards would silently show no effect at all.
+    ///
+    /// Cropped rather than whole-image because these effects are local: laser eyes and
+    /// googly eyes are invisible on a full-frame thumbnail of a distant subject.
+    func generateFaceFilterThumbnails() {
+        guard faceFilterThumbnails.isEmpty else { return }
+        guard let source = image ?? sourceImage else { return }
+        guard let face = detectedFaces.first else { return }
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self,
+                  let cgSource = self.getPreviewSourceCGImage(from: source) else { return }
+
+            let base = CIImage(cgImage: cgSource)
+            // Same conversion the live preview uses: detection ran on the full-size
+            // source, the effect runs on the downscaled copy.
+            let scaleX = base.extent.width / (source.size.width * source.scale)
+            let scaleY = base.extent.height / (source.size.height * source.scale)
+            let scaledFace = face.scaled(x: scaleX, y: scaleY)
+
+            // ~1.8x the face box, so the crop carries enough surrounding context to
+            // read as a portrait rather than a disembodied feature.
+            let box = scaledFace.boundingBox
+            let crop = box
+                .insetBy(dx: -box.width * 0.4, dy: -box.height * 0.4)
+                .intersection(base.extent)
+            guard !crop.isNull, crop.width > 1, crop.height > 1 else { return }
+
+            var results: [FaceFilterType: UIImage] = [:]
+            for filter in FaceFilterType.allCases {
+                let effect = filter.effect(intensity: 0.7, secondValue: 0.5, laserColor: .red)
+                let output = effect.apply(
+                    to: base,
+                    face: scaledFace,
+                    progress: filter.previewProgress,
+                    frameIndex: 5
+                )
+                if let cgOut = self.ciContext.createCGImage(output, from: crop) {
+                    results[filter] = UIImage(cgImage: cgOut)
+                }
+            }
+
+            DispatchQueue.main.async {
+                self.faceFilterThumbnails = results
             }
         }
     }
@@ -639,7 +685,7 @@ class EditorViewModel {
                     let scaleY = result.extent.height / orientedHeight
                     let previewProg = self.selectedFaceFilter?.previewProgress ?? 1.0
                     for face in faces {
-                        let scaledFace = self.scaleFace(face, scaleX: scaleX, scaleY: scaleY)
+                        let scaledFace = face.scaled(x: scaleX, y: scaleY)
                         result = faceEffect.apply(to: result, face: scaledFace, progress: previewProg, frameIndex: 5)
                     }
                 }
