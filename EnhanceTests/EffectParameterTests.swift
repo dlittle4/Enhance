@@ -1,0 +1,137 @@
+import Testing
+import SwiftUI
+@testable import Enhance
+
+/// Pins the declarative parameter model against the hand-written label switches it
+/// replaces, and guards the invariants the effect detail panel relies on.
+struct EffectParameterTests {
+
+    // MARK: - Label parity
+
+    /// Every face filter's expected (primary, secondary) control labels, written out
+    /// literally rather than derived, so this is a genuine pin rather than a tautology.
+    /// Captured from the original `sliderLabel` / `secondSliderLabel` switches before
+    /// they were moved behind `parameters`.
+    private static let expectedFaceLabels: [FaceFilterType: (primary: String, secondary: String?)] = [
+        .lazerEyes:     ("INTENSITY", "SIZE"),
+        .googlyEyes:    ("SIZE", "SPEED"),
+        .squeeze:       ("INTENSITY", nil),
+        .handsome:      ("HANDSOMENESS", nil),
+        .heartVignette: ("INTENSITY", "SIZE"),
+        .heartEyes:     ("SIZE", "SPEED"),
+        .fisheye:       ("INTENSITY", "SIZE"),
+        .swirl:         ("INTENSITY", nil),
+        .pixelate:      ("INTENSITY", nil),
+        .ripple:        ("REDNESS", nil),
+        .fadeToBW:      ("INTENSITY", nil),
+        .chromaShift:   ("INTENSITY", nil),
+        .rainbow:       ("INTENSITY", "SPEED")
+    ]
+
+    /// The table above must cover the enum — otherwise adding a case would silently
+    /// escape every parity assertion below.
+    @Test func expectedFaceLabels_coversEveryCase() {
+        #expect(Self.expectedFaceLabels.count == FaceFilterType.allCases.count)
+        for type in FaceFilterType.allCases {
+            #expect(Self.expectedFaceLabels[type] != nil, "no expectation for \(type.rawValue)")
+        }
+    }
+
+    /// The legacy API must keep matching the table. Green before the refactor and
+    /// after it, which is what makes the migration provably label-for-label identical.
+    @Test func faceFilter_legacyLabelsMatchTable() {
+        for type in FaceFilterType.allCases {
+            guard let expected = Self.expectedFaceLabels[type] else { continue }
+            #expect(type.sliderLabel == expected.primary, "\(type.rawValue) primary")
+            #expect(type.supportsSecondSlider == (expected.secondary != nil), "\(type.rawValue) hasSecond")
+            if let secondary = expected.secondary {
+                #expect(type.secondSliderLabel == secondary, "\(type.rawValue) secondary")
+            }
+        }
+    }
+
+    /// The new declarative list must produce the same labels as the legacy API — this
+    /// is the assertion that makes the migration label-for-label identical rather than
+    /// merely plausible.
+    @Test func faceFilter_parametersMatchTable() {
+        for type in FaceFilterType.allCases {
+            guard let expected = Self.expectedFaceLabels[type] else { continue }
+            let params = type.parameters
+
+            #expect(params.first?.id == EffectParameter.intensityID, "\(type.rawValue) must lead with intensity")
+            #expect(params.first?.label == expected.primary, "\(type.rawValue) primary")
+
+            let secondary = params.first { $0.id == EffectParameter.secondaryID }
+            #expect(secondary?.label == expected.secondary, "\(type.rawValue) secondary")
+        }
+    }
+
+    /// The face and visual second slots must use different ids — `sizeID` maps to
+    /// `EffectOptions.size`, which face filters do not use.
+    @Test func faceFilter_secondSlotUsesSecondaryIdNotSize() {
+        let withSecond = FaceFilterType.allCases.filter(\.supportsSecondSlider)
+        #expect(!withSecond.isEmpty)
+        for type in withSecond {
+            let ids = type.parameters.map(\.id)
+            #expect(ids.contains(EffectParameter.secondaryID), "\(type.rawValue) missing secondary")
+            #expect(!ids.contains(EffectParameter.sizeID), "\(type.rawValue) must not use sizeID")
+        }
+    }
+
+    @Test func faceFilter_parameterDeclarationsAreWellFormed() {
+        for type in FaceFilterType.allCases {
+            let params = type.parameters
+            #expect(!params.isEmpty, "\(type.rawValue) declares no parameters")
+            #expect(params.count <= 5, "\(type.rawValue) declares \(params.count) parameters")
+
+            let ids = params.map(\.id)
+            #expect(Set(ids).count == ids.count, "\(type.rawValue) has duplicate parameter ids")
+
+            let pickers = params.filter { $0.kind != .slider }
+            #expect(pickers.count <= 1, "\(type.rawValue) declares more than one picker")
+        }
+    }
+
+    /// Only LAZER EYES has a colour picker today; this fails loudly if another filter
+    /// claims one without the panel gaining a matching row.
+    @Test func faceFilter_onlyLazerEyesDeclaresAPicker() {
+        for type in FaceFilterType.allCases {
+            let hasPicker = type.parameters.contains { $0.kind != .slider }
+            #expect(hasPicker == (type == .lazerEyes), "\(type.rawValue) picker unexpected")
+        }
+    }
+
+    // MARK: - displayValue
+
+    @Test func displayValue_mapsUnitRangeToDotCount() {
+        #expect(EffectParameter.displayValue(0.0) == 0)
+        #expect(EffectParameter.displayValue(0.05) == 1)
+        #expect(EffectParameter.displayValue(0.5) == 10)
+        #expect(EffectParameter.displayValue(1.0) == 20)
+    }
+
+    @Test func displayValue_clampsOutsideUnitRange() {
+        #expect(EffectParameter.displayValue(-3.0) == 0)
+        #expect(EffectParameter.displayValue(9.0) == EffectParameter.sliderSteps)
+    }
+
+    // MARK: - Declaration shape
+
+    /// Invariants the detail panel depends on. `parameters.count <= 5` specifically
+    /// guards the panel's vertical budget against a future effect quietly overflowing.
+    @Test func visualEffect_parameterDeclarationsAreWellFormed() {
+        for type in VisualEffectType.allCases {
+            let params = type.parameters
+            #expect(!params.isEmpty, "\(type.rawValue) declares no parameters")
+            #expect(params.count <= 5, "\(type.rawValue) declares \(params.count) parameters")
+            #expect(params.first?.id == EffectParameter.intensityID, "\(type.rawValue) must lead with intensity")
+
+            let ids = params.map(\.id)
+            #expect(Set(ids).count == ids.count, "\(type.rawValue) has duplicate parameter ids")
+
+            let pickers = params.filter { $0.kind != .slider }
+            #expect(pickers.count <= 1, "\(type.rawValue) declares more than one picker")
+            #expect((pickers.first != nil) == type.supportsColorPicker, "\(type.rawValue) picker disagrees with colorPickerKind")
+        }
+    }
+}

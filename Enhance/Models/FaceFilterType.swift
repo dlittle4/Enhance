@@ -28,7 +28,20 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable {
     }
 
     /// Primary slider label.
-    var sliderLabel: String {
+    /// The controls this filter exposes, in display order. Single source of truth for
+    /// its UI — see `VisualEffectType.parameters` for the visual-effect twin.
+    var parameters: [EffectParameter] {
+        var params = [EffectParameter(id: EffectParameter.intensityID, label: primaryLabel)]
+        if let secondary = secondaryLabel {
+            params.append(EffectParameter(id: EffectParameter.secondaryID, label: secondary))
+        }
+        if self == .lazerEyes {
+            params.append(EffectParameter(id: "tint", label: "COLOUR", kind: .tintColor))
+        }
+        return params
+    }
+
+    private var primaryLabel: String {
         switch self {
         case .googlyEyes: return "SIZE"
         case .heartEyes:  return "SIZE"
@@ -38,13 +51,9 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    /// Whether this filter exposes a second slider.
-    var supportsSecondSlider: Bool {
-        self == .googlyEyes || self == .lazerEyes || self == .fisheye || self == .heartVignette || self == .rainbow || self == .heartEyes
-    }
-
-    /// Label for the second slider.
-    var secondSliderLabel: String {
+    /// nil means this filter has no second slider — which is also what makes
+    /// `supportsSecondSlider` derivable rather than a separately maintained list.
+    private var secondaryLabel: String? {
         switch self {
         case .lazerEyes:      return "SIZE"
         case .googlyEyes:     return "SPEED"
@@ -52,9 +61,21 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable {
         case .heartVignette:  return "SIZE"
         case .heartEyes:      return "SPEED"
         case .rainbow:        return "SPEED"
-        default:              return ""
+        default:              return nil
         }
     }
+
+    // MARK: - Legacy label API
+    // Derived from the two properties above so they cannot drift from `parameters`.
+    // Deleted once the editor renders rows straight from `parameters`.
+
+    var sliderLabel: String { primaryLabel }
+
+    /// Whether this filter exposes a second slider.
+    var supportsSecondSlider: Bool { secondaryLabel != nil }
+
+    /// Label for the second slider.
+    var secondSliderLabel: String { secondaryLabel ?? "" }
 
     /// Human-readable intensity bucket for a slider value.
     func intensityBucket(_ value: Double) -> String {

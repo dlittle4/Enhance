@@ -48,6 +48,16 @@ struct EffectParameter: Identifiable, Hashable {
     /// same reason: it maps to `EffectOptions.size`.
     static let sizeID = "size"
 
+    /// A face filter's second control slot.
+    ///
+    /// Deliberately not `sizeID`. A visual effect's second slot maps verbatim to
+    /// `EffectOptions.size`, so naming it "size" is honest there. A face filter's second
+    /// slot is SPEED for googly/heart/rainbow and SIZE for lazer/fisheye/heartVignette —
+    /// all routed through the positional `secondValue:` argument. Naming the id after the
+    /// *slot* rather than one of its meanings keeps the lookup a single well-known key
+    /// and avoids a lie in the storage key.
+    static let secondaryID = "secondary"
+
     /// Number of dots on a slider track. The knob displays the value on this scale, so
     /// a 0…1 value of 0.5 reads as "10".
     static let sliderSteps = 20
