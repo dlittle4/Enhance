@@ -26,12 +26,23 @@ struct EditorView: View {
 
                 // Removed from the hierarchy rather than faded, so the panel can grow
                 // into the space the tabs and card gallery were using.
+                //
+                // GeometryReader is greedy, so it claims the space a `Spacer` used to
+                // absorb and reports it — which is exactly the card gallery's vertical
+                // budget. Cards size themselves from it rather than from a constant, so
+                // one layout fits every device. In the editing state the panel takes
+                // this slot and does the same thing.
                 if !viewModel.isEditingEffect {
-                    controlsSection
-                        .opacity(viewModel.showControls ? 1 : 0)
+                    GeometryReader { geo in
+                        controlsSection(
+                            cardSize: AppConstants.Layout.effectCardSize(forControlsHeight: geo.size.height)
+                        )
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    }
+                    .opacity(viewModel.showControls ? 1 : 0)
+                } else {
+                    Spacer(minLength: 0)
                 }
-
-                Spacer(minLength: 0)
 
                 if viewModel.isEditingEffect {
                     effectDetailPanel
@@ -331,7 +342,7 @@ struct EditorView: View {
 
     // MARK: - Controls
 
-    private var controlsSection: some View {
+    private func controlsSection(cardSize: CGFloat) -> some View {
         VStack(spacing: 8) {
             effectCategoryTabs
 
@@ -341,13 +352,13 @@ struct EditorView: View {
                     .transition(.opacity)
             case .visualEffects:
                 VStack(spacing: 8) {
-                    visualEffectsGrid
+                    visualEffectsGrid(cardSize: cardSize)
 
                 }
                 .transition(.opacity)
             case .faceFilters:
                 VStack(spacing: 8) {
-                    faceFiltersGrid
+                    faceFiltersGrid(cardSize: cardSize)
                 }
                 .transition(.opacity)
             }
@@ -592,12 +603,12 @@ struct EditorView: View {
 
     // MARK: - Visual Effects Grid
 
-    private var visualEffectsGrid: some View {
+    private func visualEffectsGrid(cardSize: CGFloat) -> some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(VisualEffectType.selectable) { effectType in
-                        visualEffectToggle(effectType)
+                        visualEffectToggle(effectType, cardSize: cardSize)
                             .id(effectType)
                     }
                 }
@@ -616,61 +627,33 @@ struct EditorView: View {
         }
     }
 
-    private func visualEffectToggle(_ effectType: VisualEffectType) -> some View {
-        let isActive = viewModel.selectedVisualEffect == effectType
-        let thumbnail = viewModel.effectThumbnails[effectType]
-        return Button {
+    private func visualEffectToggle(_ effectType: VisualEffectType, cardSize: CGFloat) -> some View {
+        EffectCardView(
+            title: effectType.rawValue,
+            thumbnail: viewModel.effectThumbnails[effectType],
+            isActive: viewModel.selectedVisualEffect == effectType,
+            isBlocked: viewModel.isRegenerating,
+            size: cardSize
+        ) {
             HapticService.selection()
             // Tapping the selected effect re-opens its controls; deselecting is the top
             // bar's job (undo / RESET), which is why there is no toggle-off here.
-            if !isActive {
+            if viewModel.selectedVisualEffect != effectType {
                 viewModel.pushUndo()
                 viewModel.selectedVisualEffect = effectType
             }
             viewModel.beginEditing()
-        } label: {
-            Text(effectType.rawValue)
-                .font(.silkscreenControl)
-                .foregroundColor(isActive ? mintGreen : .white)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .padding(.horizontal, 16)
-                .frame(height: 60)
-                .background(
-                    GeometryReader { geo in
-                        if let thumbnail {
-                            Image(uiImage: thumbnail)
-                                .resizable()
-                                .aspectRatio(contentMode: .fill)
-                                .frame(width: geo.size.width, height: geo.size.height)
-                                .clipped()
-                                .overlay(Color.black.opacity(isActive ? 0.3 : 0.5))
-                        } else {
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(isActive ? Color(hex: 0x323232) : Color.white.opacity(0.04))
-                        }
-                    }
-                )
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(isActive ? mintGreen : .clear, lineWidth: 2)
-                )
         }
-        .buttonStyle(.plain)
-        .disabled(viewModel.isRegenerating)
     }
-
-
 
     // MARK: - Face Filters Grid
 
-    private var faceFiltersGrid: some View {
+    private func faceFiltersGrid(cardSize: CGFloat) -> some View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
                     ForEach(FaceFilterType.allCases) { filterType in
-                        faceFilterToggle(filterType)
+                        faceFilterToggle(filterType, cardSize: cardSize)
                             .id(filterType)
                     }
                 }
@@ -689,39 +672,27 @@ struct EditorView: View {
         }
     }
 
-    private func faceFilterToggle(_ filterType: FaceFilterType) -> some View {
-        let isActive = viewModel.selectedFaceFilter == filterType
+    private func faceFilterToggle(_ filterType: FaceFilterType, cardSize: CGFloat) -> some View {
         let noFaces = viewModel.detectedFaces.isEmpty && !viewModel.isDetectingFaces
         let singleFaceBlocked = filterType.requiresSingleFace && viewModel.activeFaces.count != 1
-        let isBlocked = noFaces || singleFaceBlocked
-        return Button {
+
+        return EffectCardView(
+            title: filterType.rawValue,
+            // No face thumbnail path yet — face effects need a DetectedFace, which
+            // arrives asynchronously and may never arrive. The plain treatment covers it.
+            thumbnail: nil,
+            isActive: viewModel.selectedFaceFilter == filterType,
+            isBlocked: viewModel.isRegenerating || noFaces || singleFaceBlocked,
+            size: cardSize
+        ) {
             HapticService.selection()
-            if !isActive {
+            if viewModel.selectedFaceFilter != filterType {
                 viewModel.pushUndo()
                 viewModel.selectedFaceFilter = filterType
             }
             viewModel.beginEditing()
-        } label: {
-            Text(filterType.rawValue)
-                .font(.silkscreenControl)
-                .foregroundColor(isActive ? mintGreen : .white)
-                .padding(.horizontal, 16)
-                .frame(height: 60)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(isActive ? Color(hex: 0x323232) : Color.white.opacity(0.04))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(isActive ? mintGreen : .clear, lineWidth: 2)
-                )
         }
-        .buttonStyle(.plain)
-        .disabled(viewModel.isRegenerating || isBlocked)
-        .opacity(isBlocked ? 0.35 : 1.0)
     }
-
-
 
     // MARK: - Effect Category Icon Tabs
 
@@ -732,7 +703,7 @@ struct EditorView: View {
             effectCategoryIcon("icon-image", category: .visualEffects)
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 42)
+        .frame(height: AppConstants.Layout.categoryTabsHeight)
     }
 
     private func effectCategoryIcon(_ assetName: String, category: EffectCategory) -> some View {

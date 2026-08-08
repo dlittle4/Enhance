@@ -214,4 +214,36 @@ struct EffectParameterTests {
             #expect((pickers.first != nil) == type.supportsColorPicker, "\(type.rawValue) picker disagrees with colorPickerKind")
         }
     }
+
+    // MARK: - Card sizing
+
+    /// Cards scale with the space available rather than using a fixed constant, because
+    /// the browse state has no scroll to fall back on when it overflows.
+    @Test func effectCardSize_scalesWithAvailableHeightAndClamps() {
+        typealias L = AppConstants.Layout
+
+        // Roomy: capped at the design size, never larger.
+        #expect(L.effectCardSize(forControlsHeight: 400) == L.effectCardMaxSize)
+
+        // Cramped: floored, never smaller than legible.
+        #expect(L.effectCardSize(forControlsHeight: 60) == L.effectCardMinSize)
+        #expect(L.effectCardSize(forControlsHeight: 0) == L.effectCardMinSize)
+
+        // In between: tracks the space, minus the tabs row and its spacing.
+        let mid = L.categoryTabsHeight + AppConstants.Spacing.small + 90
+        #expect(L.effectCardSize(forControlsHeight: mid) == 90)
+    }
+
+    /// Monotonic — more room never yields a smaller card.
+    @Test func effectCardSize_isMonotonicInAvailableHeight() {
+        typealias L = AppConstants.Layout
+        var previous = L.effectCardSize(forControlsHeight: 0)
+        for h in stride(from: CGFloat(0), through: 400, by: 10) {
+            let size = L.effectCardSize(forControlsHeight: h)
+            #expect(size >= previous)
+            #expect(size >= L.effectCardMinSize && size <= L.effectCardMaxSize)
+            previous = size
+        }
+    }
 }
+

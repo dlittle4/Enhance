@@ -61,8 +61,28 @@ enum AppConstants {
         /// Preload margin for lazy loading content in scroll views (200pt)
         static let preloadMargin: CGFloat = 200
 
-        /// Side of a square effect card in the editor's effect gallery (110pt)
-        static let effectCardSize: CGFloat = 110
+        /// Height of the effect category icon row (42pt)
+        static let categoryTabsHeight: CGFloat = 42
+
+        /// Bounds on the side of a square effect card.
+        ///
+        /// The upper bound is the Figma size; the lower is the smallest at which a
+        /// two-line effect name still fits legibly.
+        static let effectCardMaxSize: CGFloat = 110
+        static let effectCardMinSize: CGFloat = 64
+
+        /// Side of a square effect card, given the height available to the whole
+        /// controls area (category tabs plus the card gallery).
+        ///
+        /// Cards are square, so the *vertical* budget decides their size. A fixed
+        /// constant large enough for a 6.9" screen overflows a 4.7" one, and the browse
+        /// state — unlike the detail panel — has no scroll to fall back on. Deriving the
+        /// size from measured space means one layout adapts instead of special-casing
+        /// short devices.
+        static func effectCardSize(forControlsHeight controlsHeight: CGFloat) -> CGFloat {
+            let forCards = controlsHeight - categoryTabsHeight - Spacing.small
+            return min(effectCardMaxSize, max(effectCardMinSize, forCards))
+        }
 
         /// Height of one control row in the effect detail panel (44pt)
         static let parameterRowHeight: CGFloat = 44

@@ -106,6 +106,18 @@ Each entry names the file and line where the defect lives.
       `isFetching` stayed `true`, and `guard !isFetching` made every later refresh a silent no-op
       until relaunch.
 
+### P1 — Correctness (cont.)
+
+- [ ] **The ZOOM tab overflows on short devices.** Measured on iPhone SE 3 (667pt): the zoom
+      controls need ~246pt (42pt tabs + three 60pt rows + spacing) against roughly 110pt of
+      controls budget, so the modifier row and SPEED/PAUSE collide with the ENHANCE button.
+      Pre-existing and untouched by the effect-UI work — the IMAGE and FACE tabs now scale
+      their cards to fit (`AppConstants.Layout.effectCardSize(forControlsHeight:)`), but the
+      zoom tab still uses three fixed 60pt rows. Options: scale those rows the same way, or
+      move speed/pause behind a drill-down like the effect panel.
+- [ ] **Onboarding tagline truncates on SE 3** — "DRAMATIC ZOOMS AND S…". Fixed font size
+      against a narrower screen.
+
 ### P2 — Performance
 
 - [ ] **Face-effect GIF generation does ~25 full-resolution GPU renders.** `faceEffectedSource`
