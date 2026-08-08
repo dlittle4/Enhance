@@ -11,6 +11,28 @@ Each step should feel fast, tactile, and visually satisfying.
 
 ---
 
+## Needs device verification
+
+Landed and green in tests, but **not yet confirmed on a physical device**. Verified only by
+rendering frames and inspecting them, which cannot catch everything.
+
+- [ ] **DITHER motion during the zoom.** The grid is meant to stay locked to the subject:
+      cell size scales with the zoom (`FrameGeometry.scale`) and grid phase follows the pan
+      (`FrameGeometry.contentOrigin`). Reported as "moving slightly differently than the
+      zoom" before the phase fix; the phase mechanism is proven by
+      `dither_phaseIsPeriodicInCellSize` but the end result has not been watched in a real GIF.
+      **If it still crawls, the prime suspect is the Y-flip in `GIFGenerator.frameGeometry`** —
+      that line was reasoned about rather than measured. A quick check: log `contentOrigin`
+      per frame and confirm it moves monotonically with the pan.
+- [ ] **DITHER legibility after GIF palettisation.** Does the stipple survive the 256-colour
+      quantisation, or read as noise? If it needs help, the SCALE slider is the first lever.
+- [ ] **20-item effects carousel** — scroll feel, and whether entering the IMAGE tab stutters
+      while 11 thumbnails render (was 8 before the new effects).
+- [ ] **GRADIENT colour wells** — the three system wells show Apple's spectrum ring; confirmed
+      working but never seen alongside the rest of the row on device.
+
+---
+
 ## Known Bugs — Session 14 Audit (2026-08-07)
 
 Found by code review, not yet reproduced on device unless noted. Ordered by severity.
