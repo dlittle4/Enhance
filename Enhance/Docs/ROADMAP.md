@@ -127,6 +127,11 @@ Each entry names the file and line where the defect lives.
       (`GIFGenerator.swift:157`) builds a CIImage from the full-size source, applies the effect, and
       calls `createCGImage` once per animation frame plus the pause frame — for a 600×600 output.
       The preview path already downscales to 650px; the GIF path never got the same treatment.
+- [ ] **`HeatHazeEffect` creates a `CIContext` on every frame.** `CIContext()` is constructed
+      inline inside `apply` (`HeatHazeEffect.swift`, in the `createCGImage` guard), so a 25-frame
+      GIF builds 25 contexts. LEARNINGS 2026-03-08 states the rule explicitly: create one
+      `CIContext` and reuse it, never per frame or per effect. Every other effect either avoids
+      `CIContext` entirely or uses the shared one. Found while auditing effect parameters.
 - [x] **The disk thumbnail cache is destroyed on every refresh.** *(fixed 2026-08-07)*
       `ThumbnailCache` stores at `Caches/MyGIFs/Thumbs/`, *inside* the directory
       `cleanupStaleCacheFiles()` sweeps. `Thumbs` was not in `validFilenames`, so it was
@@ -657,6 +662,29 @@ Carousel 8 → 11 visible effects, all stock Core Image, no new build infrastruc
 - [ ] Then, in rough value order: Hatching, Slice shift, Pixel stretch, Pattern refraction,
       Water caustic. Hatching and Slice shift may not need kernels at all — try `CIEdgeWork`
       and strip compositing first.
+
+### Phase 17f: Control audit — expose the parameters the new UI can now carry
+
+The drill-down panel removed the two-slider cap, but no existing effect was revisited
+afterwards. Several still collapse independent qualities into one INTENSITY slider, or
+hardcode a value a user would want to change.
+
+**Candidates are already identified with file and value** in
+[EFFECTS.md → Control audit](EFFECTS.md#control-audit--effects-with-hidden-parameters) —
+this is a pass over that table, not an investigation from scratch.
+
+- [ ] Highest value first: **DITHER** (LEVELS + MONO), **MOTION BLUR** (ANGLE — a directional
+      blur whose direction is hardcoded to 45°), **SWIRL** (SIZE — straight parity gap with
+      FISHEYE), **HALFTONE** (SHARPNESS + ANGLE, both already supported by `CICMYKHalftone`).
+- [ ] Then: HEAT HAZE (FREQUENCY + SPEED), CHROMA SHIFT (ANGLE), GRADIENT (MIDPOINT),
+      PIXELATE (SHAPE — `CIHexagonalPixellate` makes hex nearly free), RAINBOW (SPEED, which
+      the face variant already has).
+- [ ] Prefer **splitting coupled qualities** over inventing new parameters. Most of these are
+      one slider driving two independent things; separating them makes currently-unreachable
+      looks reachable without changing what the effect is.
+- [ ] Respect the panel budget — `parameters.count <= 5` and `pickers.count <= 1` are enforced
+      and exist because the browse state has no scroll. Raise the cap deliberately if needed,
+      and re-check a short device; do not just relax the assertion.
 
 ### Phase 18: Settings & Social
 

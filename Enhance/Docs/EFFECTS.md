@@ -494,3 +494,42 @@ Sample on a golden-angle spiral for even disc coverage:
 **The interesting version here is not in the reference.** The app already detects faces, so
 blurring *everything except* the detected face gives real portrait-mode depth of field —
 something the source effect cannot do because it has no notion of a subject.
+
+---
+
+## Control audit — effects with hidden parameters
+
+The detail panel removed the two-slider cap, but **no existing effect was revisited afterwards.**
+Every effect below still collapses several independent qualities into one INTENSITY slider, or
+hardcodes a value the user would reasonably want to change. Each is a data change now: declare
+the parameter, thread it through `init`, done.
+
+Findings from reading the effects, not speculation — file and value named. Ordered by how much
+the extra control would actually change what a user can make.
+
+| Effect | Hidden today | Candidate controls |
+|---|---|---|
+| **DITHER** | `levels = 12 - 9 * amount` is coupled to intensity; output is always colour | **LEVELS** (posterisation depth, independent of dither amplitude) and **MONO** — 1-bit B&W dither is the most legibly "dithered" look and the most on-brand |
+| **MOTION BLUR** | `angle = .pi / 4`, a hardcoded 45° | **ANGLE**. A directional blur whose direction cannot be set is half a feature |
+| **SWIRL** | `radius = max(w, h) * 0.4` | **SIZE**. Straight parity gap — FISHEYE already exposes exactly this, and both wrap distortion filters with a radius |
+| **HALFTONE** | `kCIInputSharpnessKey: 0.7`; `inputAngle` and `inputGCR` never set at all | **SHARPNESS** (dot hardness) and **ANGLE** (screen rotation). `CICMYKHalftone` supports both already |
+| **HEAT HAZE** | `frequency = 0.015` and `phase = frameIndex * 0.35` | **FREQUENCY** (wave scale) and **SPEED** (how fast it shimmers across frames) |
+| **CHROMA SHIFT** | Shift direction is fixed in the per-channel offsets | **ANGLE**. Horizontal vs vertical fringing are visually distinct looks |
+| **GRADIENT** | Midpoint fixed at 0.5; no tiling mode | **MIDPOINT** (where `mid` sits on the ramp) and possibly repeat/mirror tiling |
+| **PIXELATE** | Rectangular cells only | **SHAPE** — `CIHexagonalPixellate` already exists, so hex is nearly free |
+| **RAINBOW** | No animation control | **SPEED**. The *face* variant already has one; the image variant does not |
+
+### Watch the budget
+
+`parameters.count <= 5` and `pickers.count <= 1` are enforced by
+`EffectParameterTests`, and they exist because the browse state has no scroll. Most of the
+above adds one or two rows, which is fine. If an effect genuinely needs more than five, raise
+the cap deliberately and confirm the panel still scrolls correctly on a short device — do not
+just relax the assertion.
+
+### Prefer separating coupled qualities over adding new ones
+
+The pattern in most of these is one slider driving two independent things — DITHER's amplitude
+and posterisation, EDGES' sensitivity and line thickness. Splitting those is more valuable than
+inventing new parameters, because it makes a range of looks reachable that currently is not,
+without changing what the effect *is*.
