@@ -503,20 +503,18 @@ struct EditorView: View {
         )
     }
 
-    /// Gradient Map stop pickers — three native `ColorPicker`s for unrestricted
-    /// colour choice. Left to right is shadows → midtones → highlights, which the
-    /// swatch colours themselves make obvious enough without labels.
+    /// Gradient Map stop pickers — three colour wells presented like the swatches in
+    /// `colorSwatchRow`: a circular swatch with an offset mint ring. Left to right is
+    /// shadows → midtones → highlights, which the colours themselves make obvious
+    /// enough without labels.
     private var gradientStopsPicker: some View {
         HStack {
             Spacer()
-            ColorPicker("", selection: $viewModel.gradientStops.dark, supportsOpacity: false)
-                .labelsHidden()
+            gradientSwatch($viewModel.gradientStops.dark)
             Spacer()
-            ColorPicker("", selection: $viewModel.gradientStops.mid, supportsOpacity: false)
-                .labelsHidden()
+            gradientSwatch($viewModel.gradientStops.mid)
             Spacer()
-            ColorPicker("", selection: $viewModel.gradientStops.light, supportsOpacity: false)
-                .labelsHidden()
+            gradientSwatch($viewModel.gradientStops.light)
             Spacer()
         }
         .frame(height: 44)
@@ -524,6 +522,24 @@ struct EditorView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.white.opacity(0.04))
         )
+    }
+
+    /// A colour well ringed to match `colorSwatchRow`'s selected swatch.
+    ///
+    /// The native well is left visible rather than replaced. Drawing a custom swatch
+    /// over an almost-invisible `ColorPicker` was tried first and taps stopped
+    /// landing: a `UIColorWell`'s hit area is its own swatch, not whatever SwiftUI
+    /// frame is wrapped around it, so the visible geometry and the tap target
+    /// diverge. Ringing the real control keeps hit testing entirely with the well.
+    private func gradientSwatch(_ selection: Binding<Color>) -> some View {
+        ColorPicker("", selection: selection, supportsOpacity: false)
+            .labelsHidden()
+            .overlay(
+                Circle()
+                    .stroke(mintGreen, lineWidth: 2)
+                    .frame(width: 34, height: 34)
+                    .allowsHitTesting(false)
+            )
     }
 
     private var speedPauseRow: some View {
