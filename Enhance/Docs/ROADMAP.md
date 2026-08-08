@@ -11,6 +11,9 @@ Each step should feel fast, tactile, and visually satisfying.
 
 ---
 
+> **Docs:** [EFFECTS.md](EFFECTS.md) — how to build an effect, and what is still worth building.
+> [LEARNINGS.md](LEARNINGS.md) — rules discovered the hard way.
+
 ## Needs device verification
 
 Landed and green in tests, but **not yet confirmed on a physical device**. Verified only by
@@ -641,11 +644,19 @@ Carousel 8 → 11 visible effects, all stock Core Image, no new build infrastruc
 
 ### Phase 17e: New Image Effects — Phase 2 (not started)
 
-- [ ] CIKernel infrastructure: build rule scoped to `*.ci.metal` so `-fcikernel` does **not** hit
-      `Pixellate.metal` (target-scope flags would break the animated canvas border at runtime)
-- [ ] Derisking gate: passthrough kernel + confirm `ShaderLibrary.pixellate` still renders
-- [ ] Riso Print kernel — per-channel halftone at 15°/45°/75°, subtractive ink compositing,
-      misregistration, grain. Built from algorithm description; original WGSL unavailable.
+> Full specifications live in **[EFFECTS.md](EFFECTS.md)** — build mechanics, per-effect
+> algorithms, and the list of candidates deliberately rejected. This section tracks status only.
+
+- [ ] **CIKernel infrastructure.** Build rule scoped to `*.ci.metal`, so `-fcikernel` does not
+      reach `Pixellate.metal`. Target-scope flags would break the animated canvas border **at
+      runtime** — the highest-risk change remaining in the project.
+- [ ] **De-risking gate.** Passthrough kernel, then confirm the border still renders in both
+      `EditorView` and `GradientViews` before writing any effect math.
+- [ ] **Riso Print** — the first kernel, and the most distinctive look available. Built from
+      algorithm description; the original WGSL was never available.
+- [ ] Then, in rough value order: Hatching, Slice shift, Pixel stretch, Pattern refraction,
+      Water caustic. Hatching and Slice shift may not need kernels at all — try `CIEdgeWork`
+      and strip compositing first.
 
 ### Phase 18: Settings & Social
 
