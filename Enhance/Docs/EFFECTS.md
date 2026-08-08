@@ -254,3 +254,172 @@ It is a grid effect — it needs `FrameGeometry` for both scale and phase.
   panel, not the effects gallery.
 - **The remaining fills** (mesh gradient, nebula, clouds, fractal noise, pattern grid,
   concentric, glowing wave) — they *generate* content rather than transform a photo.
+
+---
+
+## Specifications for the build candidates
+
+Distilled from the Figma shader reference. Only the effects we intend to build are written
+out — the rejected ones are listed above with reasons, and copying their math here would
+just invite re-litigating those decisions.
+
+### First: use one definition of luminance
+
+The source reference labels `(0.299, 0.587, 0.114)` as "Rec.709". **It is not** — those are
+Rec.601 (NTSC) weights. Rec.709 is `(0.2126, 0.7152, 0.0722)`.
+
+The difference is not academic: 601 weights green at 0.587 and 709 at 0.7152, so the same
+pixel yields a visibly different luminance, which shifts every threshold built on top of it.
+`GradientMapEffect` already uses **Rec.709**, so use Rec.709 everywhere and treat the
+reference's constants as a transcription error.
+
+```
+L = 0.2126 * r + 0.7152 * g + 0.0722 * b
+```
+
+### Hatching
+
+Luminance-driven line density, layered at multiple angles for cross-hatch.
+
+```
+rotUV  = rotate(pixelCoord / density, angle)
+pattern = abs(sin(rotUV.x * PI * frequency))          // straight lines
+```
+
+Line style variants substitute the argument to `sin`:
+
+| Style | Argument |
+|---|---|
+| Wave | `rotUV.x + sin(rotUV.y * waveFreq) * waveAmp` |
+| Zigzag | `rotUV.x + (abs(fract(rotUV.y * zigFreq) - 0.5) * 2) * zigAmp` |
+| Circle | `length(rotUV - center)` — concentric rings |
+
+Darkness adds layers, each at its own angle:
+
+```
+hatch1 = smoothstep(softness, 0, pattern1 - (1 - L * 1.33))   // appears below L 0.75
+hatch2 = smoothstep(softness, 0, pattern2 - (1 - L * 2.00))   // below L 0.50
+hatch3 = smoothstep(softness, 0, pattern3 - (1 - L * 4.00))   // below L 0.25
+mask   = max(hatch1, max(hatch2, hatch3))
+result = mix(paperColour, inkColour, mask)
+```
+
+**Grid effect** — needs `FrameGeometry` for both scale and phase. Try `CIEdgeWork` /
+`CIComicEffect` first; if they get close enough, this needs no kernel at all.
+
+### Slice shift
+
+Bands displaced along a direction, with per-band jitter.
+
+```
+dir        = vec2(cos(angle), sin(angle))
+perpDir    = vec2(-dir.y, dir.x)
+sliceCoord = dot(pixelCoord - centre, perpDir)
+sliceIndex = floor(sliceCoord / sliceWidth)
+
+shift  = (sliceIndex mod 2 == 0) ? +amount : -amount
+shift += (hash(sliceIndex) - 0.5) * jitter          // seed from sliceIndex, never random()
+newUV  = uv + dir * shift / textureSize
+```
+
+Soften the band edges rather than hard-cutting them, or the boundaries alias badly:
+
+```
+local = fract(sliceCoord / sliceWidth)
+blend = smoothstep(0, softness, local) * smoothstep(0, softness, 1 - local)
+final = mix(uv, newUV, blend)
+```
+
+Animate by feeding `frameIndex` into the hash. **Strip compositing may avoid a kernel
+entirely** — this was previously in the project as `GlitchEffect`, doing exactly that.
+
+### Pixel stretch
+
+Smears pixels along a line segment.
+
+```
+ab       = B - A
+t        = clamp(dot(uv - A, ab) / dot(ab, ab), 0, 1)
+closest  = A + t * ab
+perpDist = length(uv - closest)
+
+lineDir  = normalize(ab)
+perpDir  = vec2(-lineDir.y, lineDir.x)
+falloff  = smoothstep(falloffRadius, 0, perpDist)
+newUV    = mix(uv, closest + perpDir * offset, falloff * strength)
+```
+
+Pixels near the line all sample from roughly the same perpendicular position, which is what
+produces the smear. `smoothness` widens the `smoothstep` band.
+
+### Pattern refraction
+
+Procedural height → normal → UV offset, with per-channel dispersion.
+
+Height functions, all in UV space:
+
+| Pattern | Height |
+|---|---|
+| Lenticular | `0.5 + 0.5 * sin(uv.x * freq * 2PI)` |
+| Zigzag | `abs(fract(uv.x * freq) - 0.5) * 2 * amp` |
+| Waves | `sin(uv.x * freqX + sin(uv.y * freqY) * bend) * amp` |
+| Circular | `sin(length(uv - centre) * freq * 2PI) * amp` |
+| Dome grid | `max(0, 1 - length(fract(uv * grid) - 0.5) * curvature)` |
+
+Then finite differences for the normal, and Snell's law approximated as a UV offset:
+
+```
+dhdx   = (h(uv + [eps,0]) - h(uv - [eps,0])) / (2 * eps)
+dhdy   = (h(uv + [0,eps]) - h(uv - [0,eps])) / (2 * eps)
+normal = normalize(vec3(-dhdx, -dhdy, 1))
+
+R = sample(uv + normal.xy * (IOR_R - 1) * strength)   // IOR_R > IOR_G > IOR_B
+G = sample(uv + normal.xy * (IOR_G - 1) * strength)
+B = sample(uv + normal.xy * (IOR_B - 1) * strength)
+```
+
+Frost perturbs the normal before refracting:
+`normal.xy += (hash2(pixelCoord) - 0.5) * frostAmount`.
+
+Clamp or mirror out-of-bounds UVs, and set the **ROI callback** to outset by the maximum
+possible displacement — this is precisely the effect where too tight an ROI produces black
+seams at Core Image's tile boundaries.
+
+### Halftone — richer than `CICMYKHalftone`
+
+The shipped HALFTONE uses `CICMYKHalftone`, which is fixed. A kernel would add BW and RGB
+modes, arbitrary screen angles, and ordered-dither blending. Only worth building if the stock
+filter proves limiting.
+
+```
+rot    = rotate(pixelCoord, screenAngle) / cellSize
+offset = fract(rot) - 0.5
+radius = sqrt(1 - L) * 0.5                       // darker = bigger dot
+dot    = smoothstep(radius + softness, radius - softness, length(offset))
+```
+
+Classic screen angles — **C 15°, M 75°, Y 0°, K 45°** — are what avoid moiré; do not pick
+arbitrary ones. Composite subtractively, which is how ink behaves:
+
+```
+result = paper * (1 - C*cyan) * (1 - M*magenta) * (1 - Y*yellow) * (1 - K*black)
+```
+
+The `sqrt` on the radius is the detail that matters: it makes dot **area** proportional to
+density rather than dot radius, so the tonal ramp is linear.
+
+### Bokeh — the face-aware version
+
+`CIBokehBlur` exists, so a kernel is only worth it for the brightness weighting, which is what
+makes bokeh read as bokeh rather than as blur:
+
+```
+weight = 1 + max(0, luminance - brightnessThreshold) * bloomIntensity
+```
+
+Sample on a golden-angle spiral for even disc coverage:
+`angle = i * 2.399963`, `radius = sqrt(i / N) * blurRadius`.
+
+**The interesting version here is not in the reference.** The app already detects faces, so
+blurring *everything except* the detected face gives real portrait-mode depth of field —
+something the source effect cannot do because it has no notion of a subject.
