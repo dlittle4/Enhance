@@ -369,9 +369,9 @@ struct VisualEffectTests {
         #expect(CIContext().createCGImage(output, from: output.extent) != nil)
     }
 
-    /// Cell size scales with the frame's zoom so the stipple stays locked to image
-    /// content. Without this the GIF pattern is fixed in output pixels and reads as a
-    /// static overlay the image slides beneath — and disagrees with the preview.
+    /// Cell size scales with the frame's zoom so the stipple stays the same size
+    /// relative to the subject. Without this the GIF pattern is fixed in output pixels
+    /// and reads as a static overlay the image slides beneath.
     @Test func dither_scalesCellWithFrameScale() {
         let ctx = CIContext()
         let input = makeTestImage()
@@ -379,21 +379,82 @@ struct VisualEffectTests {
         for scale in [CGFloat(1), 2, 4, 8] {
             let output = effect.apply(
                 to: input, progress: 1.0, frameIndex: 0,
-                viewportCenter: nil, frameScale: scale
+                viewportCenter: nil, geometry: FrameGeometry(scale: scale)
             )
             #expect(output.extent == input.extent, "extent drifted at \(scale)x")
             #expect(ctx.createCGImage(output, from: output.extent) != nil)
         }
     }
 
-    /// The default 4-arg entry point must behave as frameScale 1, so the preview path
-    /// (which applies to the un-zoomed source) is unaffected.
-    @Test func dither_defaultOverloadMatchesUnityFrameScale() {
+    /// Phase alignment: shifting the content origin must not change the output extent
+    /// or leave uncovered strips at the edges. Scaling the cell alone is not enough,
+    /// because the animation pans as it zooms.
+    @Test func dither_phaseAlignsToContentOriginWithoutGaps() {
+        let ctx = CIContext()
+        let input = makeTestImage()
+        let effect = DitherEffect(intensity: 1.0, size: 0.8)
+        for offset in [CGFloat(0), 3, 7.5, 19, -11] {
+            let geometry = FrameGeometry(scale: 4.0, contentOrigin: CGPoint(x: offset, y: offset * 0.5))
+            let output = effect.apply(
+                to: input, progress: 1.0, frameIndex: 0,
+                viewportCenter: nil, geometry: geometry
+            )
+            #expect(output.extent == input.extent, "extent drifted at offset \(offset)")
+            #expect(ctx.createCGImage(output, from: output.extent) != nil, "render failed at offset \(offset)")
+        }
+    }
+
+    /// Decisive check on the phase mechanism. With `size` 1.0 and scale 1.0 the cell is
+    /// exactly 8pt, so shifting the content origin by one whole cell must land the grid
+    /// on the same lattice and render byte-identical output, while a half-cell shift
+    /// must not. This is what "the grid follows the content" actually means, and it
+    /// cannot be verified by extent or non-nil checks.
+    @Test func dither_phaseIsPeriodicInCellSize() throws {
+        let input = gradientTestImage()
+        let effect = DitherEffect(intensity: 1.0, size: 1.0)   // baseCell = 8
+        let cell: CGFloat = 8
+
+        func render(originX: CGFloat) throws -> Data {
+            let out = effect.apply(
+                to: input, progress: 1.0, frameIndex: 0,
+                viewportCenter: nil,
+                geometry: FrameGeometry(scale: 1.0, contentOrigin: CGPoint(x: originX, y: 0))
+            )
+            let ctx = CIContext()
+            let cg = try #require(ctx.createCGImage(out, from: out.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+
+        let base = try render(originX: 0)
+        let oneCell = try render(originX: cell)
+        let halfCell = try render(originX: cell / 2)
+
+        #expect(base == oneCell, "a whole-cell shift should reproduce the same lattice")
+        #expect(base != halfCell, "a half-cell shift should move the lattice")
+    }
+
+    /// A luminance ramp, so the dither has something to stipple. A solid colour
+    /// posterises flat and would make the periodicity test pass trivially.
+    private func gradientTestImage() -> CIImage {
+        CIImage(color: .white)
+            .cropped(to: CGRect(x: 0, y: 0, width: 96, height: 96))
+            .applyingFilter("CILinearGradient", parameters: [
+                "inputPoint0": CIVector(x: 0, y: 0),
+                "inputColor0": CIColor(red: 0, green: 0, blue: 0),
+                "inputPoint1": CIVector(x: 96, y: 96),
+                "inputColor1": CIColor(red: 1, green: 1, blue: 1)
+            ])
+            .cropped(to: CGRect(x: 0, y: 0, width: 96, height: 96))
+    }
+
+    /// The default 4-arg entry point must behave as identity geometry, so the preview
+    /// path (which applies to the un-zoomed source) is unaffected.
+    @Test func dither_defaultOverloadMatchesIdentityGeometry() {
         let input = makeTestImage()
         let effect = DitherEffect(intensity: 1.0, size: 0.6)
         let viaDefault = effect.apply(to: input, progress: 1.0, frameIndex: 0, viewportCenter: nil)
-        let viaUnity = effect.apply(to: input, progress: 1.0, frameIndex: 0, viewportCenter: nil, frameScale: 1.0)
-        #expect(viaDefault.extent == viaUnity.extent)
+        let viaIdentity = effect.apply(to: input, progress: 1.0, frameIndex: 0, viewportCenter: nil, geometry: .identity)
+        #expect(viaDefault.extent == viaIdentity.extent)
     }
 
     /// The SCALE slider must actually change the output, not just the parameters.

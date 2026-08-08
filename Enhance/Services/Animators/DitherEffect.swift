@@ -9,10 +9,11 @@ struct DitherEffect: VisualEffect {
     private let clamped: CGFloat
     private let baseCell: CGFloat
 
-    /// Ceiling on cell size in output pixels. Without it, a base cell of 8 at 12x zoom
-    /// would be 96px — six blocks across the whole frame. This trades exact
-    /// lock-to-content at extreme zoom for staying recognisable as an image.
-    private static let maxCell: CGFloat = 40
+    /// Sanity bound on cell size in output pixels. Deliberately generous: at the top of
+    /// the SCALE range and full zoom the honest cell size is ~96px, and clamping below
+    /// that would silently stop the grid tracking the zoom — which is the drift this
+    /// effect exists to avoid.
+    private static let maxCell: CGFloat = 96
 
     init(intensity: Double = 0.5, size: Double = 0.5) {
         self.clamped = CGFloat(max(0, min(1, intensity)))
@@ -21,14 +22,14 @@ struct DitherEffect: VisualEffect {
     }
 
     func apply(to image: CIImage, progress: CGFloat, frameIndex: Int) -> CIImage {
-        apply(to: image, progress: progress, frameIndex: frameIndex, viewportCenter: nil, frameScale: 1.0)
+        apply(to: image, progress: progress, frameIndex: frameIndex, viewportCenter: nil, geometry: .identity)
     }
 
     func apply(to image: CIImage, progress: CGFloat, frameIndex: Int, viewportCenter: CGPoint?) -> CIImage {
-        apply(to: image, progress: progress, frameIndex: frameIndex, viewportCenter: viewportCenter, frameScale: 1.0)
+        apply(to: image, progress: progress, frameIndex: frameIndex, viewportCenter: viewportCenter, geometry: .identity)
     }
 
-    func apply(to image: CIImage, progress: CGFloat, frameIndex: Int, viewportCenter: CGPoint?, frameScale: CGFloat) -> CIImage {
+    func apply(to image: CIImage, progress: CGFloat, frameIndex: Int, viewportCenter: CGPoint?, geometry: FrameGeometry) -> CIImage {
         // Quadratic ease-in: dither is a hard-edged effect and lands best arriving
         // late, once the zoom has established the subject.
         let t = min(1.0, progress * progress * 1.6)
@@ -41,27 +42,41 @@ struct DitherEffect: VisualEffect {
         // dither amplitude against few levels is what survives that.
         let levels = 12.0 - 9.0 * amount
 
-        // Scale the cell by the frame's zoom so the stipple stays locked to image
-        // content rather than to the output frame. Without this the pattern is a fixed
-        // size in output pixels and the image appears to slide underneath a static
-        // overlay, which also makes the GIF disagree with the preview.
-        let cell = min(Self.maxCell, max(1.0, baseCell * max(1.0, frameScale)))
+        // Scale the cell with the zoom so the stipple stays the same size relative to
+        // the subject rather than to the output frame.
+        let cell = min(Self.maxCell, max(1.0, baseCell * max(1.0, geometry.scale)))
 
-        // A 1pt cell is native-resolution dither, so skip the resample entirely.
+        // A 1pt cell is native-resolution dither, so skip the resample entirely —
+        // there is no grid to align at that size.
         guard cell > 1.5 else {
             return quantise(image, amount: amount, levels: levels).cropped(to: image.extent)
         }
+
+        // Phase-align the grid to the content. Scaling the cell alone is not enough:
+        // the animation pans as it zooms, so a grid anchored to the frame's corner
+        // still slides across the subject. Offsetting by the content origin modulo the
+        // cell size pins cells to the same image features from frame to frame.
+        let phaseX = geometry.contentOrigin.x.truncatingRemainder(dividingBy: cell)
+        let phaseY = geometry.contentOrigin.y.truncatingRemainder(dividingBy: cell)
+
+        // Pad before shifting so the offset cannot expose an uncovered strip at the
+        // edges once the result is cropped back to the original extent.
+        let padded = image
+            .clampedToExtent()
+            .cropped(to: image.extent.insetBy(dx: -cell * 2, dy: -cell * 2))
 
         // Dither at 1/cell resolution, then blow it back up with nearest-neighbour
         // sampling so each dither dot becomes a solid cell×cell block. Dithering at
         // full resolution and *then* pixelating would average the dots away; the
         // pattern has to be generated at the size it will be displayed.
-        let shrunk = image.transformed(by: CGAffineTransform(scaleX: 1.0 / cell, y: 1.0 / cell))
+        let shifted = padded.transformed(by: CGAffineTransform(translationX: -phaseX, y: -phaseY))
+        let shrunk = shifted.transformed(by: CGAffineTransform(scaleX: 1.0 / cell, y: 1.0 / cell))
         let dithered = quantise(shrunk, amount: amount, levels: levels)
 
         return dithered
             .samplingNearest()
             .transformed(by: CGAffineTransform(scaleX: cell, y: cell))
+            .transformed(by: CGAffineTransform(translationX: phaseX, y: phaseY))
             .cropped(to: image.extent)
     }
 

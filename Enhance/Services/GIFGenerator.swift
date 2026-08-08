@@ -118,7 +118,8 @@ public class GIFGenerator: GIFGenerating {
 
                 let sourceForFrame = faceEffectedSource(context: context, effect: faceEffect, faces: detectedFaces, progress: frameProgress, frameIndex: i)
                 if let frameImage = createFrameImage(transform: transform, context: context, sourceOverride: sourceForFrame) {
-                    let outputImage = applyVisualEffects(frameImage, effects: visualEffects, progress: frameProgress, frameIndex: i, frameScale: frameParams.scale)
+                    let geometry = frameGeometry(params: frameParams, transform: transform, context: context)
+                    let outputImage = applyVisualEffects(frameImage, effects: visualEffects, progress: frameProgress, frameIndex: i, geometry: geometry)
                     let frameProperties: [String: Any] = [
                         kCGImagePropertyGIFDictionary as String: [
                             kCGImagePropertyGIFDelayTime as String: context.frameDelay,
@@ -139,7 +140,8 @@ public class GIFGenerator: GIFGenerating {
 
         let sourceForFrame = faceEffectedSource(context: context, effect: faceEffect, faces: detectedFaces, progress: 1.0, frameIndex: context.frameCount)
         if let finalFrameImage = createFrameImage(transform: finalTransform, context: context, sourceOverride: sourceForFrame) {
-            let outputImage = applyVisualEffects(finalFrameImage, effects: visualEffects, progress: 1.0, frameIndex: context.frameCount, frameScale: finalParams.scale)
+            let geometry = frameGeometry(params: finalParams, transform: finalTransform, context: context)
+            let outputImage = applyVisualEffects(finalFrameImage, effects: visualEffects, progress: 1.0, frameIndex: context.frameCount, geometry: geometry)
             for _ in 0..<context.pauseFrameCount {
                 let frameProperties: [String: Any] = [
                     kCGImagePropertyGIFDictionary as String: [
@@ -164,19 +166,35 @@ public class GIFGenerator: GIFGenerating {
         return UIImage(cgImage: outputCG)
     }
 
-    /// - Parameter frameScale: the zoom baked into this frame. Effects are applied
-    ///   *after* the zoom transform, so anything with its own spatial frequency needs
-    ///   this to stay locked to image content instead of to the output frame.
-    private func applyVisualEffects(_ cgImage: CGImage, effects: [VisualEffect], progress: CGFloat, frameIndex: Int, frameScale: CGFloat) -> CGImage {
+    /// - Parameter geometry: how this frame relates to the source image. Effects are
+    ///   applied *after* the zoom transform, so anything with its own spatial grid needs
+    ///   both the scale and the content offset to stay locked to the subject rather than
+    ///   to the output frame.
+    private func applyVisualEffects(_ cgImage: CGImage, effects: [VisualEffect], progress: CGFloat, frameIndex: Int, geometry: FrameGeometry) -> CGImage {
         guard !effects.isEmpty else { return cgImage }
         var ciImage = CIImage(cgImage: cgImage)
         for effect in effects {
             ciImage = effect.apply(
                 to: ciImage, progress: progress, frameIndex: frameIndex,
-                viewportCenter: nil, frameScale: frameScale
+                viewportCenter: nil, geometry: geometry
             )
         }
         return ciContext.createCGImage(ciImage, from: ciImage.extent) ?? cgImage
+    }
+
+    /// Where the image content sits in the rendered frame, for effects with a spatial
+    /// grid. The frame is drawn through UIGraphics (top-left origin) and then read back
+    /// as a CIImage (bottom-left origin), so the y axis is flipped to match — see
+    /// LEARNINGS 2026-03-10 for the bug this caused when it was missed before.
+    private func frameGeometry(params: AnimationParameters, transform: CGAffineTransform, context: DrawingContext) -> FrameGeometry {
+        let originInFrame = context.drawRect.origin.applying(transform)
+        return FrameGeometry(
+            scale: params.scale,
+            contentOrigin: CGPoint(
+                x: originInFrame.x,
+                y: context.outputSize.height - originInFrame.y
+            )
+        )
     }
 
     private func createFrameImage(transform: CGAffineTransform, context: DrawingContext, sourceOverride: UIImage? = nil) -> CGImage? {
