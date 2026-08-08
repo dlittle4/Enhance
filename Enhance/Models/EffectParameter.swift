@@ -66,4 +66,44 @@ struct EffectParameter: Identifiable, Hashable {
     static func displayValue(_ value: Double) -> Int {
         Int((max(0, min(1, value)) * Double(sliderSteps)).rounded())
     }
+
+    // MARK: - Value storage keys
+
+    /// Key under which a parameter's value is stored on the view model.
+    static func key<E: ParameterizedEffect>(_ paramID: String, for effect: E) -> String {
+        "\(E.parameterNamespace)|\(effect.parameterKeyComponent)|\(paramID)"
+    }
+
+    /// Key used when no effect is selected, so the legacy value shims always have
+    /// somewhere stable to read and write rather than silently dropping the value.
+    static func unselectedKey(_ paramID: String, namespace: String) -> String {
+        "\(namespace)|·none·|\(paramID)"
+    }
+}
+
+/// An effect whose controls are declared rather than hardcoded, and whose values are
+/// stored per parameter.
+///
+/// `parameterNamespace` is **not** cosmetic. `VisualEffectType.fisheye` and
+/// `FaceFilterType.fisheye` share `rawValue == "FISHEYE"` and both declare a second
+/// control slot — without the namespace their values collide in the store and
+/// cross-wire silently, with no compile error and no obvious symptom.
+protocol ParameterizedEffect {
+    /// Distinguishes two effect families that may share a raw value.
+    static var parameterNamespace: String { get }
+
+    /// Identifies this effect within its namespace.
+    var parameterKeyComponent: String { get }
+
+    /// The controls this effect exposes, in display order.
+    ///
+    /// **View layer only.** This builds an array of structs on every call, so it must
+    /// never be touched from `activeVisualEffectList` or `activeFaceEffect`, which are
+    /// computed properties re-evaluated on every debounced preview update. Those read
+    /// the value store directly by well-known id instead.
+    var parameters: [EffectParameter] { get }
+}
+
+extension ParameterizedEffect where Self: RawRepresentable, Self.RawValue == String {
+    var parameterKeyComponent: String { rawValue }
 }
