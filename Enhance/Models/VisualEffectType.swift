@@ -66,17 +66,44 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable {
 
     var isRetired: Bool { Self.retired.contains(self) }
 
+    /// The controls this effect exposes, in the order they should be shown.
+    ///
+    /// This is the single source of truth for an effect's UI. Adding a control here is
+    /// all that is needed for it to appear — no layout changes, and no per-effect
+    /// branching in the view.
+    var parameters: [EffectParameter] {
+        var params = [EffectParameter(id: EffectParameter.intensityID, label: "INTENSITY")]
+
+        switch self {
+        case .fisheye:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "SIZE"))
+        case .dither:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "SCALE"))
+        default:
+            break
+        }
+
+        switch colorPickerKind {
+        case .tintColor:
+            params.append(EffectParameter(id: "tint", label: "COLOUR", kind: .tintColor))
+        case .gradientStops:
+            params.append(EffectParameter(id: "stops", label: "COLOURS", kind: .gradientStops))
+        case .none:
+            break
+        }
+
+        return params
+    }
+
     /// Whether this effect supports the separate size slider.
+    /// Derived from `parameters` so the two cannot drift apart.
     var supportsSizeControl: Bool {
-        self == .fisheye || self == .dither
+        parameters.contains { $0.id == EffectParameter.sizeID }
     }
 
     /// Label for the second slider (used for size or other secondary controls).
     var secondSliderLabel: String {
-        switch self {
-        case .dither: return "SCALE"
-        default:      return "SIZE"
-        }
+        parameters.first { $0.id == EffectParameter.sizeID }?.label ?? "SIZE"
     }
 
     /// Which picker row to show beneath the sliders, if any.
