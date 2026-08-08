@@ -101,6 +101,45 @@ struct EffectParameterTests {
         }
     }
 
+    // MARK: - Storage keys
+
+    /// The namespace exists to stop two effect families colliding. `VisualEffectType`
+    /// and `FaceFilterType` both have a `fisheye` case with rawValue "FISHEYE", and both
+    /// declare a second control slot — so without namespacing their values would share a
+    /// key and cross-wire, with no compile error and no obvious symptom.
+    @Test func parameterKeys_areNamespacedPerEffectFamily() {
+        // The collision this guards against is real, not hypothetical.
+        #expect(VisualEffectType.fisheye.rawValue == FaceFilterType.fisheye.rawValue)
+
+        let visual = EffectParameter.key(EffectParameter.intensityID, for: VisualEffectType.fisheye)
+        let face = EffectParameter.key(EffectParameter.intensityID, for: FaceFilterType.fisheye)
+        #expect(visual != face)
+
+        #expect(VisualEffectType.parameterNamespace != FaceFilterType.parameterNamespace)
+    }
+
+    @Test func parameterKeys_differPerEffectAndPerParameter() {
+        let fisheyeIntensity = EffectParameter.key(EffectParameter.intensityID, for: VisualEffectType.fisheye)
+        let ditherIntensity = EffectParameter.key(EffectParameter.intensityID, for: VisualEffectType.dither)
+        let fisheyeSize = EffectParameter.key(EffectParameter.sizeID, for: VisualEffectType.fisheye)
+
+        #expect(fisheyeIntensity != ditherIntensity)
+        #expect(fisheyeIntensity != fisheyeSize)
+    }
+
+    /// The unselected fallback must not collide with any real effect's key, or values
+    /// written with nothing selected would leak into an effect.
+    @Test func unselectedKey_collidesWithNoRealEffect() {
+        let fallback = EffectParameter.unselectedKey(
+            EffectParameter.intensityID,
+            namespace: VisualEffectType.parameterNamespace
+        )
+        let realKeys = VisualEffectType.allCases.map {
+            EffectParameter.key(EffectParameter.intensityID, for: $0)
+        }
+        #expect(!realKeys.contains(fallback))
+    }
+
     // MARK: - displayValue
 
     @Test func displayValue_mapsUnitRangeToDotCount() {

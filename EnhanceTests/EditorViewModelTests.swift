@@ -249,4 +249,80 @@ struct EditorViewModelTests {
         #expect(vm.image == nil)
         try? FileManager.default.removeItem(at: url)
     }
+
+    // MARK: - Parameter value store
+
+    @Test func parameterValue_unsetReturnsDefault() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        #expect(vm.value(EffectParameter.intensityID, for: VisualEffectType.fisheye) == 0.5)
+        #expect(vm.value(EffectParameter.sizeID, for: VisualEffectType.dither, default: 0.25) == 0.25)
+    }
+
+    @Test func parameterValue_roundTrips() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.setValue(0.8, EffectParameter.sizeID, for: VisualEffectType.dither)
+        #expect(vm.value(EffectParameter.sizeID, for: VisualEffectType.dither) == 0.8)
+    }
+
+    /// Each effect keeps its own values, so re-selecting an effect finds what you left
+    /// it at rather than the previous effect's setting.
+    @Test func parameterValues_areIndependentPerEffect() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.setValue(0.1, EffectParameter.intensityID, for: VisualEffectType.fisheye)
+        vm.setValue(0.9, EffectParameter.intensityID, for: VisualEffectType.dither)
+
+        #expect(vm.value(EffectParameter.intensityID, for: VisualEffectType.fisheye) == 0.1)
+        #expect(vm.value(EffectParameter.intensityID, for: VisualEffectType.dither) == 0.9)
+    }
+
+    /// The cross-family case the key namespace exists for, exercised through the store
+    /// rather than just the key builder.
+    @Test func parameterValues_doNotCrossBetweenVisualAndFaceEffects() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.setValue(0.2, EffectParameter.intensityID, for: VisualEffectType.fisheye)
+        vm.setValue(0.7, EffectParameter.intensityID, for: FaceFilterType.fisheye)
+
+        #expect(vm.value(EffectParameter.intensityID, for: VisualEffectType.fisheye) == 0.2)
+        #expect(vm.value(EffectParameter.intensityID, for: FaceFilterType.fisheye) == 0.7)
+    }
+
+    @Test func resetEffects_clearsAllParameterValues() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.setValue(0.9, EffectParameter.intensityID, for: VisualEffectType.dither)
+        vm.setValue(0.1, EffectParameter.intensityID, for: FaceFilterType.googlyEyes)
+
+        vm.resetEffects()
+
+        #expect(vm.parameterValues.isEmpty)
+        #expect(vm.value(EffectParameter.intensityID, for: VisualEffectType.dither) == 0.5)
+    }
+
+    /// Undo carries the whole parameter store, so a value change is undoable even though
+    /// it is no longer a named stored property.
+    @Test func undo_restoresParameterValues() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedVisualEffect = .dither
+        vm.setValue(0.2, EffectParameter.sizeID, for: VisualEffectType.dither)
+
+        vm.pushUndo()
+        vm.setValue(0.9, EffectParameter.sizeID, for: VisualEffectType.dither)
+        #expect(vm.value(EffectParameter.sizeID, for: VisualEffectType.dither) == 0.9)
+
+        vm.undo()
+        #expect(vm.value(EffectParameter.sizeID, for: VisualEffectType.dither) == 0.2)
+    }
+
+    /// The legacy shims must address the same storage as the typed API, or the view and
+    /// the effect pipeline would disagree while both look correct.
+    @Test func legacyShims_addressTheSameStorageAsTypedAPI() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedVisualEffect = .fisheye
+
+        vm.effectIntensity = 0.3
+        #expect(vm.value(EffectParameter.intensityID, for: VisualEffectType.fisheye) == 0.3)
+
+        vm.setValue(0.6, EffectParameter.sizeID, for: VisualEffectType.fisheye)
+        #expect(vm.effectSize == 0.6)
+    }
 }
+

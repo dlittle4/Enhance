@@ -1,6 +1,8 @@
 import Foundation
 
-enum FaceFilterType: String, CaseIterable, Identifiable, Hashable {
+enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, ParameterizedEffect {
+    static let parameterNamespace = "face"
+
     // Original face-specific effects
     case lazerEyes  = "LAZER EYES"
     case googlyEyes = "GOOGLY EYES"

@@ -12,12 +12,11 @@ struct EditorSnapshot {
     let playbackSpeed: Double
     let pauseDuration: Int
     let visualEffect: VisualEffectType?
-    let effectIntensity: Double
-    let effectSize: Double
+    /// The whole parameter store. One field replaces the four fixed Doubles this used to
+    /// carry; copy-on-write means snapshots share storage until the next write.
+    let parameterValues: [String: Double]
     let effectCategory: EffectCategory
     let faceFilter: FaceFilterType?
-    let faceFilterIntensity: Double
-    let faceFilterSpeed: Double
     let selectedFaceIndex: Int?
     let laserColor: LaserColor
     let tintColor: LaserColor
@@ -59,8 +58,57 @@ class EditorViewModel {
     var hasModifiedSettings: Bool = false
     var selectedEffectCategory: EffectCategory = .zoomEffects
     var selectedVisualEffect: VisualEffectType? = nil
-    var effectIntensity: Double = 0.5
-    var effectSize: Double = 0.5
+    /// Per-parameter control values, keyed by `EffectParameter.key(_:for:)`.
+    ///
+    /// Replaces the four fixed Doubles this used to hold, so an effect can declare any
+    /// number of controls. Keys are namespaced per effect family and per effect, which
+    /// also gives each effect its own value memory — re-selecting FISHEYE finds the
+    /// value you last left it at, rather than whatever the previous effect used.
+    ///
+    /// In-memory only; nothing here is persisted, so `EffectParameter`'s "ids must not
+    /// change once shipped" warning does not bite yet. It would the moment these are
+    /// written to UserDefaults.
+    var parameterValues: [String: Double] = [:]
+
+    func value<E: ParameterizedEffect>(_ paramID: String, for effect: E, default fallback: Double = 0.5) -> Double {
+        parameterValues[EffectParameter.key(paramID, for: effect)] ?? fallback
+    }
+
+    func setValue<E: ParameterizedEffect>(_ newValue: Double, _ paramID: String, for effect: E) {
+        parameterValues[EffectParameter.key(paramID, for: effect)] = newValue
+    }
+
+    /// Key for a visual-effect parameter under the current selection, falling back to a
+    /// stable unselected key so the shims below never silently drop a write.
+    private func visualKey(_ paramID: String) -> String {
+        guard let effect = selectedVisualEffect else {
+            return EffectParameter.unselectedKey(paramID, namespace: VisualEffectType.parameterNamespace)
+        }
+        return EffectParameter.key(paramID, for: effect)
+    }
+
+    private func faceKey(_ paramID: String) -> String {
+        guard let filter = selectedFaceFilter else {
+            return EffectParameter.unselectedKey(paramID, namespace: FaceFilterType.parameterNamespace)
+        }
+        return EffectParameter.key(paramID, for: filter)
+    }
+
+    // MARK: - Legacy value API
+    // Shims over `parameterValues`, keyed on the current selection. They keep the
+    // existing view and tests working while the storage changes underneath, and come
+    // out once the editor reads values straight from the declared parameter list.
+
+    var effectIntensity: Double {
+        get { parameterValues[visualKey(EffectParameter.intensityID)] ?? 0.5 }
+        set { parameterValues[visualKey(EffectParameter.intensityID)] = newValue }
+    }
+
+    var effectSize: Double {
+        get { parameterValues[visualKey(EffectParameter.sizeID)] ?? 0.5 }
+        set { parameterValues[visualKey(EffectParameter.sizeID)] = newValue }
+    }
+
     var tintColor: LaserColor = .red
     var gradientStops: GradientStops = .default
     var previewImage: UIImage? = nil
@@ -70,8 +118,16 @@ class EditorViewModel {
     var detectedFaces: [DetectedFace] = []
     var selectedFaceIndex: Int? = nil
     var selectedFaceFilter: FaceFilterType? = nil
-    var faceFilterIntensity: Double = 0.5
-    var faceFilterSpeed: Double = 0.5
+    var faceFilterIntensity: Double {
+        get { parameterValues[faceKey(EffectParameter.intensityID)] ?? 0.5 }
+        set { parameterValues[faceKey(EffectParameter.intensityID)] = newValue }
+    }
+
+    var faceFilterSpeed: Double {
+        get { parameterValues[faceKey(EffectParameter.secondaryID)] ?? 0.5 }
+        set { parameterValues[faceKey(EffectParameter.secondaryID)] = newValue }
+    }
+
     var laserColor: LaserColor = .red
     var isDetectingFaces: Bool = false
     private let faceDetectionService = FaceDetectionService()
@@ -155,12 +211,9 @@ class EditorViewModel {
             playbackSpeed: playbackSpeed,
             pauseDuration: pauseDuration,
             visualEffect: selectedVisualEffect,
-            effectIntensity: effectIntensity,
-            effectSize: effectSize,
+            parameterValues: parameterValues,
             effectCategory: selectedEffectCategory,
             faceFilter: selectedFaceFilter,
-            faceFilterIntensity: faceFilterIntensity,
-            faceFilterSpeed: faceFilterSpeed,
             selectedFaceIndex: selectedFaceIndex,
             laserColor: laserColor,
             tintColor: tintColor,
@@ -174,12 +227,9 @@ class EditorViewModel {
         playbackSpeed = snapshot.playbackSpeed
         pauseDuration = snapshot.pauseDuration
         selectedVisualEffect = snapshot.visualEffect
-        effectIntensity = snapshot.effectIntensity
-        effectSize = snapshot.effectSize
+        parameterValues = snapshot.parameterValues
         selectedEffectCategory = snapshot.effectCategory
         selectedFaceFilter = snapshot.faceFilter
-        faceFilterIntensity = snapshot.faceFilterIntensity
-        faceFilterSpeed = snapshot.faceFilterSpeed
         selectedFaceIndex = snapshot.selectedFaceIndex
         laserColor = snapshot.laserColor
         tintColor = snapshot.tintColor
@@ -233,15 +283,27 @@ class EditorViewModel {
         selectedFaceFilter?.secondSliderBucket(faceFilterSpeed) ?? "MEDIUM"
     }
 
+    /// Reads the value store directly by well-known id — deliberately *not* via
+    /// `filter.parameters`, which allocates an array and would run on every debounced
+    /// preview update.
     var activeFaceEffect: FaceEffect? {
         guard let filter = selectedFaceFilter else { return nil }
-        return filter.effect(intensity: faceFilterIntensity, secondValue: faceFilterSpeed, laserColor: laserColor)
+        return filter.effect(
+            intensity: value(EffectParameter.intensityID, for: filter),
+            secondValue: value(EffectParameter.secondaryID, for: filter),
+            laserColor: laserColor
+        )
     }
 
+    /// Same hot-path rule as `activeFaceEffect`: direct dict reads, never `.parameters`.
     var activeVisualEffectList: [VisualEffect] {
         guard let effect = selectedVisualEffect else { return [] }
-        let options = EffectOptions(size: effectSize, tintColor: tintColor, gradientStops: gradientStops)
-        return [effect.effect(intensity: effectIntensity, options: options)]
+        let options = EffectOptions(
+            size: value(EffectParameter.sizeID, for: effect),
+            tintColor: tintColor,
+            gradientStops: gradientStops
+        )
+        return [effect.effect(intensity: value(EffectParameter.intensityID, for: effect), options: options)]
     }
 
     var activeAnimator: Animator {
@@ -315,8 +377,7 @@ class EditorViewModel {
         playbackSpeed = 0.5
         pauseDuration = 1
         selectedVisualEffect = nil
-        effectIntensity = 0.5
-        effectSize = 0.5
+        parameterValues.removeAll()
         selectedEffectCategory = .zoomEffects
         previewImage = nil
         previewSourceCGImage = nil
@@ -324,8 +385,6 @@ class EditorViewModel {
         thumbnailSourceCGImage = nil
         selectedFaceFilter = nil
         selectedFaceIndex = nil
-        faceFilterIntensity = 0.5
-        faceFilterSpeed = 0.5
         laserColor = .red
         tintColor = .red
         gradientStops = .default

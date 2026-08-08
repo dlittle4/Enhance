@@ -23,7 +23,9 @@ struct EffectOptions {
     }
 }
 
-enum VisualEffectType: String, CaseIterable, Identifiable, Hashable {
+enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, ParameterizedEffect {
+    static let parameterNamespace = "visual"
+
     case chromaShift   = "CHROMA SHIFT"
     case halftone      = "HALFTONE"
     case fisheye       = "FISHEYE"
