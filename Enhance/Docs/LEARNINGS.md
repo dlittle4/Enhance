@@ -1078,6 +1078,22 @@ The order matters too: `selectable` filters `allCases`, so it inherits declarati
 
 ---
 
+## 2026-08-07: SwiftUI ColorPicker cannot be restyled — three dead ends
+
+**Problem:** The Gradient Map effect needs three arbitrary colours, so it uses SwiftUI `ColorPicker`. The editor's own colour swatches (`colorSwatchRow`, used by face filters and Colored Edges) are 26pt circles inside an offset 32pt mint ring, and the goal was to make the gradient stops match. Three approaches were tried and all three failed:
+
+**1. Draw a custom swatch over an almost-invisible `ColorPicker`.** The `ColorPicker` was given `.opacity(0.02)` and a 32pt frame, with the styled circle as an `.overlay(...).allowsHitTesting(false)` so taps would fall through. It looked right and **taps stopped landing entirely.** A `ColorPicker` is a `UIColorWell`, and a well's hit area is its own internal swatch — not whatever SwiftUI frame is wrapped around it. The visible geometry and the tap target diverge, and no amount of frame juggling reconciles them.
+
+**2. Leave the well visible and just ring it.** Hit testing stays entirely with the well, so taps work. But `UIColorWell` draws its own **rainbow spectrum ring** — Apple's "tap for colours" affordance — which then sits *inside* the mint ring, giving each swatch two concentric borders. There is no API to hide or restyle it.
+
+**3. Drive `UIColorPickerViewController` directly from a plain `Button`.** This is the theoretically correct answer: full visual control, real system colour wheel, ordinary SwiftUI hit testing. Wrapping it in a `UIViewControllerRepresentable` and presenting that as `.sheet` content **crashed**: `NSInvalidArgumentException — Application tried to present a nil modal view controller`. `UIColorPickerViewController` manages its own presentation and cannot be hosted as sheet content this way.
+
+**Resolution:** ship the unstyled native wells. The spectrum ring is a recognisable affordance and the inconsistency with `colorSwatchRow` is a smaller cost than any of the above.
+
+**Rule:** treat SwiftUI `ColorPicker` as unstyleable. If a design calls for a custom colour swatch that opens a colour wheel, either accept the system well's appearance or budget real time for a bespoke picker — do not assume the well can be dressed up. More generally: when a UIKit-backed control is wrapped by SwiftUI, its hit area belongs to the UIKit view, so overlay-plus-`allowsHitTesting(false)` restyling is unsafe for *any* such control, not just this one. And `UIViewControllerRepresentable` is not a universal escape hatch — controllers that present themselves (colour pickers, share sheets, document pickers) need their own presentation path.
+
+---
+
 ## 2026-08-07: Asking "how should X look" presumes the answer to "do we want X"
 
 **Problem:** Phase 1 of the effects work shipped nine colour-grade presets (sepia, vintage, noir…) that were immediately cut on review. The user's reaction was "why did we implement those? I don't recall those being part of Phase 1."
