@@ -23,14 +23,37 @@ struct EditorView: View {
             VStack(spacing: 16) {
                 topBar
                 canvasSection
-                controlsSection
-                    .opacity(viewModel.showControls ? 1 : 0)
+
+                // Removed from the hierarchy rather than faded, so the panel can grow
+                // into the space the tabs and card gallery were using.
+                if !viewModel.isEditingEffect {
+                    controlsSection
+                        .opacity(viewModel.showControls ? 1 : 0)
+                }
+
                 Spacer(minLength: 0)
-                bottomButtons
-                    .opacity(viewModel.showControls ? 1 : 0)
-                    .frame(width: borderedSize)
-                    .padding(.bottom, 16)
+
+                if viewModel.isEditingEffect {
+                    effectDetailPanel
+                        .frame(width: borderedSize)
+                        .frame(maxHeight: .infinity)
+                        .padding(.bottom, 16)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else {
+                    bottomButtons
+                        .opacity(viewModel.showControls ? 1 : 0)
+                        .frame(width: borderedSize)
+                        .padding(.bottom, 16)
+                        .transition(.opacity)
+                }
             }
+            // One animation for the whole swap. The panel moves; the tabs, cards and
+            // buttons only fade — a simultaneous vertical move on both halves fights
+            // itself and reads as a stutter.
+            .animation(
+                .spring(response: AppConstants.Animation.standard, dampingFraction: 0.85),
+                value: viewModel.isEditingEffect
+            )
 
         }
         .onAppear {
@@ -44,56 +67,27 @@ struct EditorView: View {
             }
         }
         .onChange(of: viewModel.selectedAnimatorType) { _, _ in
-            guard !viewModel.isRegenerating else { return }
-            if case .existingGif = viewModel.content {
-                viewModel.hasModifiedSettings = true
-                viewModel.regenerateGIF()
-            } else if viewModel.isSplit {
-                viewModel.regenerateGIF()
-            }
+            viewModel.regenerateIfNeeded()
         }
         .onChange(of: viewModel.selectedModifier) { _, _ in
-            guard !viewModel.isRegenerating else { return }
-            if case .existingGif = viewModel.content {
-                viewModel.hasModifiedSettings = true
-                viewModel.regenerateGIF()
-            } else if viewModel.isSplit {
-                viewModel.regenerateGIF()
-            }
+            viewModel.regenerateIfNeeded()
         }
         .onChange(of: viewModel.playbackSpeed) { _, _ in
-            guard !viewModel.isRegenerating else { return }
-            if case .existingGif = viewModel.content {
-                viewModel.hasModifiedSettings = true
-                viewModel.regenerateGIF()
-            } else if viewModel.isSplit {
-                viewModel.regenerateGIF()
-            }
+            viewModel.regenerateIfNeeded()
         }
         .onChange(of: viewModel.selectedVisualEffect) { _, _ in
             viewModel.updatePreviewImage()
-            guard !viewModel.isRegenerating else { return }
-            if case .existingGif = viewModel.content {
-                viewModel.hasModifiedSettings = true
-                viewModel.regenerateGIF()
-            } else if viewModel.isSplit {
-                viewModel.regenerateGIF()
-            }
+            viewModel.regenerateIfNeeded()
         }
         .onChange(of: viewModel.pauseDuration) { _, _ in
-            guard !viewModel.isRegenerating else { return }
-            if case .existingGif = viewModel.content {
-                viewModel.hasModifiedSettings = true
-                viewModel.regenerateGIF()
-            } else if viewModel.isSplit {
-                viewModel.regenerateGIF()
-            }
+            viewModel.regenerateIfNeeded()
         }
         .onChange(of: viewModel.visibleRect) { _, _ in
             guard viewModel.selectedVisualEffect != nil else { return }
             viewModel.updatePreviewImage(debounce: true)
         }
         .onChange(of: viewModel.selectedEffectCategory) { _, newValue in
+            viewModel.cancelEditing()
             if newValue == .faceFilters {
                 viewModel.detectFacesIfNeeded()
             }
@@ -103,33 +97,15 @@ struct EditorView: View {
         }
         .onChange(of: viewModel.selectedFaceFilter) { _, _ in
             viewModel.updateFaceFilterPreview()
-            guard !viewModel.isRegenerating else { return }
-            if case .existingGif = viewModel.content {
-                viewModel.hasModifiedSettings = true
-                viewModel.regenerateGIF()
-            } else if viewModel.isSplit {
-                viewModel.regenerateGIF()
-            }
+            viewModel.regenerateIfNeeded()
         }
         .onChange(of: viewModel.laserColor) { _, _ in
             viewModel.updateFaceFilterPreview()
-            guard !viewModel.isRegenerating else { return }
-            if case .existingGif = viewModel.content {
-                viewModel.hasModifiedSettings = true
-                viewModel.regenerateGIF()
-            } else if viewModel.isSplit {
-                viewModel.regenerateGIF()
-            }
+            viewModel.regenerateIfNeeded()
         }
         .onChange(of: viewModel.tintColor) { _, _ in
             viewModel.updatePreviewImage()
-            guard !viewModel.isRegenerating else { return }
-            if case .existingGif = viewModel.content {
-                viewModel.hasModifiedSettings = true
-                viewModel.regenerateGIF()
-            } else if viewModel.isSplit {
-                viewModel.regenerateGIF()
-            }
+            viewModel.regenerateIfNeeded()
         }
         // ColorPicker emits on every drag frame of the system colour wheel, so both
         // the undo push and the regeneration are coalesced rather than fired per
@@ -151,19 +127,54 @@ struct EditorView: View {
         }
     }
 
+    // MARK: - Effect Detail Panel
+
+    private var effectDetailPanel: some View {
+        EffectDetailPanel(
+            title: viewModel.editingTitle,
+            onCancel: { viewModel.cancelEditing() },
+            onConfirm: { viewModel.commitEditing() }
+        ) {
+            editingRows
+        }
+    }
+
+    /// Rows for whichever effect the panel has open, resolved from the active category.
+    @ViewBuilder
+    private var editingRows: some View {
+        switch viewModel.selectedEffectCategory {
+        case .visualEffects:
+            if let effect = viewModel.selectedVisualEffect {
+                parameterRows(for: effect, colorSelection: $viewModel.tintColor)
+            }
+        case .faceFilters:
+            if let filter = viewModel.selectedFaceFilter {
+                parameterRows(for: filter, colorSelection: $viewModel.laserColor)
+            }
+        case .zoomEffects:
+            EmptyView()
+        }
+    }
+
     // MARK: - Top Bar
 
     private var topBar: some View {
         HStack(spacing: 0) {
             HStack(spacing: 24) {
+                // Disabled while the panel is open: it owns history there via its own
+                // back/confirm. A global undo could otherwise restore state *older* than
+                // the panel's entry snapshot, after which back would restore forward.
+                let historyEnabled = !viewModel.isEditingEffect
+
                 if viewModel.hasNonDefaultSettings {
                     Button {
                         viewModel.resetEffects()
                     } label: {
                         Text("RESET")
                             .font(.custom("Silkscreen-Bold", size: 16))
-                            .foregroundColor(.white)
+                            .foregroundColor(.white.opacity(historyEnabled ? 1.0 : 0.3))
                     }
+                    .disabled(!historyEnabled)
                 }
 
                 Button {
@@ -171,18 +182,18 @@ struct EditorView: View {
                 } label: {
                     Image("icon-undo")
                         .renderingMode(.template)
-                        .foregroundColor(.white.opacity(viewModel.canUndo ? 1.0 : 0.3))
+                        .foregroundColor(.white.opacity(historyEnabled && viewModel.canUndo ? 1.0 : 0.3))
                 }
-                .disabled(!viewModel.canUndo)
+                .disabled(!historyEnabled || !viewModel.canUndo)
 
                 Button {
                     viewModel.redo()
                 } label: {
                     Image("icon-redo")
                         .renderingMode(.template)
-                        .foregroundColor(.white.opacity(viewModel.canRedo ? 1.0 : 0.3))
+                        .foregroundColor(.white.opacity(historyEnabled && viewModel.canRedo ? 1.0 : 0.3))
                 }
-                .disabled(!viewModel.canRedo)
+                .disabled(!historyEnabled || !viewModel.canRedo)
             }
 
             Spacer()
@@ -332,20 +343,11 @@ struct EditorView: View {
                 VStack(spacing: 8) {
                     visualEffectsGrid
 
-                    if let effect = viewModel.selectedVisualEffect {
-                        parameterRows(for: effect, colorSelection: $viewModel.tintColor)
-                            .transition(.opacity)
-                    }
                 }
                 .transition(.opacity)
             case .faceFilters:
                 VStack(spacing: 8) {
                     faceFiltersGrid
-
-                    if let filter = viewModel.selectedFaceFilter {
-                        parameterRows(for: filter, colorSelection: $viewModel.laserColor)
-                            .transition(.opacity)
-                    }
                 }
                 .transition(.opacity)
             }
@@ -618,11 +620,14 @@ struct EditorView: View {
         let isActive = viewModel.selectedVisualEffect == effectType
         let thumbnail = viewModel.effectThumbnails[effectType]
         return Button {
-            viewModel.pushUndo()
-            HapticService.light()
-            withAnimation(.easeInOut(duration: 0.2)) {
-                viewModel.selectedVisualEffect = isActive ? nil : effectType
+            HapticService.selection()
+            // Tapping the selected effect re-opens its controls; deselecting is the top
+            // bar's job (undo / RESET), which is why there is no toggle-off here.
+            if !isActive {
+                viewModel.pushUndo()
+                viewModel.selectedVisualEffect = effectType
             }
+            viewModel.beginEditing()
         } label: {
             Text(effectType.rawValue)
                 .font(.silkscreenControl)
@@ -690,11 +695,12 @@ struct EditorView: View {
         let singleFaceBlocked = filterType.requiresSingleFace && viewModel.activeFaces.count != 1
         let isBlocked = noFaces || singleFaceBlocked
         return Button {
-            viewModel.pushUndo()
-            HapticService.light()
-            withAnimation(.easeInOut(duration: 0.2)) {
-                viewModel.selectedFaceFilter = isActive ? nil : filterType
+            HapticService.selection()
+            if !isActive {
+                viewModel.pushUndo()
+                viewModel.selectedFaceFilter = filterType
             }
+            viewModel.beginEditing()
         } label: {
             Text(filterType.rawValue)
                 .font(.silkscreenControl)

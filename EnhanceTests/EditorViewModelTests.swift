@@ -313,5 +313,112 @@ struct EditorViewModelTests {
         vm.setValue(0.6, EffectParameter.sizeID, for: VisualEffectType.fisheye)
         #expect(vm.effectSize == 0.6)
     }
+
+    // MARK: - Effect edit session
+
+    /// The panel refuses to open without a selection, which is what keeps the
+    /// "never editing with nothing selected" invariant from needing checks elsewhere.
+    @Test func beginEditing_withoutSelection_doesNotOpen() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.beginEditing()
+        #expect(vm.isEditingEffect == false)
+    }
+
+    @Test func beginEditing_withSelection_opens() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedVisualEffect = .dither
+        vm.beginEditing()
+        #expect(vm.isEditingEffect == true)
+    }
+
+    /// Back discards: values return to what they were on entry, and *no* undo entry is
+    /// recorded, because from the user's point of view nothing happened.
+    @Test func cancelEditing_revertsValuesAndPushesNoUndoEntry() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedVisualEffect = .dither
+        vm.setValue(0.3, EffectParameter.intensityID, for: VisualEffectType.dither)
+        #expect(vm.canUndo == false)
+
+        vm.beginEditing()
+        vm.setValue(0.8, EffectParameter.intensityID, for: VisualEffectType.dither)
+        vm.cancelEditing()
+
+        #expect(vm.isEditingEffect == false)
+        #expect(vm.value(EffectParameter.intensityID, for: VisualEffectType.dither) == 0.3)
+        #expect(vm.canUndo == false, "cancel must not record history")
+    }
+
+    /// Confirm keeps the changes and records exactly one entry for the whole visit,
+    /// however many parameters moved. The trailing `canUndo == false` is the part that
+    /// proves "exactly one" rather than merely "at least one".
+    @Test func commitEditing_keepsValuesAndPushesExactlyOneUndoEntry() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedVisualEffect = .dither
+        vm.setValue(0.3, EffectParameter.intensityID, for: VisualEffectType.dither)
+        vm.setValue(0.4, EffectParameter.sizeID, for: VisualEffectType.dither)
+
+        vm.beginEditing()
+        vm.setValue(0.8, EffectParameter.intensityID, for: VisualEffectType.dither)
+        vm.setValue(0.9, EffectParameter.sizeID, for: VisualEffectType.dither)
+        vm.commitEditing()
+
+        #expect(vm.isEditingEffect == false)
+        #expect(vm.value(EffectParameter.intensityID, for: VisualEffectType.dither) == 0.8)
+        #expect(vm.value(EffectParameter.sizeID, for: VisualEffectType.dither) == 0.9)
+        #expect(vm.canUndo == true)
+
+        vm.undo()
+        #expect(vm.value(EffectParameter.intensityID, for: VisualEffectType.dither) == 0.3)
+        #expect(vm.value(EffectParameter.sizeID, for: VisualEffectType.dither) == 0.4)
+        #expect(vm.canUndo == false, "a visit must record one entry, not one per parameter")
+    }
+
+    /// A restore can clear the very selection the panel is editing, so it must always
+    /// close the panel rather than leave it open over nothing.
+    @Test func undo_whileEditing_closesThePanel() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedVisualEffect = .dither
+        vm.pushUndo()
+        vm.beginEditing()
+        #expect(vm.isEditingEffect == true)
+
+        vm.undo()
+        #expect(vm.isEditingEffect == false)
+    }
+
+    @Test func resetEffects_closesThePanel() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedVisualEffect = .dither
+        vm.beginEditing()
+        #expect(vm.isEditingEffect == true)
+
+        vm.resetEffects()
+        #expect(vm.isEditingEffect == false)
+    }
+
+    // MARK: - Panel content resolution
+
+    @Test func editingTitleAndParameters_resolveFromActiveCategory() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+
+        vm.selectedEffectCategory = .visualEffects
+        vm.selectedVisualEffect = .dither
+        #expect(vm.editingTitle == "DITHER")
+        #expect(vm.editingParameters.map(\.id) == [EffectParameter.intensityID, EffectParameter.sizeID])
+
+        vm.selectedEffectCategory = .faceFilters
+        vm.selectedFaceFilter = .lazerEyes
+        #expect(vm.editingTitle == "LAZER EYES")
+        #expect(vm.editingParameters.count == 3)
+    }
+
+    /// The zoom tab has no per-effect controls to drill into, so it declares none.
+    @Test func editingParameters_forZoomCategory_isEmpty() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedEffectCategory = .zoomEffects
+        vm.selectedVisualEffect = .dither
+        #expect(vm.editingParameters.isEmpty)
+        #expect(vm.editingTitle == "")
+    }
 }
 

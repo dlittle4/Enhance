@@ -144,12 +144,78 @@ class EditorViewModel {
     var canUndo: Bool { !undoStack.isEmpty }
     var canRedo: Bool { !redoStack.isEmpty }
 
-    func pushUndo() {
-        undoStack.append(currentSnapshot())
+    /// Single place undo entries are recorded. Snapshots must capture *pre-change*
+    /// state, so every caller passes the state as it was before the edit it represents.
+    private func push(_ snapshot: EditorSnapshot) {
+        undoStack.append(snapshot)
         if undoStack.count > maxUndoDepth {
             undoStack.removeFirst()
         }
         redoStack.removeAll()
+    }
+
+    func pushUndo() {
+        push(currentSnapshot())
+    }
+
+    // MARK: - Effect edit session
+
+    /// True while the effect detail panel is open. Navigation state, deliberately *not*
+    /// part of `EditorSnapshot` — undo should not teleport between panels.
+    var isEditingEffect = false
+
+    /// State as it was when the panel opened, so the back chevron can discard.
+    private var editEntrySnapshot: EditorSnapshot?
+
+    /// The parameters the open panel should render, resolved from the active category.
+    var editingParameters: [EffectParameter] {
+        switch selectedEffectCategory {
+        case .visualEffects: return selectedVisualEffect?.parameters ?? []
+        case .faceFilters:   return selectedFaceFilter?.parameters ?? []
+        case .zoomEffects:   return []
+        }
+    }
+
+    var editingTitle: String {
+        switch selectedEffectCategory {
+        case .visualEffects: return selectedVisualEffect?.rawValue ?? ""
+        case .faceFilters:   return selectedFaceFilter?.rawValue ?? ""
+        case .zoomEffects:   return ""
+        }
+    }
+
+    /// Opens the panel for the current selection, capturing the values to revert to.
+    /// No-ops without a selection, which keeps the `isEditingEffect` invariant.
+    func beginEditing() {
+        guard selectedVisualEffect != nil || selectedFaceFilter != nil else { return }
+        editEntrySnapshot = currentSnapshot()
+        isEditingEffect = true
+    }
+
+    /// Discards everything changed since the panel opened. Pushes no undo entry — from
+    /// the user's point of view nothing happened.
+    func cancelEditing() {
+        guard let snapshot = editEntrySnapshot else {
+            isEditingEffect = false
+            return
+        }
+        editEntrySnapshot = nil
+        restore(snapshot)
+    }
+
+    /// Keeps the changes and records **one** undo entry for the whole visit, regardless
+    /// of how many parameters moved. Pushes the *entry* snapshot, not the current one —
+    /// same pre-change discipline as `pushUndoCoalesced`.
+    ///
+    /// Pushed unconditionally rather than gated on an equality check: `GradientStops`
+    /// holds `Color`s, whose equality LEARNINGS records as opaque, and an occasional
+    /// no-op entry is a far smaller cost than a silently dropped one.
+    func commitEditing() {
+        if let snapshot = editEntrySnapshot {
+            push(snapshot)
+        }
+        editEntrySnapshot = nil
+        isEditingEffect = false
     }
 
     func undo() {
@@ -175,11 +241,23 @@ class EditorViewModel {
         guard now.timeIntervalSince(lastCoalescedUndo) > minimumGap else { return }
         lastCoalescedUndo = now
 
-        undoStack.append(currentSnapshot(gradientStopsOverride: previousStops))
-        if undoStack.count > maxUndoDepth {
-            undoStack.removeFirst()
+        push(currentSnapshot(gradientStopsOverride: previousStops))
+    }
+
+    /// Regenerates if the content warrants it, skipping when one is already in flight.
+    ///
+    /// Consolidates a block that was copy-pasted across eight `.onChange` handlers, the
+    /// parameter drag-end path, and `restore()` — where the in-flight guard was
+    /// *missing*, so an undo or a panel cancel landing on top of a running regeneration
+    /// could stack two. That was the ROADMAP's open P1.
+    func regenerateIfNeeded() {
+        guard !isRegenerating else { return }
+        if case .existingGif = content {
+            hasModifiedSettings = true
+            regenerateGIF()
+        } else if isSplit {
+            regenerateGIF()
         }
-        redoStack.removeAll()
     }
 
     /// Debounced regeneration for controls that emit a stream of values instead of a
@@ -188,14 +266,7 @@ class EditorViewModel {
     func scheduleRegenerate(after delay: TimeInterval = 0.45) {
         regenerateWorkItem?.cancel()
         let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            guard !self.isRegenerating else { return }
-            if case .existingGif = self.content {
-                self.hasModifiedSettings = true
-                self.regenerateGIF()
-            } else if self.isSplit {
-                self.regenerateGIF()
-            }
+            self?.regenerateIfNeeded()
         }
         regenerateWorkItem = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
@@ -235,18 +306,19 @@ class EditorViewModel {
         tintColor = snapshot.tintColor
         gradientStops = snapshot.gradientStops
 
+        // Navigation is not snapshotted, and a restore can clear the very selection the
+        // panel is editing — so always leave the panel rather than risk an open panel
+        // with no effect behind it.
+        isEditingEffect = false
+        editEntrySnapshot = nil
+
         updateCombinedPreview()
 
         if selectedEffectCategory == .faceFilters {
             detectFacesIfNeeded()
         }
 
-        if case .existingGif = content {
-            hasModifiedSettings = true
-            regenerateGIF()
-        } else if isSplit {
-            regenerateGIF()
-        }
+        regenerateIfNeeded()
     }
 
     var selectedFace: DetectedFace? {
@@ -347,6 +419,8 @@ class EditorViewModel {
         playbackSpeed = 0.5
         pauseDuration = 1
         selectedVisualEffect = nil
+        isEditingEffect = false
+        editEntrySnapshot = nil
         parameterValues.removeAll()
         selectedEffectCategory = .zoomEffects
         previewImage = nil
@@ -379,13 +453,7 @@ class EditorViewModel {
     /// so the distinction never existed.
     func onParameterDragEnded() {
         updatePreviewImage()
-        guard !isRegenerating else { return }
-        if case .existingGif = content {
-            hasModifiedSettings = true
-            regenerateGIF()
-        } else if isSplit {
-            regenerateGIF()
-        }
+        regenerateIfNeeded()
     }
 
     func detectFacesIfNeeded() {
