@@ -368,4 +368,43 @@ struct VisualEffectTests {
         let output = effect.apply(to: input, progress: 1.0, frameIndex: 0)
         #expect(CIContext().createCGImage(output, from: output.extent) != nil)
     }
+
+    /// Cell size scales with the frame's zoom so the stipple stays locked to image
+    /// content. Without this the GIF pattern is fixed in output pixels and reads as a
+    /// static overlay the image slides beneath — and disagrees with the preview.
+    @Test func dither_scalesCellWithFrameScale() {
+        let ctx = CIContext()
+        let input = makeTestImage()
+        let effect = DitherEffect(intensity: 1.0, size: 0.5)
+        for scale in [CGFloat(1), 2, 4, 8] {
+            let output = effect.apply(
+                to: input, progress: 1.0, frameIndex: 0,
+                viewportCenter: nil, frameScale: scale
+            )
+            #expect(output.extent == input.extent, "extent drifted at \(scale)x")
+            #expect(ctx.createCGImage(output, from: output.extent) != nil)
+        }
+    }
+
+    /// The default 4-arg entry point must behave as frameScale 1, so the preview path
+    /// (which applies to the un-zoomed source) is unaffected.
+    @Test func dither_defaultOverloadMatchesUnityFrameScale() {
+        let input = makeTestImage()
+        let effect = DitherEffect(intensity: 1.0, size: 0.6)
+        let viaDefault = effect.apply(to: input, progress: 1.0, frameIndex: 0, viewportCenter: nil)
+        let viaUnity = effect.apply(to: input, progress: 1.0, frameIndex: 0, viewportCenter: nil, frameScale: 1.0)
+        #expect(viaDefault.extent == viaUnity.extent)
+    }
+
+    /// The SCALE slider must actually change the output, not just the parameters.
+    @Test func dither_sizeChangesOutput() {
+        let ctx = CIContext()
+        let input = makeTestImage()
+        for size in [0.0, 0.5, 1.0] {
+            let effect = DitherEffect(intensity: 1.0, size: size)
+            let output = effect.apply(to: input, progress: 1.0, frameIndex: 0)
+            #expect(output.extent == input.extent)
+            #expect(ctx.createCGImage(output, from: output.extent) != nil, "size \(size) failed")
+        }
+    }
 }

@@ -1090,7 +1090,7 @@ The order matters too: `selectable` filters `allCases`, so it inherits declarati
 
 **Resolution:** ship the unstyled native wells. The spectrum ring is a recognisable affordance and the inconsistency with `colorSwatchRow` is a smaller cost than any of the above.
 
-**Rule:** treat SwiftUI `ColorPicker` as unstyleable. If a design calls for a custom colour swatch that opens a colour wheel, either accept the system well's appearance or budget real time for a bespoke picker — do not assume the well can be dressed up. More generally: when a UIKit-backed control is wrapped by SwiftUI, its hit area belongs to the UIKit view, so overlay-plus-`allowsHitTesting(false)` restyling is unsafe for *any* such control, not just this one. And `UIViewControllerRepresentable` is not a universal escape hatch — controllers that present themselves (colour pickers, share sheets, document pickers) need their own presentation path.
+**Rule (ColorPicker):** treat SwiftUI `ColorPicker` as unstyleable. If a design calls for a custom colour swatch that opens a colour wheel, either accept the system well's appearance or budget real time for a bespoke picker — do not assume the well can be dressed up. More generally: when a UIKit-backed control is wrapped by SwiftUI, its hit area belongs to the UIKit view, so overlay-plus-`allowsHitTesting(false)` restyling is unsafe for *any* such control, not just this one. And `UIViewControllerRepresentable` is not a universal escape hatch — controllers that present themselves (colour pickers, share sheets, document pickers) need their own presentation path.
 
 ---
 
@@ -1120,3 +1120,24 @@ The move from a preset enum to arbitrary colours also invalidated the memoisatio
 **One more trap:** `ColorPicker` can return Display P3 colours whose sRGB components fall **outside 0–1**. Unclamped, those corrupt the colour cube. Clamp every channel at the boundary where `Color` becomes numbers.
 
 **Rule:** Before wiring a control to an existing change-handler pattern, ask whether it emits a *stream* or a *commit*. Sliders, steppers and toggles commit; colour wheels, text fields and continuous gestures stream. Streaming controls need debounced side effects and coalesced undo, and their undo must read the pre-change value from `onChange`'s `old` parameter rather than snapshotting after the fact. And any cache keyed on a preset enum needs rethinking the moment the input becomes user-authored — bound it, and key it on canonical values.
+
+---
+
+## 2026-08-07: Preview and GIF apply effects in different spaces — pass the frame scale
+
+**Problem:** The dither effect looked like a static pattern pasted over the photo while the GIF zoomed, and the GIF didn't match what the live preview showed.
+
+**Root cause:** The two pipelines apply effects at opposite ends of the zoom transform.
+
+- **GIF:** `GIFGenerator.createFrameImage` renders the zoomed, cropped 600×600 frame *first*, then `applyVisualEffects` runs on that output. Any effect with a spatial frequency measured in pixels — dither cells, halftone screens — therefore has a cell size fixed in **output** space. The image content scales and pans beneath a pattern that never moves, which is exactly the "overlay pasted on top" look.
+- **Preview:** `EditorViewModel.updateCombinedPreview` applies effects to the **un-zoomed** 650px source, and `ImageCanvasView`'s scroll view magnifies the result afterwards. The same pattern is baked into image space and grows as you zoom in — locked to content.
+
+So the effect wasn't broken in either place; the two paths just disagreed about which space the pattern lives in, and only one of them can match the other.
+
+**Fix:** Added a `frameScale` parameter to `VisualEffect`, following the same non-breaking pattern as `viewportCenter`: a third overload with a default implementation that ignores it, so only effects with a spatial frequency opt in. `GIFGenerator` passes `frameParams.scale` for each frame (and `finalParams.scale` for the pause frames); the preview leaves it at 1.0 because it works on the unzoomed source. `DitherEffect` multiplies its cell size by it, which locks the stipple to image content and makes both paths agree.
+
+**Consequence worth accepting deliberately:** matching the preview *necessarily* means the cells magnify as the GIF zooms in — at 8x zoom they are 8x larger. That is what "locked to content" means, and it is what the preview has always shown. A `maxCell` ceiling keeps extreme zoom from reducing the frame to a handful of blocks. If the growth is ever too aggressive, partial compensation (`pow(frameScale, 0.5)`) sits between "static overlay" and "fully locked" — but it will then match the preview only approximately.
+
+**Second finding — chunky dither has to be generated at its final size.** `CIDither` has only an intensity input and always works at native pixel resolution, so the obvious "pixelate then dither" ordering fails: it produces flat blocks with fine speckle inside them, not coarse dither. The pattern has to be *generated* at the size it will be displayed: downscale by the cell size, dither and posterise there, then scale back up with `.samplingNearest()` so each dot becomes a solid cell-sized block.
+
+**Rule:** whenever an effect's output has a characteristic size in pixels, establish which coordinate space that size lives in, and check both the preview and the export path — they are separate render paths in this codebase and will silently disagree. Extend the `VisualEffect` protocol with a defaulted overload rather than changing existing signatures; that is how `viewportCenter` was added and it keeps all twenty other effects untouched. And never generate a pattern at one resolution intending to resample it to another: resampling averages the pattern away.

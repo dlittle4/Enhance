@@ -68,14 +68,14 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable {
 
     /// Whether this effect supports the separate size slider.
     var supportsSizeControl: Bool {
-        self == .fisheye
+        self == .fisheye || self == .dither
     }
 
     /// Label for the second slider (used for size or other secondary controls).
     var secondSliderLabel: String {
         switch self {
-        case .fisheye: return "SIZE"
-        default:       return "SIZE"
+        case .dither: return "SCALE"
+        default:      return "SIZE"
         }
     }
 
@@ -116,7 +116,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable {
         case .motionBlur:   return MotionBlurEffect(intensity: clamped)
         case .gradientMap:  return GradientMapEffect(intensity: clamped, stops: options.gradientStops)
         case .coloredEdges: return ColoredEdgesEffect(intensity: clamped, color: options.tintColor)
-        case .dither:       return DitherEffect(intensity: clamped)
+        case .dither:       return DitherEffect(intensity: clamped, size: max(0, min(1, options.size)))
 
         case .monotone:     return MonotoneEffect(intensity: clamped)
         case .duotone:      return DuotoneEffect(intensity: clamped, color: options.tintColor)

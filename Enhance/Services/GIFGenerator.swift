@@ -118,7 +118,7 @@ public class GIFGenerator: GIFGenerating {
 
                 let sourceForFrame = faceEffectedSource(context: context, effect: faceEffect, faces: detectedFaces, progress: frameProgress, frameIndex: i)
                 if let frameImage = createFrameImage(transform: transform, context: context, sourceOverride: sourceForFrame) {
-                    let outputImage = applyVisualEffects(frameImage, effects: visualEffects, progress: frameProgress, frameIndex: i)
+                    let outputImage = applyVisualEffects(frameImage, effects: visualEffects, progress: frameProgress, frameIndex: i, frameScale: frameParams.scale)
                     let frameProperties: [String: Any] = [
                         kCGImagePropertyGIFDictionary as String: [
                             kCGImagePropertyGIFDelayTime as String: context.frameDelay,
@@ -139,7 +139,7 @@ public class GIFGenerator: GIFGenerating {
 
         let sourceForFrame = faceEffectedSource(context: context, effect: faceEffect, faces: detectedFaces, progress: 1.0, frameIndex: context.frameCount)
         if let finalFrameImage = createFrameImage(transform: finalTransform, context: context, sourceOverride: sourceForFrame) {
-            let outputImage = applyVisualEffects(finalFrameImage, effects: visualEffects, progress: 1.0, frameIndex: context.frameCount)
+            let outputImage = applyVisualEffects(finalFrameImage, effects: visualEffects, progress: 1.0, frameIndex: context.frameCount, frameScale: finalParams.scale)
             for _ in 0..<context.pauseFrameCount {
                 let frameProperties: [String: Any] = [
                     kCGImagePropertyGIFDictionary as String: [
@@ -164,11 +164,17 @@ public class GIFGenerator: GIFGenerating {
         return UIImage(cgImage: outputCG)
     }
 
-    private func applyVisualEffects(_ cgImage: CGImage, effects: [VisualEffect], progress: CGFloat, frameIndex: Int) -> CGImage {
+    /// - Parameter frameScale: the zoom baked into this frame. Effects are applied
+    ///   *after* the zoom transform, so anything with its own spatial frequency needs
+    ///   this to stay locked to image content instead of to the output frame.
+    private func applyVisualEffects(_ cgImage: CGImage, effects: [VisualEffect], progress: CGFloat, frameIndex: Int, frameScale: CGFloat) -> CGImage {
         guard !effects.isEmpty else { return cgImage }
         var ciImage = CIImage(cgImage: cgImage)
         for effect in effects {
-            ciImage = effect.apply(to: ciImage, progress: progress, frameIndex: frameIndex)
+            ciImage = effect.apply(
+                to: ciImage, progress: progress, frameIndex: frameIndex,
+                viewportCenter: nil, frameScale: frameScale
+            )
         }
         return ciContext.createCGImage(ciImage, from: ciImage.extent) ?? cgImage
     }

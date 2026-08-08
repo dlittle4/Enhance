@@ -590,9 +590,12 @@ Carousel 8 → 11 visible effects, all stock Core Image, no new build infrastruc
 - [x] Rendered every new effect to PNG against a rich test fixture and inspected them — caught two
       bugs that all structural tests passed (see LEARNINGS 2026-08-07 on the linear working space)
 - [x] Suite 95 → **108 passing / 0 failing**
-- [ ] **Not yet verified on device.** Specifically: does DITHER survive GIF palettisation, or does
-      it read as noise? The reserve mitigation is a `CIPixellate` pass before the dither for chunkier
-      stipple — held back because it overlaps conceptually with `PixelateEffect`.
+- [x] **DITHER read as noise and sat static over the zoom** *(fixed 2026-08-07)*. Two causes:
+      the pattern was generated at native pixel resolution (too fine), and effects are applied
+      *after* the zoom transform so its cell size was fixed in output space while the preview
+      applies effects pre-zoom. Added a `frameScale` parameter to `VisualEffect` (defaulted
+      overload, same pattern as `viewportCenter`) so cell size tracks the zoom and both paths
+      agree, plus a SCALE slider for cell chunkiness. See LEARNINGS 2026-08-07.
 - [ ] **`ColorPicker` aesthetics** — the system colour wheel is a modal iOS sheet and will look
       foreign against the Silkscreen pixel-art styling. Accepted deliberately for the colour
       freedom; revisit if it grates in use.
