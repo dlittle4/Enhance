@@ -21,9 +21,16 @@ struct EffectCardView: View {
 
     var action: () -> Void
 
-    /// Scaled with the card so the corner stays proportional as the card shrinks.
+    /// Proportional to the card, capped at the panel radius so a full-size card matches
+    /// the detail panel's corner rather than out-rounding it.
     private var radius: CGFloat {
-        AppConstants.Layout.panelCornerRadius * (size / AppConstants.Layout.effectCardMaxSize)
+        min(AppConstants.Layout.panelCornerRadius, size * 0.18)
+    }
+
+    /// Grows with the card so the title never crowds the corner at 160pt nor wastes a
+    /// third of a 64pt card on padding.
+    private var titlePadding: CGFloat {
+        max(7, size * 0.09)
     }
 
     var body: some View {
@@ -44,7 +51,7 @@ struct EffectCardView: View {
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(size < 88 ? 7 : 10)
+                    .padding(titlePadding)
             }
             .frame(width: size, height: size)
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))

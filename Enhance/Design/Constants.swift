@@ -66,9 +66,11 @@ enum AppConstants {
 
         /// Bounds on the side of a square effect card.
         ///
-        /// The upper bound is the Figma size; the lower is the smallest at which a
-        /// two-line effect name still fits legibly.
-        static let effectCardMaxSize: CGFloat = 110
+        /// 160pt is the design target — big enough that the thumbnail reads as a preview
+        /// of the effect rather than a texture behind a label. The floor is the smallest
+        /// at which a two-line effect name is still legible, and short devices land near
+        /// it because the card gallery is the only part of the browse state that can give.
+        static let effectCardMaxSize: CGFloat = 160
         static let effectCardMinSize: CGFloat = 64
 
         /// Side of a square effect card, given the height available to the whole
