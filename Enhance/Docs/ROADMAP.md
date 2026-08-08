@@ -697,6 +697,56 @@ this is a pass over that table, not an investigation from scratch.
 - [ ] Auto-zoom on enhance — when no zoom is set, auto-zoom slightly toward center or a detected face before generation
 - [ ] Toggling off all zoom types resets canvas to 1.0x / full frame (currently StaticAnimator holds the user's zoom position)
 
+### Phase 19b: Effect reuse & stacking (needs design)
+
+Two related features. Both are more feasible than they look, because groundwork landed for
+other reasons — and each has one specific catch worth deciding knowingly.
+
+**Copy effects from one photo to another**
+
+- [ ] `EditorSnapshot` is already exactly the payload to copy — it captures animator, modifier,
+      speed, pause, visual effect, `parameterValues`, category, face filter, and all three
+      colour selections, and undo/redo already round-trips it. A "copy settings / paste
+      settings" feature is largely a matter of deciding what *not* to carry.
+- [ ] **Strip the photo-specific fields.** `selectedFaceIndex` is meaningless on a different
+      photo, and a face filter pasted onto a photo with no faces needs a defined outcome
+      (drop it, or keep it inert and let the existing no-faces blocking handle it). Zoom
+      (`currentScale` / `visibleRect`) is not in the snapshot and should stay out — the subject
+      is somewhere else in a different photo.
+- [ ] **Making it persist changes an existing constraint.** `EffectParameter`'s doc comment
+      notes that parameter ids are in-memory only today, so the "ids must not change once
+      shipped" warning does not yet bite. Saved presets make ids load-bearing and introduce a
+      migration concern. In-session copy/paste avoids this entirely; saved presets do not.
+- [ ] `GradientStops` holds SwiftUI `Color`, which is not directly `Codable` and whose equality
+      LEARNINGS calls opaque. `GradientStops.resolved` already yields clamped sRGB triples —
+      persist those, not the `Color`s.
+
+**Stack multiple effects on one photo**
+
+- [ ] **The render pipeline already supports it.** `generateGIF` takes
+      `visualEffects: [VisualEffect]`, and `applyVisualEffects` chains them lazily, so N effects
+      still cost one render per frame (LEARNINGS 2026-03-08 on CIImage chaining). Only
+      `selectedVisualEffect: VisualEffectType?` — a single optional — stands in the way.
+- [ ] **The parameter store already handles it.** Values are keyed per effect
+      (`"<namespace>|<effect>|<paramID>"`), so every effect in a stack keeps its own settings
+      with no further work.
+- [ ] ⚠️ **This reverses a documented decision.** Effects *were* stackable via
+      `Set<VisualEffectType>` and were deliberately changed to single selection — LEARNINGS
+      2026-03-08 records why: chained CIFilters "produced unpredictable, unpleasant results"
+      and emergent behaviour that is hard to preview or control. That entry's own suggested
+      path is worth taking seriously: *"if stacking is needed later, it should be done through
+      intentional, curated presets rather than free-form combination."*
+- [ ] Order matters — CIFilter chains are not commutative, so a stack needs a defined and
+      probably reorderable order, which is a new UI concept the drill-down panel does not have.
+      The panel edits one effect at a time, so stacking likely means a layer list that drills
+      into the existing panel per layer.
+- [ ] Cheapest first step, if the concern above holds: ship a small set of **curated
+      combinations** as single entries rather than free-form stacking. Same visual payoff, none
+      of the unpredictability, and no UI concept to invent.
+
+**They compose.** Once a stack exists, the copyable payload is the stack — so settle the
+stacking model before designing the copy format, or the format will need reworking.
+
 ### Phase 20: Onboarding & NUX
 
 - [ ] Add 5 default onboarding photos to show how the app works (think Tom from MySpace)
