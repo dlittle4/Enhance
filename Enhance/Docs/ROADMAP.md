@@ -571,7 +571,8 @@ Carousel 8 → 11 visible effects, all stock Core Image, no new build infrastruc
 **Effects**
 - [x] **GRADIENT** — luminance → colour ramp via a memoised 32³ `CIColorCubeWithColorSpace`.
       Three user-picked stops (`GradientStops`: dark / mid / light) using native `ColorPicker`
-      for unrestricted colour choice; MID is toggleable for a two-stop ramp
+      for unrestricted colour choice. Bare swatches — no labels, no ramp preview; the two-stop
+      toggle went with the MID label it was attached to, so ramps are always three stops
 - [x] **EDGES** — Sobel via `CIEdges`, tinted from `LaserColor`, over a darkened original
 - [x] **DITHER** — `CIDither` then `CIColorPosterize` (that order is the effect: noise pushes
       values across posterise boundaries so gradients stipple instead of banding)
@@ -588,7 +589,7 @@ Carousel 8 → 11 visible effects, all stock Core Image, no new build infrastruc
 **Verification**
 - [x] Rendered every new effect to PNG against a rich test fixture and inspected them — caught two
       bugs that all structural tests passed (see LEARNINGS 2026-08-07 on the linear working space)
-- [x] Suite 95 → **109 passing / 0 failing**
+- [x] Suite 95 → **108 passing / 0 failing**
 - [ ] **Not yet verified on device.** Specifically: does DITHER survive GIF palettisation, or does
       it read as noise? The reserve mitigation is a `CIPixellate` pass before the dither for chunkier
       stipple — held back because it overlaps conceptually with `PixelateEffect`.

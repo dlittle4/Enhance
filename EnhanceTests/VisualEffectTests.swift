@@ -262,13 +262,13 @@ struct VisualEffectTests {
         #expect(CIContext().createCGImage(output, from: output.extent) != nil)
     }
 
-    /// An arbitrary user-chosen ramp must render, including the two-stop case.
+    /// An arbitrary user-chosen ramp must render.
     @Test func gradientMap_withCustomStopsRenders() {
         let ctx = CIContext()
         let input = makeTestImage()
         let cases = [
-            GradientStops(dark: .blue, mid: .green, light: .yellow, useMid: true),
-            GradientStops(dark: .black, mid: .gray, light: .white, useMid: false)
+            GradientStops(dark: .blue, mid: .green, light: .yellow),
+            GradientStops(dark: .black, mid: .gray, light: .white)
         ]
         for stops in cases {
             let effect = GradientMapEffect(intensity: 1.0, stops: stops)
@@ -278,18 +278,14 @@ struct VisualEffectTests {
     }
 
     /// Stops must span the full luminance range so a lookup anywhere in [0,1] is
-    /// bracketed, in both the three-stop and two-stop configurations.
+    /// bracketed by two stops.
     @Test func gradientStops_resolvedSpanZeroToOne() {
-        for useMid in [true, false] {
-            var stops = GradientStops.default
-            stops.useMid = useMid
-            let resolved = stops.resolved
-            #expect(resolved.count == (useMid ? 3 : 2))
-            #expect(resolved.first?.location == 0.0)
-            #expect(resolved.last?.location == 1.0)
-            let locations = resolved.map(\.location)
-            #expect(locations == locations.sorted())
-        }
+        let resolved = GradientStops.default.resolved
+        #expect(resolved.count == 3)
+        #expect(resolved.first?.location == 0.0)
+        #expect(resolved.last?.location == 1.0)
+        let locations = resolved.map(\.location)
+        #expect(locations == locations.sorted())
     }
 
     /// Out-of-range lookups must clamp rather than extrapolate or crash.
@@ -305,8 +301,7 @@ struct VisualEffectTests {
         let wide = GradientStops(
             dark: Color(.displayP3, red: 1.0, green: 0.0, blue: 0.0),
             mid: Color(.displayP3, red: 0.0, green: 1.0, blue: 0.0),
-            light: Color(.displayP3, red: 0.0, green: 0.0, blue: 1.0),
-            useMid: true
+            light: Color(.displayP3, red: 0.0, green: 0.0, blue: 1.0)
         )
         for stop in wide.resolved {
             #expect(stop.rgb.r >= 0 && stop.rgb.r <= 1)
@@ -328,7 +323,7 @@ struct VisualEffectTests {
         #expect(a.cacheKey != c.cacheKey)
 
         var d = GradientStops.default
-        d.useMid = false
+        d.mid = .cyan
         #expect(a.cacheKey != d.cacheKey)
     }
 

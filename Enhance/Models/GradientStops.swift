@@ -10,15 +10,10 @@ struct GradientStops: Equatable {
     var mid: Color
     var light: Color
 
-    /// Whether the midtone stop participates. Off gives a straight two-stop ramp
-    /// between `dark` and `light`.
-    var useMid: Bool
-
     static let `default` = GradientStops(
         dark: Color(red: 0.11, green: 0.03, blue: 0.24),
         mid: Color(red: 0.72, green: 0.16, blue: 0.35),
-        light: Color(red: 1.00, green: 0.93, blue: 0.62),
-        useMid: true
+        light: Color(red: 1.00, green: 0.93, blue: 0.62)
     )
 
     /// The colours as clamped sRGB triples, plus their ramp locations.
@@ -26,15 +21,7 @@ struct GradientStops: Equatable {
     /// `ColorPicker` can hand back Display P3 colours whose sRGB components fall
     /// outside 0–1, so every channel is clamped before it reaches the colour cube.
     var resolved: [(location: CGFloat, rgb: RGB)] {
-        if useMid {
-            return [(0.0, Self.rgb(dark)), (0.5, Self.rgb(mid)), (1.0, Self.rgb(light))]
-        }
-        return [(0.0, Self.rgb(dark)), (1.0, Self.rgb(light))]
-    }
-
-    /// Colours for the picker's ramp preview swatch, in ramp order.
-    var previewColors: [Color] {
-        useMid ? [dark, mid, light] : [dark, light]
+        [(0.0, Self.rgb(dark)), (0.5, Self.rgb(mid)), (1.0, Self.rgb(light))]
     }
 
     /// A canonical, hashable key for cube memoisation. Deliberately derived from the

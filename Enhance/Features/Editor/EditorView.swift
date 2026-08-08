@@ -504,65 +504,26 @@ struct EditorView: View {
     }
 
     /// Gradient Map stop pickers — three native `ColorPicker`s for unrestricted
-    /// colour choice, plus a live preview of the resulting ramp.
-    ///
-    /// The MID slot doubles as a toggle: tapping its label drops the ramp to two
-    /// stops, since a straight dark→light blend is often what you want.
+    /// colour choice. Left to right is shadows → midtones → highlights, which the
+    /// swatch colours themselves make obvious enough without labels.
     private var gradientStopsPicker: some View {
-        HStack(spacing: 10) {
-            gradientSlot("DARK", selection: $viewModel.gradientStops.dark)
-
-            Button {
-                viewModel.pushUndo()
-                HapticService.light()
-                viewModel.gradientStops.useMid.toggle()
-            } label: {
-                gradientSlotLabel("MID", active: viewModel.gradientStops.useMid)
-            }
-            .buttonStyle(.plain)
-
-            if viewModel.gradientStops.useMid {
-                ColorPicker("", selection: $viewModel.gradientStops.mid, supportsOpacity: false)
-                    .labelsHidden()
-                    .frame(width: 28)
-            }
-
-            gradientSlot("LIGHT", selection: $viewModel.gradientStops.light)
-
-            Spacer(minLength: 0)
-
-            // Live preview of the ramp the three stops produce.
-            Capsule()
-                .fill(
-                    LinearGradient(
-                        colors: viewModel.gradientStops.previewColors,
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                )
-                .frame(width: 52, height: 20)
+        HStack {
+            Spacer()
+            ColorPicker("", selection: $viewModel.gradientStops.dark, supportsOpacity: false)
+                .labelsHidden()
+            Spacer()
+            ColorPicker("", selection: $viewModel.gradientStops.mid, supportsOpacity: false)
+                .labelsHidden()
+            Spacer()
+            ColorPicker("", selection: $viewModel.gradientStops.light, supportsOpacity: false)
+                .labelsHidden()
+            Spacer()
         }
-        .padding(.horizontal, 12)
         .frame(height: 44)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.white.opacity(0.04))
         )
-    }
-
-    private func gradientSlot(_ title: String, selection: Binding<Color>) -> some View {
-        HStack(spacing: 4) {
-            gradientSlotLabel(title, active: true)
-            ColorPicker("", selection: selection, supportsOpacity: false)
-                .labelsHidden()
-                .frame(width: 28)
-        }
-    }
-
-    private func gradientSlotLabel(_ title: String, active: Bool) -> some View {
-        Text(title)
-            .font(.custom("Silkscreen-Regular", size: 8))
-            .foregroundColor(active ? mintGreen : .white.opacity(0.35))
     }
 
     private var speedPauseRow: some View {
