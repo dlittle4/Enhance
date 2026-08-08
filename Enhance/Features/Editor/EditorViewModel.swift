@@ -21,7 +21,7 @@ struct EditorSnapshot {
     let selectedFaceIndex: Int?
     let laserColor: LaserColor
     let tintColor: LaserColor
-    let gradientRamp: GradientRamp
+    let gradientStops: GradientStops
 }
 
 @Observable
@@ -62,7 +62,7 @@ class EditorViewModel {
     var effectIntensity: Double = 0.5
     var effectSize: Double = 0.5
     var tintColor: LaserColor = .red
-    var gradientRamp: GradientRamp = .sunset
+    var gradientStops: GradientStops = .default
     var previewImage: UIImage? = nil
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
@@ -108,7 +108,47 @@ class EditorViewModel {
         restore(snapshot)
     }
 
-    private func currentSnapshot() -> EditorSnapshot {
+    /// Pushes an undo entry for a continuous control, at most once per `minimumGap`.
+    ///
+    /// `ColorPicker` writes on every drag frame of the system colour wheel, so an
+    /// unguarded push would bury the stack in near-identical entries and make undo
+    /// useless. `previousStops` is the value *before* the change — SwiftUI's
+    /// `onChange` hands it over, and snapshots must capture pre-change state.
+    func pushUndoCoalesced(previousStops: GradientStops, minimumGap: TimeInterval = 0.7) {
+        let now = Date()
+        guard now.timeIntervalSince(lastCoalescedUndo) > minimumGap else { return }
+        lastCoalescedUndo = now
+
+        undoStack.append(currentSnapshot(gradientStopsOverride: previousStops))
+        if undoStack.count > maxUndoDepth {
+            undoStack.removeFirst()
+        }
+        redoStack.removeAll()
+    }
+
+    /// Debounced regeneration for controls that emit a stream of values instead of a
+    /// discrete commit. Sliders regenerate on drag-end; `ColorPicker` has no such
+    /// signal, so it coalesces here.
+    func scheduleRegenerate(after delay: TimeInterval = 0.45) {
+        regenerateWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard !self.isRegenerating else { return }
+            if case .existingGif = self.content {
+                self.hasModifiedSettings = true
+                self.regenerateGIF()
+            } else if self.isSplit {
+                self.regenerateGIF()
+            }
+        }
+        regenerateWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private var regenerateWorkItem: DispatchWorkItem?
+    private var lastCoalescedUndo: Date = .distantPast
+
+    private func currentSnapshot(gradientStopsOverride: GradientStops? = nil) -> EditorSnapshot {
         EditorSnapshot(
             animatorType: selectedAnimatorType,
             modifier: selectedModifier,
@@ -124,7 +164,7 @@ class EditorViewModel {
             selectedFaceIndex: selectedFaceIndex,
             laserColor: laserColor,
             tintColor: tintColor,
-            gradientRamp: gradientRamp
+            gradientStops: gradientStopsOverride ?? gradientStops
         )
     }
 
@@ -143,7 +183,7 @@ class EditorViewModel {
         selectedFaceIndex = snapshot.selectedFaceIndex
         laserColor = snapshot.laserColor
         tintColor = snapshot.tintColor
-        gradientRamp = snapshot.gradientRamp
+        gradientStops = snapshot.gradientStops
 
         updateCombinedPreview()
 
@@ -200,7 +240,7 @@ class EditorViewModel {
 
     var activeVisualEffectList: [VisualEffect] {
         guard let effect = selectedVisualEffect else { return [] }
-        let options = EffectOptions(size: effectSize, tintColor: tintColor, gradientRamp: gradientRamp)
+        let options = EffectOptions(size: effectSize, tintColor: tintColor, gradientStops: gradientStops)
         return [effect.effect(intensity: effectIntensity, options: options)]
     }
 
@@ -288,7 +328,7 @@ class EditorViewModel {
         faceFilterSpeed = 0.5
         laserColor = .red
         tintColor = .red
-        gradientRamp = .sunset
+        gradientStops = .default
         detectedFaces = []
         faceDetectionService.clearCache()
 
@@ -433,7 +473,7 @@ class EditorViewModel {
             var results: [VisualEffectType: UIImage] = [:]
 
             for effectType in VisualEffectType.selectable {
-                let options = EffectOptions(size: 0.5, tintColor: .purple, gradientRamp: .sunset)
+                let options = EffectOptions(size: 0.5, tintColor: .purple, gradientStops: .default)
                 let effect = effectType.effect(intensity: 0.7, options: options)
                 let progress = effectType.previewProgress
                 let output = effect.apply(to: ciInput, progress: progress, frameIndex: 3)

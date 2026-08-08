@@ -547,7 +547,16 @@ Each entry names the file and line where the defect lives.
 
 ### Phase 17d: New Image Effects — Phase 1 ✓ (session 14)
 
-Carousel rebuilt from 8 → 20 visible effects, all stock Core Image, no new build infrastructure.
+Carousel 8 → 11 visible effects, all stock Core Image, no new build infrastructure.
+
+> **Course correction.** This phase initially shipped 9 colour-grade presets (SEPIA, VINTAGE,
+> WARM, COOL, FADE, VIVID, CONTRAST, NOIR, MONO) alongside the three below. They were cut on
+> review — they were never actually wanted. The plan carried them because the question asked
+> was *how* they should appear in the UI rather than *whether* they were wanted at all.
+> Implementations are in commit `148d105` if any are ever needed.
+>
+> Gradient Map also changed: the original six predefined ramps were replaced with three
+> user-picked colours via native `ColorPicker`.
 
 **Groundwork**
 - [x] `EffectOptions` struct replaces the growing positional parameter list on
@@ -560,24 +569,32 @@ Carousel rebuilt from 8 → 20 visible effects, all stock Core Image, no new bui
 - [x] `requiredFilterNames_exist` test — `applyingFilter` fails *silently* on an unknown name
 
 **Effects**
-- [x] **9 filter presets** (SEPIA, VINTAGE, WARM, COOL, FADE, VIVID, CONTRAST, NOIR, MONO) —
-      `FilterPreset` defines each as a fully-graded target image, shared `FilterPresetEffect`
-      dissolves toward it so intensity works uniformly across all nine
-- [x] **GRADIENT** — luminance → multi-stop ramp via a memoised 32³ `CIColorCubeWithColorSpace`.
-      6 ramps in `GradientRamp` (sunset, ice, toxic, ember, violet, mint) with a capsule picker
+- [x] **GRADIENT** — luminance → colour ramp via a memoised 32³ `CIColorCubeWithColorSpace`.
+      Three user-picked stops (`GradientStops`: dark / mid / light) using native `ColorPicker`
+      for unrestricted colour choice; MID is toggleable for a two-stop ramp
 - [x] **EDGES** — Sobel via `CIEdges`, tinted from `LaserColor`, over a darkened original
 - [x] **DITHER** — `CIDither` then `CIColorPosterize` (that order is the effect: noise pushes
       values across posterise boundaries so gradients stipple instead of banding)
 
+**Coalescing for continuous controls**
+- [x] `ColorPicker` writes on every drag frame of the system colour wheel, unlike sliders which
+      have a drag-end commit. Added `pushUndoCoalesced(previousStops:)` (max one undo entry per
+      0.7s, capturing the *pre*-change value via `onChange`'s `old`) and `scheduleRegenerate()`
+      (debounced 0.45s) so the wheel doesn't flood the undo stack or regenerate per frame
+- [x] Cube cache keyed on resolved RGB rather than a preset enum, bounded at 12 entries — users
+      can produce unlimited distinct ramps. Intensity never affects the cube, so dragging the
+      intensity slider always hits the cache
+
 **Verification**
 - [x] Rendered every new effect to PNG against a rich test fixture and inspected them — caught two
       bugs that all structural tests passed (see LEARNINGS 2026-08-07 on the linear working space)
-- [x] Suite 95 → **111 passing / 0 failing**
+- [x] Suite 95 → **109 passing / 0 failing**
 - [ ] **Not yet verified on device.** Specifically: does DITHER survive GIF palettisation, or does
       it read as noise? The reserve mitigation is a `CIPixellate` pass before the dither for chunkier
       stipple — held back because it overlaps conceptually with `PixelateEffect`.
-- [ ] **Carousel at 20 items** — confirm horizontal scrolling is tolerable and that entering the
-      IMAGE tab doesn't stutter while 20 thumbnails render (was 8)
+- [ ] **`ColorPicker` aesthetics** — the system colour wheel is a modal iOS sheet and will look
+      foreign against the Silkscreen pixel-art styling. Accepted deliberately for the colour
+      freedom; revisit if it grates in use.
 
 ### Phase 17e: New Image Effects — Phase 2 (not started)
 

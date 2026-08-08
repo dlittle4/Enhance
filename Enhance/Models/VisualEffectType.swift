@@ -4,7 +4,7 @@ import Foundation
 /// secondary selection return nil from `colorPickerKind`.
 enum EffectPickerKind {
     case tintColor
-    case gradientRamp
+    case gradientStops
 }
 
 /// Secondary inputs to `VisualEffectType.effect(intensity:options:)`. Bundled into
@@ -14,12 +14,12 @@ enum EffectPickerKind {
 struct EffectOptions {
     var size: Double = 0.5
     var tintColor: LaserColor = .red
-    var gradientRamp: GradientRamp = .sunset
+    var gradientStops: GradientStops = .default
 
-    init(size: Double = 0.5, tintColor: LaserColor = .red, gradientRamp: GradientRamp = .sunset) {
+    init(size: Double = 0.5, tintColor: LaserColor = .red, gradientStops: GradientStops = .default) {
         self.size = size
         self.tintColor = tintColor
-        self.gradientRamp = gradientRamp
+        self.gradientStops = gradientStops
     }
 }
 
@@ -35,17 +35,6 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable {
     case gradientMap   = "GRADIENT"
     case coloredEdges  = "EDGES"
     case dither        = "DITHER"
-
-    // Colour grades, grouped at the end so the distortions above stay together.
-    case sepia         = "SEPIA"
-    case vintage       = "VINTAGE"
-    case warm          = "WARM"
-    case cool          = "COOL"
-    case fade          = "FADE"
-    case vivid         = "VIVID"
-    case contrast      = "CONTRAST"
-    case noir          = "NOIR"
-    case mono          = "MONO"
 
     // MARK: - Retired
     // Hidden from the picker but kept compiled and tested — see `retired` below.
@@ -77,22 +66,6 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable {
 
     var isRetired: Bool { Self.retired.contains(self) }
 
-    /// The colour grades, which all share `FilterPresetEffect`.
-    var filterPreset: FilterPreset? {
-        switch self {
-        case .sepia:    return .sepia
-        case .vintage:  return .vintage
-        case .warm:     return .warm
-        case .cool:     return .cool
-        case .fade:     return .fade
-        case .vivid:    return .vivid
-        case .contrast: return .contrast
-        case .noir:     return .noir
-        case .mono:     return .mono
-        default:        return nil
-        }
-    }
-
     /// Whether this effect supports the separate size slider.
     var supportsSizeControl: Bool {
         self == .fisheye
@@ -110,7 +83,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable {
     var colorPickerKind: EffectPickerKind? {
         switch self {
         case .duotone, .coloredEdges: return .tintColor
-        case .gradientMap:            return .gradientRamp
+        case .gradientMap:            return .gradientStops
         default:                      return nil
         }
     }
@@ -132,10 +105,6 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable {
     func effect(intensity: Double = 0.5, options: EffectOptions = EffectOptions()) -> VisualEffect {
         let clamped = max(0, min(1, intensity))
 
-        if let preset = filterPreset {
-            return FilterPresetEffect(intensity: clamped, preset: preset)
-        }
-
         switch self {
         case .chromaShift:  return ChromaticAberrationEffect(intensity: clamped)
         case .halftone:     return HalftoneEffect(intensity: clamped)
@@ -145,7 +114,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable {
         case .rainbow:      return RainbowGradientEffect(intensity: clamped)
         case .heatHaze:     return HeatHazeEffect(intensity: clamped)
         case .motionBlur:   return MotionBlurEffect(intensity: clamped)
-        case .gradientMap:  return GradientMapEffect(intensity: clamped, ramp: options.gradientRamp)
+        case .gradientMap:  return GradientMapEffect(intensity: clamped, stops: options.gradientStops)
         case .coloredEdges: return ColoredEdgesEffect(intensity: clamped, color: options.tintColor)
         case .dither:       return DitherEffect(intensity: clamped)
 
@@ -155,10 +124,6 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable {
         case .inversion:    return InversionEffect(intensity: clamped)
         case .vintageGrain: return VintageGrainEffect(intensity: clamped)
         case .popArt:       return PopArtEffect(intensity: clamped)
-
-        // Handled by the filterPreset branch above; unreachable.
-        case .sepia, .vintage, .warm, .cool, .fade, .vivid, .contrast, .noir, .mono:
-            return FilterPresetEffect(intensity: clamped, preset: .sepia)
         }
     }
 }

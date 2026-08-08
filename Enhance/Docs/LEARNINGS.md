@@ -1075,3 +1075,32 @@ The order matters too: `selectable` filters `allCases`, so it inherits declarati
 **Rule:** Never reason about a Core Image chain's brightness or contrast in sRGB terms — the working space is linear unless you explicitly set `workingColorSpace`, and don't change that globally because every existing effect is tuned against the current one. Prefer multiplicative scaling (`CIColorMatrix`) over additive offsets (`CIColorControls` brightness) whenever the intent is "make this a fraction as bright." And when tinting a grayscale mask, keep the colour coefficients within [0,1]: scaling past 1 clips per channel and silently shifts hue.
 
 **Corollary — structural tests cannot catch any of this.** Both bugs passed `output.extent == input.extent` and `createCGImage != nil`. They were only found by rendering the effects to PNG against a test image with a full luminance sweep, colour patches, and hard edges, then *looking at them*. Build that dump harness when adding visual effects; a solid-colour fixture would have shown nothing.
+
+---
+
+## 2026-08-07: Asking "how should X look" presumes the answer to "do we want X"
+
+**Problem:** Phase 1 of the effects work shipped nine colour-grade presets (sepia, vintage, noir…) that were immediately cut on review. The user's reaction was "why did we implement those? I don't recall those being part of Phase 1."
+
+**Root cause:** They *were* in the written plan, and the plan was approved. But the only question ever put to the user about them was **"how should the 9 filter presets appear in the UI — one entry with a sub-picker, a new category, or nine separate entries?"** That question smuggles in its own premise. Answering it required engaging with layout, so the more important question — *do you want nine colour grades at all?* — was never asked and never noticed as unasked. Plan approval doesn't repair this: a plan is long, and a reader scanning it will calibrate on the parts they were consulted about.
+
+**Fix (process, not code):** When a proposal bundles several items, ask about *inclusion* before *presentation*. A single "which of these do you actually want?" multi-select ahead of any design question would have cut nine effects before they were built. Presentation questions are for things already agreed on.
+
+**Rule:** A question that offers only *how* options implicitly asserts *whether*, and the user will not always catch the substitution — they are answering what you asked. Before asking how to present something, confirm it is wanted. Signals you have skipped this: the options all differ in layout, or you find yourself explaining trade-offs about UI real estate for a feature the user has never named out loud. When a user later says "I don't recall asking for this", check what you actually asked rather than what the plan recorded — the plan is your reasoning, not their consent.
+
+---
+
+## 2026-08-07: Continuous controls need coalescing, and undo needs the *pre*-change value
+
+**Problem:** Replacing Gradient Map's six preset ramps with three `ColorPicker` slots broke two assumptions the codebase had baked in. Sliders in this app push undo on drag *start* and regenerate on drag *end* (`onIntensityDragEnded`). `ColorPicker` has neither: it writes a new value on every drag frame of the system colour wheel and never signals completion. Wiring it to the existing `.onChange` pattern would have pushed dozens of undo entries per interaction and kicked off a full GIF regeneration per frame.
+
+**Fix:** Two coalescing helpers on the view model.
+
+- `pushUndoCoalesced(previousStops:)` — pushes at most once per 0.7s. Critically it takes the **previous** value: undo snapshots must capture pre-change state, and by the time `onChange` fires the mutation has already happened. SwiftUI's two-parameter `onChange(of:) { old, new in }` supplies exactly that. The alternative — writing the old value back, snapshotting, then restoring — would re-enter `onChange` on an `@Observable` property.
+- `scheduleRegenerate(after:)` — a cancel-and-reschedule `DispatchWorkItem`, standing in for the drag-end commit that doesn't exist.
+
+The move from a preset enum to arbitrary colours also invalidated the memoisation strategy: a 32³ colour cube could be precomputed for six fixed ramps, but users can generate unlimited distinct ramps. The cache became a bounded dictionary keyed on *resolved RGB components* rather than on `Color` (whose equality is opaque) — with the useful property that intensity never affects the cube, so dragging the intensity slider always hits the cache.
+
+**One more trap:** `ColorPicker` can return Display P3 colours whose sRGB components fall **outside 0–1**. Unclamped, those corrupt the colour cube. Clamp every channel at the boundary where `Color` becomes numbers.
+
+**Rule:** Before wiring a control to an existing change-handler pattern, ask whether it emits a *stream* or a *commit*. Sliders, steppers and toggles commit; colour wheels, text fields and continuous gestures stream. Streaming controls need debounced side effects and coalesced undo, and their undo must read the pre-change value from `onChange`'s `old` parameter rather than snapshotting after the fact. And any cache keyed on a preset enum needs rethinking the moment the input becomes user-authored — bound it, and key it on canonical values.

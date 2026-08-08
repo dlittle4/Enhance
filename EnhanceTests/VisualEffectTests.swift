@@ -1,6 +1,7 @@
 import Testing
 import CoreImage
 import UIKit
+import SwiftUI
 @testable import Enhance
 
 struct VisualEffectTests {
@@ -234,100 +235,101 @@ struct VisualEffectTests {
     /// unchanged image rather than throwing — so a typo would surface as a subtly
     /// wrong look rather than a test failure. This is the cheapest guard available.
     @Test func requiredFilterNames_exist() {
-        let names = FilterPreset.requiredFilterNames + [
+        let names = [
             "CIColorCubeWithColorSpace", "CIEdges", "CIMaximumComponent",
             "CIGammaAdjust", "CIColorMatrix", "CIAdditionCompositing",
-            "CIDither", "CIColorPosterize", "CIDissolveTransition"
+            "CIDither", "CIColorPosterize", "CIDissolveTransition",
+            "CIColorControls"
         ]
         for name in names {
             #expect(CIFilter(name: name) != nil, "missing CIFilter: \(name)")
         }
     }
 
-    // MARK: - Filter Presets
-
-    @Test func filterPreset_atZeroProgress_returnsUnchanged() {
-        let effect = FilterPresetEffect(preset: .sepia)
-        let input = makeTestImage()
-        let output = effect.apply(to: input, progress: 0.0, frameIndex: 0)
-        #expect(output.extent == input.extent)
-    }
-
-    @Test func filterPreset_atFullProgress_producesOutput() {
-        let effect = FilterPresetEffect(intensity: 1.0, preset: .sepia)
-        let input = makeTestImage()
-        let output = effect.apply(to: input, progress: 1.0, frameIndex: 0)
-        #expect(CIContext().createCGImage(output, from: output.extent) != nil)
-    }
-
-    /// Renders every preset's grade. This is what catches a mistyped filter name or
-    /// a bad parameter key, both of which `applyingFilter` swallows silently.
-    @Test func filterPreset_allPresetsRender() {
-        let ctx = CIContext()
-        let input = makeTestImage()
-        for preset in FilterPreset.allCases {
-            let graded = preset.graded(input)
-            #expect(ctx.createCGImage(graded, from: graded.extent) != nil, "preset failed: \(preset.rawValue)")
-        }
-    }
-
     // MARK: - Gradient Map
 
     @Test func gradientMap_atZeroProgress_returnsUnchanged() {
-        let effect = GradientMapEffect(ramp: .sunset)
+        let effect = GradientMapEffect()
         let input = makeTestImage()
         let output = effect.apply(to: input, progress: 0.0, frameIndex: 0)
         #expect(output.extent == input.extent)
     }
 
     @Test func gradientMap_atFullProgress_producesOutput() {
-        let effect = GradientMapEffect(intensity: 1.0, ramp: .sunset)
+        let effect = GradientMapEffect(intensity: 1.0)
         let input = makeTestImage()
         let output = effect.apply(to: input, progress: 1.0, frameIndex: 0)
         #expect(CIContext().createCGImage(output, from: output.extent) != nil)
     }
 
-    @Test func gradientMap_allRampsRender() {
+    /// An arbitrary user-chosen ramp must render, including the two-stop case.
+    @Test func gradientMap_withCustomStopsRenders() {
         let ctx = CIContext()
         let input = makeTestImage()
-        for ramp in GradientRamp.allCases {
-            let effect = GradientMapEffect(intensity: 1.0, ramp: ramp)
+        let cases = [
+            GradientStops(dark: .blue, mid: .green, light: .yellow, useMid: true),
+            GradientStops(dark: .black, mid: .gray, light: .white, useMid: false)
+        ]
+        for stops in cases {
+            let effect = GradientMapEffect(intensity: 1.0, stops: stops)
             let output = effect.apply(to: input, progress: 1.0, frameIndex: 0)
-            #expect(ctx.createCGImage(output, from: output.extent) != nil, "ramp failed: \(ramp.rawValue)")
+            #expect(ctx.createCGImage(output, from: output.extent) != nil)
         }
     }
 
-    /// Every ramp must span the full luminance range so a lookup at any point in
-    /// [0,1] is bracketed by two stops.
-    @Test func gradientRamp_stopsAreSortedAndSpanZeroToOne() {
-        for ramp in GradientRamp.allCases {
-            let stops = ramp.stops
-            #expect(stops.count >= 2, "\(ramp.rawValue) needs at least 2 stops")
-            #expect(stops.first?.location == 0.0, "\(ramp.rawValue) must start at 0")
-            #expect(stops.last?.location == 1.0, "\(ramp.rawValue) must end at 1")
-            let locations = stops.map(\.location)
-            #expect(locations == locations.sorted(), "\(ramp.rawValue) stops out of order")
-        }
-    }
-
-    @Test func gradientRamp_colorAtEndpointsMatchesStops() {
-        for ramp in GradientRamp.allCases {
-            let first = ramp.stops.first!.rgb
-            let last = ramp.stops.last!.rgb
-            let low = ramp.color(at: 0.0)
-            let high = ramp.color(at: 1.0)
-            #expect(abs(low.r - first.r) < 0.001 && abs(low.g - first.g) < 0.001)
-            #expect(abs(high.r - last.r) < 0.001 && abs(high.g - last.g) < 0.001)
+    /// Stops must span the full luminance range so a lookup anywhere in [0,1] is
+    /// bracketed, in both the three-stop and two-stop configurations.
+    @Test func gradientStops_resolvedSpanZeroToOne() {
+        for useMid in [true, false] {
+            var stops = GradientStops.default
+            stops.useMid = useMid
+            let resolved = stops.resolved
+            #expect(resolved.count == (useMid ? 3 : 2))
+            #expect(resolved.first?.location == 0.0)
+            #expect(resolved.last?.location == 1.0)
+            let locations = resolved.map(\.location)
+            #expect(locations == locations.sorted())
         }
     }
 
     /// Out-of-range lookups must clamp rather than extrapolate or crash.
-    @Test func gradientRamp_colorClampsOutOfRangeInput() {
-        let ramp = GradientRamp.sunset
-        let below = ramp.color(at: -0.5)
-        let above = ramp.color(at: 1.5)
-        #expect(below.r == ramp.color(at: 0.0).r)
-        #expect(above.r == ramp.color(at: 1.0).r)
+    @Test func gradientStops_colorClampsOutOfRangeInput() {
+        let stops = GradientStops.default
+        #expect(stops.color(at: -0.5) == stops.color(at: 0.0))
+        #expect(stops.color(at: 1.5) == stops.color(at: 1.0))
+    }
+
+    /// ColorPicker can hand back Display P3 colours whose sRGB components fall
+    /// outside 0–1. Unclamped, those would corrupt the colour cube.
+    @Test func gradientStops_resolvedComponentsAreClampedToUnitRange() {
+        let wide = GradientStops(
+            dark: Color(.displayP3, red: 1.0, green: 0.0, blue: 0.0),
+            mid: Color(.displayP3, red: 0.0, green: 1.0, blue: 0.0),
+            light: Color(.displayP3, red: 0.0, green: 0.0, blue: 1.0),
+            useMid: true
+        )
+        for stop in wide.resolved {
+            #expect(stop.rgb.r >= 0 && stop.rgb.r <= 1)
+            #expect(stop.rgb.g >= 0 && stop.rgb.g <= 1)
+            #expect(stop.rgb.b >= 0 && stop.rgb.b <= 1)
+        }
+    }
+
+    /// The cube cache is keyed on resolved RGB, so equal stops must share a key and
+    /// different stops must not — otherwise dragging the intensity slider would
+    /// rebuild a 32³ lattice on every frame.
+    @Test func gradientStops_cacheKeyIsStableAndDistinct() {
+        let a = GradientStops.default
+        let b = GradientStops.default
+        #expect(a.cacheKey == b.cacheKey)
+
+        var c = GradientStops.default
+        c.light = .red
+        #expect(a.cacheKey != c.cacheKey)
+
+        var d = GradientStops.default
+        d.useMid = false
+        #expect(a.cacheKey != d.cacheKey)
     }
 
     // MARK: - Colored Edges

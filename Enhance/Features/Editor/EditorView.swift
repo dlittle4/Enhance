@@ -132,15 +132,13 @@ struct EditorView: View {
                 viewModel.regenerateGIF()
             }
         }
-        .onChange(of: viewModel.gradientRamp) { _, _ in
-            viewModel.updatePreviewImage()
-            guard !viewModel.isRegenerating else { return }
-            if case .existingGif = viewModel.content {
-                viewModel.hasModifiedSettings = true
-                viewModel.regenerateGIF()
-            } else if viewModel.isSplit {
-                viewModel.regenerateGIF()
-            }
+        // ColorPicker emits on every drag frame of the system colour wheel, so both
+        // the undo push and the regeneration are coalesced rather than fired per
+        // change. `old` is the pre-change value, which is what an undo snapshot needs.
+        .onChange(of: viewModel.gradientStops) { old, _ in
+            viewModel.pushUndoCoalesced(previousStops: old)
+            viewModel.updatePreviewImage(debounce: true)
+            viewModel.scheduleRegenerate()
         }
         .sheet(isPresented: $viewModel.showSaveSheet) {
             saveSheetContent
@@ -351,8 +349,8 @@ struct EditorView: View {
                         case .tintColor:
                             colorSwatchRow(selection: $viewModel.tintColor)
                                 .transition(.opacity)
-                        case .gradientRamp:
-                            gradientRampPicker
+                        case .gradientStops:
+                            gradientStopsPicker
                                 .transition(.opacity)
                         case .none:
                             EmptyView()
@@ -505,41 +503,66 @@ struct EditorView: View {
         )
     }
 
-    /// Ramp picker for Gradient Map. Same row structure as the colour swatches —
-    /// a ramp is still a single selection — with capsules previewing each ramp.
-    private var gradientRampPicker: some View {
-        HStack {
-            ForEach(GradientRamp.allCases) { ramp in
-                Spacer()
-                Button {
-                    viewModel.pushUndo()
-                    HapticService.light()
-                    viewModel.gradientRamp = ramp
-                } label: {
-                    Capsule()
-                        .fill(
-                            LinearGradient(
-                                colors: ramp.swiftUIColors,
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                        .frame(width: 34, height: 22)
-                        .overlay(
-                            Capsule()
-                                .stroke(viewModel.gradientRamp == ramp ? mintGreen : .clear, lineWidth: 2)
-                                .frame(width: 40, height: 28)
-                        )
-                }
-                .buttonStyle(.plain)
-                Spacer()
+    /// Gradient Map stop pickers — three native `ColorPicker`s for unrestricted
+    /// colour choice, plus a live preview of the resulting ramp.
+    ///
+    /// The MID slot doubles as a toggle: tapping its label drops the ramp to two
+    /// stops, since a straight dark→light blend is often what you want.
+    private var gradientStopsPicker: some View {
+        HStack(spacing: 10) {
+            gradientSlot("DARK", selection: $viewModel.gradientStops.dark)
+
+            Button {
+                viewModel.pushUndo()
+                HapticService.light()
+                viewModel.gradientStops.useMid.toggle()
+            } label: {
+                gradientSlotLabel("MID", active: viewModel.gradientStops.useMid)
             }
+            .buttonStyle(.plain)
+
+            if viewModel.gradientStops.useMid {
+                ColorPicker("", selection: $viewModel.gradientStops.mid, supportsOpacity: false)
+                    .labelsHidden()
+                    .frame(width: 28)
+            }
+
+            gradientSlot("LIGHT", selection: $viewModel.gradientStops.light)
+
+            Spacer(minLength: 0)
+
+            // Live preview of the ramp the three stops produce.
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: viewModel.gradientStops.previewColors,
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .frame(width: 52, height: 20)
         }
+        .padding(.horizontal, 12)
         .frame(height: 44)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.white.opacity(0.04))
         )
+    }
+
+    private func gradientSlot(_ title: String, selection: Binding<Color>) -> some View {
+        HStack(spacing: 4) {
+            gradientSlotLabel(title, active: true)
+            ColorPicker("", selection: selection, supportsOpacity: false)
+                .labelsHidden()
+                .frame(width: 28)
+        }
+    }
+
+    private func gradientSlotLabel(_ title: String, active: Bool) -> some View {
+        Text(title)
+            .font(.custom("Silkscreen-Regular", size: 8))
+            .foregroundColor(active ? mintGreen : .white.opacity(0.35))
     }
 
     private var speedPauseRow: some View {
