@@ -17,6 +17,14 @@ struct EditorView: View {
     private let buttonHeight: CGFloat = 60
     @State private var sliderUndoPushed = false
 
+    /// Which gradient stop the colour picker sheet is editing, if any.
+    @State private var editingGradientStop: GradientStopSlot?
+
+    enum GradientStopSlot: String, Identifiable {
+        case dark, mid, light
+        var id: String { rawValue }
+    }
+
     var body: some View {
         ZStack {
             Color(red: 18/255, green: 14/255, blue: 10/255).ignoresSafeArea()
@@ -503,18 +511,24 @@ struct EditorView: View {
         )
     }
 
-    /// Gradient Map stop pickers — three colour wells presented like the swatches in
-    /// `colorSwatchRow`: a circular swatch with an offset mint ring. Left to right is
-    /// shadows → midtones → highlights, which the colours themselves make obvious
-    /// enough without labels.
+    /// Gradient Map stop pickers — three swatches drawn exactly like the selected
+    /// swatch in `colorSwatchRow`: a 26pt circle with an offset 32pt mint ring. Left
+    /// to right is shadows → midtones → highlights, which the colours themselves make
+    /// obvious enough without labels.
+    ///
+    /// These are plain `Button`s rather than SwiftUI `ColorPicker`s. A `ColorPicker`
+    /// renders a `UIColorWell` whose spectrum ring cannot be hidden, and painting
+    /// over it broke hit testing (a well's tap target is its own swatch, not the
+    /// SwiftUI frame around it). Tapping presents `SystemColorPicker`, which drives
+    /// `UIColorPickerViewController` directly — same colour wheel, no system chrome.
     private var gradientStopsPicker: some View {
         HStack {
             Spacer()
-            gradientSwatch($viewModel.gradientStops.dark)
+            gradientSwatch(.dark, color: viewModel.gradientStops.dark)
             Spacer()
-            gradientSwatch($viewModel.gradientStops.mid)
+            gradientSwatch(.mid, color: viewModel.gradientStops.mid)
             Spacer()
-            gradientSwatch($viewModel.gradientStops.light)
+            gradientSwatch(.light, color: viewModel.gradientStops.light)
             Spacer()
         }
         .frame(height: 44)
@@ -522,24 +536,37 @@ struct EditorView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color.white.opacity(0.04))
         )
+        .sheet(item: $editingGradientStop) { slot in
+            SystemColorPicker(color: gradientBinding(for: slot))
+        }
     }
 
-    /// A colour well ringed to match `colorSwatchRow`'s selected swatch.
-    ///
-    /// The native well is left visible rather than replaced. Drawing a custom swatch
-    /// over an almost-invisible `ColorPicker` was tried first and taps stopped
-    /// landing: a `UIColorWell`'s hit area is its own swatch, not whatever SwiftUI
-    /// frame is wrapped around it, so the visible geometry and the tap target
-    /// diverge. Ringing the real control keeps hit testing entirely with the well.
-    private func gradientSwatch(_ selection: Binding<Color>) -> some View {
-        ColorPicker("", selection: selection, supportsOpacity: false)
-            .labelsHidden()
-            .overlay(
-                Circle()
-                    .stroke(mintGreen, lineWidth: 2)
-                    .frame(width: 34, height: 34)
-                    .allowsHitTesting(false)
-            )
+    private func gradientSwatch(_ slot: GradientStopSlot, color: Color) -> some View {
+        Button {
+            // No pushUndo here — `onChange(of: gradientStops)` pushes a coalesced
+            // snapshot when a colour actually changes, so pushing on tap would add a
+            // spurious entry whenever the picker is opened and dismissed unchanged.
+            HapticService.light()
+            editingGradientStop = slot
+        } label: {
+            Circle()
+                .fill(color)
+                .frame(width: 26, height: 26)
+                .overlay(
+                    Circle()
+                        .stroke(mintGreen, lineWidth: 2)
+                        .frame(width: 32, height: 32)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func gradientBinding(for slot: GradientStopSlot) -> Binding<Color> {
+        switch slot {
+        case .dark:  return $viewModel.gradientStops.dark
+        case .mid:   return $viewModel.gradientStops.mid
+        case .light: return $viewModel.gradientStops.light
+        }
     }
 
     private var speedPauseRow: some View {
