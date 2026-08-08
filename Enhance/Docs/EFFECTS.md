@@ -205,32 +205,81 @@ A negative result means falling back, and that is worth knowing before the algor
 Risograph emulation. The most distinctive look available and the best fit for the app's
 pixel-art identity, which is why it is first.
 
-> **The original WGSL source was never available.** It was referenced but never provided, so
-> this is implement-from-description. Budget iteration. Prototyping with a string-based
-> `CIKernel(source:)` in CIKL converges on the look faster, then port to Metal — but do not
-> ship CIKL; it is deprecated and unchecked at compile time.
+**The original WGSL is now in hand** — kept verbatim at
+[`reference/riso-print.wgsl`](reference/riso-print.wgsl). Port from that, not from prose.
 
-A general `CIKernel` (not `CIColorKernel`) — per-channel misregistration and rotated screens
-both sample away from the destination coordinate.
+> **Two things the earlier prose summary got wrong**, both recorded here because they were in
+> this document until the source arrived:
+>
+> 1. **It is tonal-band separation, not CMYK ink separation.** There is no absorption matrix
+>    and no C/M/Y/K. Luminance is split into shadow / midtone / highlight bands, and each band
+>    is assigned one user-chosen spot colour. That is a different architecture, and a much
+>    better fit for this app (see below).
+> 2. **Grain is additive and post-composite**, not a perturbation of density before screening.
 
-1. **Misregistration** — each ink samples at `uv + offset_i`, fixed unit directions scaled by a
-   `misreg` parameter. Animate subtly off `frameIndex` for a live-print feel.
-2. **Separation** — `dens_i = saturate(dot(1.0 - rgb, absorb_i))` with a fixed 3×3 absorption
-   matrix approximating the spot inks. Linearise first.
-3. **Screening** — rotate `uv` by the ink's screen angle (15° / 45° / 75°, the classic
-   moiré-avoiding offsets), then `cell = fract(rot/cellSize) - 0.5`, `r = sqrt(dens_i) * 0.5`,
-   `cov_i = smoothstep(r + aa, r - aa, length(cell))`. **The `sqrt` matters** — it makes dot
-   *area* proportional to density rather than dot radius.
-4. **Compositing** — `color = paper; for each ink: color *= mix(1.0, ink_i, cov_i)`.
-   Multiplicative, which is how ink on paper actually behaves.
-5. **Grain** — perturb density *before* screening; it reads as paper texture rather than
-   post-hoc noise.
+#### Pipeline
 
-Swift wrapper: intensity → `cellSize` (12→4px), `misreg` (0→3px), `grain` (0→0.35);
-`frameIndex` → seed; dissolve ramp; early-out **before** touching the kernel, since this is the
-most expensive effect in the app.
+1. **Misregistration** — three samples of the input at slightly different UVs, simulating
+   plate misalignment. Offsets are fixed fractions of the `misreg` parameter: A `(0.7, 0.3)`,
+   B `(-0.5, 0.6)`, C `(0, 0)`. **C is the reference plate** and never moves.
+2. **Contrast** — per sample, `clamp((lum - 0.5) * contrast + 0.5, 0, 1)`.
+3. **Tonal separation** — three masks over the contrasted luminance:
+   ```
+   shadow    = smoothstep(0.5, 0.0, lumA)      // dark end
+   midtone   = 1.0 - abs(lumB - 0.5) * 2.0     // triangular peak at 0.5
+   highlight = smoothstep(0.5, 1.0, lumC)      // bright end
+   ```
+4. **Halftone** — each band gets its own screen. Angles are the classic moiré-avoiding set, in
+   radians: **0.2618 (15°)**, **1.309 (75°)**, **0.7854 (45°)**.
+   ```
+   rotUv  = rotate(pixelCoord, angle)
+   local  = fract(rotUv / scale) - 0.5
+   radius = sqrt(1.0 - clamp(lum, 0, 1)) * 0.5
+   dot    = smoothstep(radius + 0.02, radius - 0.02, length(local))
+   ```
+   Note the call sites pass `1.0 - mask`, so a strong mask yields a large dot. The `sqrt` is
+   what makes dot **area** track density rather than radius.
+5. **Subtractive compositing** onto warm off-white paper:
+   ```
+   paper  = (0.96, 0.94, 0.92)
+   ink_i  = mix(white, colour_i, dot_i)
+   result = paper * inkA * inkB * inkC
+   ```
+6. **Grain** — `result += (hash2(pixelCoord * 1.7 + (42, 17)) - 0.5) * grain * 0.3`, then clamp.
+   Alpha passes through from the unshifted sample.
 
-It is a grid effect — it needs `FrameGeometry` for both scale and phase.
+#### It fits the existing parameter budget — but only just
+
+Four scalars (`scale`, `misreg`, `grain`, `contrast`) plus three colours. Declared naively that
+is seven rows and three pickers, which **breaks both panel invariants**:
+`parameters.count <= 5` and `pickers.count <= 1`.
+
+**The three colours are shadows / midtones / highlights — which is exactly `GradientStops`
+(`dark` / `mid` / `light`).** Reuse it and the whole effect declares four sliders plus one
+`gradientStops` picker: five rows, one picker, both caps satisfied with nothing to spare. The
+picker row and its `ColorPicker` wells already exist and need no new UI.
+
+#### Porting notes
+
+- WGSL → Metal is mechanical: `textureSample(tex, samp, uv)` → `inputTex.sample(samp, uv)`,
+  `vec4f` → `float4`, `@group/@binding` → Core Image kernel arguments. The math is unchanged.
+- As a `CIKernel` there is no vertex stage and no explicit sampler — `dest.coord()` replaces
+  `uv * dims`, and the input arrives as a `coreimage::sampler`.
+- **Luminance: use the source's Rec.601 weights here, deliberately.** The section above tells
+  you to standardise on Rec.709, and that stands for new effects — but this is a port of a
+  specific look, and the tonal band edges were tuned against 601. Switching to 709 weights
+  green ~22% higher, pushing green-heavy regions from the midtone band toward the highlight
+  band. Match the source and leave a comment saying why, rather than "fixing" it into a
+  different look.
+- **`misreg` is normalised by width only** (`params.y / dims.x`) and applied to both axes, so
+  the vertical offset is proportionally smaller on a landscape image. Almost certainly
+  unintentional in the original; reproduce it if matching exactly, but normalising per-axis is
+  defensible.
+- The reference's `halftone()` computes `cell` and never uses it. Drop it.
+- It is a **grid effect** — needs `FrameGeometry` for both scale and phase, or the screens will
+  crawl across the subject exactly as DITHER did.
+- Early-out **before** touching the kernel. Three input samples plus three screens makes this
+  the most expensive effect in the app.
 
 ### Also worth building
 
@@ -262,6 +311,28 @@ It is a grid effect — it needs `FrameGeometry` for both scale and phase.
 Distilled from the Figma shader reference. Only the effects we intend to build are written
 out — the rejected ones are listed above with reasons, and copying their math here would
 just invite re-litigating those decisions.
+
+> ### Read the snippets as directional, not prescriptive
+>
+> These describe **the look we are after and which parameters matter**. They are not an
+> implementation to transcribe, and they are not a contract.
+>
+> Concretely:
+>
+> - **Prefer the stock filter if it gets the look.** The snippets are written as
+>   fragment-shader UV math because that is the form the reference came in. That does not
+>   mean a kernel is required. `CIEdgeWork` may cover Hatching; strip compositing may cover
+>   Slice shift. "Rule zero" above still governs — the snippet is a description of the
+>   destination, not the route.
+> - **The numbers are starting points.** Frequencies, thresholds, falloff radii and IOR
+>   values were tuned for a different renderer at a different resolution. Expect to
+>   re-tune against a 600×600 GIF frame and a 650px preview.
+> - **Do not trust the constants.** The Rec.601-labelled-as-Rec.709 error below is the
+>   proof: this material has at least one transcription mistake in it, so verify anything
+>   load-bearing against a primary source rather than assuming.
+> - **Our conventions win where they conflict.** Progress ramps, early-out guards, extent
+>   cropping, `frameIndex`-seeded randomness and `FrameGeometry` are project rules; none of
+>   them appear in the reference, and all of them still apply.
 
 ### First: use one definition of luminance
 
