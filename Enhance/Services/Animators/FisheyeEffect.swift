@@ -28,10 +28,17 @@ public struct FisheyeEffect: VisualEffect {
         let center = CIVector(x: c.x, y: c.y)
         let radius = max(image.extent.width, image.extent.height) * radiusFraction
 
-        return image.applyingFilter("CIBumpDistortion", parameters: [
-            kCIInputCenterKey: center,
-            kCIInputRadiusKey: radius,
-            kCIInputScaleKey: scale
-        ])
+        // Crop back to the input extent. CIBumpDistortion *grows* the extent past its
+        // input, so without this the returned image has a different size and aspect
+        // ratio than the source — which letterboxes the editor's canvas (its scroll
+        // geometry is configured once from the source image) and changes the frame
+        // dimensions in the GIF pipeline.
+        return image
+            .applyingFilter("CIBumpDistortion", parameters: [
+                kCIInputCenterKey: center,
+                kCIInputRadiusKey: radius,
+                kCIInputScaleKey: scale
+            ])
+            .cropped(to: image.extent)
     }
 }

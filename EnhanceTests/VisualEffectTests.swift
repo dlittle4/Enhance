@@ -172,6 +172,49 @@ struct VisualEffectTests {
         #expect(cgOffset.width > 0)
     }
 
+    // MARK: - Extent preservation
+
+    /// Every effect must return the extent it was given.
+    ///
+    /// Distortion filters like CIBumpDistortion and CITwirlDistortion grow the extent
+    /// past their input. An effect that returns a larger image letterboxes the editor
+    /// canvas — whose scroll geometry is configured once from the source image — and
+    /// changes the frame dimensions in the GIF pipeline. Fisheye and Swirl both had this
+    /// bug; it was visible on device as a black band above the preview.
+    @Test func allEffects_preserveInputExtent() {
+        let input = makeTestImage()
+        for type in VisualEffectType.allCases {
+            let effect = type.effect(intensity: 1.0)
+            for progress in [CGFloat(0.5), 1.0] {
+                let output = effect.apply(to: input, progress: progress, frameIndex: 7)
+                #expect(
+                    output.extent == input.extent,
+                    "\(type.rawValue) at progress \(progress) returned \(output.extent) for input \(input.extent)"
+                )
+            }
+        }
+    }
+
+    /// Same guarantee through the viewport-centred entry point, which is the one the
+    /// live preview uses — an off-centre distortion centre grows the extent asymmetrically.
+    @Test func allEffects_preserveInputExtentWithOffsetViewportCentre() {
+        let input = makeTestImage()
+        let offCentre = CGPoint(x: 15, y: 85)
+        for type in VisualEffectType.allCases {
+            let effect = type.effect(intensity: 1.0)
+            // Both ends of the ramp: some effects early-return at one of them (pixelate
+            // is a pass-through at 1.0), which is how it slipped past an earlier version
+            // of this test that only checked full progress.
+            for progress in [CGFloat(0.5), 1.0] {
+                let output = effect.apply(to: input, progress: progress, frameIndex: 7, viewportCenter: offCentre)
+                #expect(
+                    output.extent == input.extent,
+                    "\(type.rawValue) off-centre at progress \(progress) returned \(output.extent)"
+                )
+            }
+        }
+    }
+
     // MARK: - VisualEffectType enum
     
     /// Deliberately walks `allCases`, not `selectable`: retired effects are hidden

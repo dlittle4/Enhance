@@ -25,9 +25,14 @@ public struct PixelateEffect: VisualEffect {
         let c = viewportCenter ?? CGPoint(x: image.extent.midX, y: image.extent.midY)
         let center = CIVector(x: c.x, y: c.y)
 
-        return image.applyingFilter("CIPixellate", parameters: [
-            kCIInputCenterKey: center,
-            kCIInputScaleKey: scale
-        ])
+        // Crop back to the input extent. CIPixellate grows the extent by roughly half a
+        // cell on each side, so an uncropped result is larger than its input — which
+        // letterboxes the editor canvas and changes the GIF's frame dimensions.
+        return image
+            .applyingFilter("CIPixellate", parameters: [
+                kCIInputCenterKey: center,
+                kCIInputScaleKey: scale
+            ])
+            .cropped(to: image.extent)
     }
 }

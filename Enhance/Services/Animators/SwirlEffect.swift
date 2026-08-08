@@ -24,10 +24,14 @@ public struct SwirlEffect: VisualEffect {
         let center = CIVector(x: c.x, y: c.y)
         let radius = max(image.extent.width, image.extent.height) * 0.4
 
-        return image.applyingFilter("CITwirlDistortion", parameters: [
-            kCIInputCenterKey: center,
-            kCIInputRadiusKey: radius,
-            kCIInputAngleKey: angle
-        ])
+        // Crop back to the input extent — see FisheyeEffect for why a grown extent
+        // letterboxes the canvas and changes the GIF's frame dimensions.
+        return image
+            .applyingFilter("CITwirlDistortion", parameters: [
+                kCIInputCenterKey: center,
+                kCIInputRadiusKey: radius,
+                kCIInputAngleKey: angle
+            ])
+            .cropped(to: image.extent)
     }
 }

@@ -1150,3 +1150,24 @@ Computing `contentOrigin` needs the Y flip: the frame is drawn through `UIGraphi
 **Second finding — chunky dither has to be generated at its final size.** `CIDither` has only an intensity input and always works at native pixel resolution, so the obvious "pixelate then dither" ordering fails: it produces flat blocks with fine speckle inside them, not coarse dither. The pattern has to be *generated* at the size it will be displayed: downscale by the cell size, dither and posterise there, then scale back up with `.samplingNearest()` so each dot becomes a solid cell-sized block.
 
 **Rule:** whenever an effect's output has a spatial grid, establish which coordinate space it lives in, and remember that a moving frame needs both its *scale* and its *offset* tracked — fixing size alone leaves a crawl that is easy to mistake for the original bug being unfixed. Check both the preview and the export path — they are separate render paths in this codebase and will silently disagree. Extend the `VisualEffect` protocol with a defaulted overload rather than changing existing signatures; that is how `viewportCenter` was added and it keeps all twenty other effects untouched. And never generate a pattern at one resolution intending to resample it to another: resampling averages the pattern away.
+
+---
+
+## 2026-08-08: Core Image filters grow the extent — always crop back
+
+**Problem:** Selecting FISHEYE in the editor left a black band across the top of the canvas: the photo no longer filled its frame.
+
+**Root cause:** `CIBumpDistortion` returns an image *larger* than its input. `ImageCanvasView.configureContentSize` runs only in `makeUIView`, sizing the scroll content from the source image — deliberately, because preview pipelines create a new `UIImage` every frame and reconfiguring per swap resets the scroll offset (see the 2026-03-13 entry). So when a preview image arrives with a different aspect ratio, the image view's geometry no longer matches it and the canvas letterboxes.
+
+A survey found three offenders, not one: **FISHEYE** (`CIBumpDistortion`), **SWIRL** (`CITwirlDistortion`), and **PIXELATE** (`CIPixellate`, which grows by roughly half a cell on each side — a 100×100 input came back as `(-5, -5, 110, 110)`). Every other effect already ended in `.cropped(to: image.extent)`; these three simply returned the filter output directly.
+
+**Fix:** `.cropped(to: image.extent)` on all three, plus `allEffects_preserveInputExtent`, which walks `VisualEffectType.allCases` and asserts the returned extent equals the input's.
+
+**Two things that made this hard to catch, both worth copying:**
+
+1. **The per-effect tests all passed.** `fisheye_atFullProgress_producesOutput` renders `output` *from `output.extent`* — so an inflated extent renders perfectly happily. Asserting a render succeeds says nothing about whether the geometry is right. Only a test comparing output extent to *input* extent can see this.
+
+2. **Testing one progress value hides it.** The first version of the off-centre test checked only `progress: 1.0`, and PIXELATE slipped through — its progress is inverted, so at 1.0 it early-returns as a pass-through and never touches the filter. It only misbehaves in the middle of the ramp. Both extent tests now check `0.5` and `1.0`.
+
+**Rule:** any effect that ends in `applyingFilter` must `.cropped(to: image.extent)` unless it has a specific reason not to — distortion, blur, and pixelate filters all grow their extent, and generators are infinite. Assert extent preservation across every effect rather than per effect, at more than one progress value, because effects with inverted or delayed ramps are pass-throughs at the endpoints. And never treat "it rendered" as evidence of correct geometry: rendering from the output's own extent will always succeed.
+

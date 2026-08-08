@@ -128,10 +128,15 @@ Each entry names the file and line where the defect lives.
 - [ ] **Undo does not capture zoom.** `EditorSnapshot` (`:9`) has no `currentScale` / `visibleRect`.
       Pinch/pan is not undoable, and undo after a zoom restores effects against different framing.
       May be intentional — needs a decision either way.
-- [ ] **Preview images may change aspect ratio.** `configureContentSize` runs only in `makeUIView`
-      (`ImageCanvasView.swift:70`). Effects that alter the CIImage extent would make the preview's
-      aspect ratio diverge from the source, and `.scaleAspectFill` would crop differently than the
-      canvas expects. Unverified — needs checking against the strip-compositing effects.
+- [x] **Preview images changed aspect ratio.** *(confirmed on device and fixed 2026-08-08)*
+      Three effects returned a larger extent than they were given: FISHEYE
+      (`CIBumpDistortion`), SWIRL (`CITwirlDistortion`) and PIXELATE (`CIPixellate`, which
+      grows by ~half a cell per side). Since `ImageCanvasView.configureContentSize` runs
+      only in `makeUIView`, a preview image with a different aspect ratio letterboxed the
+      canvas — visible as a black band above the photo — and would also have changed frame
+      dimensions in the GIF pipeline. All three now `.cropped(to: image.extent)`, and
+      `allEffects_preserveInputExtent` guards every effect at two progress values through
+      both entry points.
 - [ ] **`PhotoManager` uses `assign(to:)` for `@Published` forwarding** (`PhotoManager.swift:24-29`),
       which contradicts the documented rule in LEARNINGS.md (2026-03-08, "use `sink` with explicit
       assignment"). Either the code or the learning is wrong; reconcile them.
