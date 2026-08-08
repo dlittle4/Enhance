@@ -1,6 +1,6 @@
 # Enhance (ZoomGif) — Roadmap
 
-> Last updated: 2026-08-07 (session 14)
+> Last updated: 2026-08-08 (session 14)
 
 ## Vision
 
@@ -13,6 +13,70 @@ Each step should feel fast, tactile, and visually satisfying.
 
 > **Docs:** [EFFECTS.md](EFFECTS.md) — how to build an effect, and what is still worth building.
 > [LEARNINGS.md](LEARNINGS.md) — rules discovered the hard way.
+
+---
+
+## Pick up here
+
+**State:** `main` at `de5347a`, in sync with `origin/main`. **150 tests, 0 failing.**
+Branch `claude/codebase-review-bugs-5a9c50` is level with `main` — the session's pattern was
+to commit on the branch and fast-forward `main` at each green stage, so Xcode always saw a
+working build. 28 commits this session.
+
+### What shipped
+
+1. **The disappearing-GIFs bug** *(user-reported)* — four defects composed into one failure.
+   Recovery from an iOS `Caches/` purge could not reach iCloud, the photo fallback called a
+   video-only API, and the cleanup sweep then deleted the survivors. Stage A fixed; **Stage B
+   still open** — the trigger is fixed but the failure *mode* survives (a GIF is still dropped
+   from the grid if its URL fails to resolve).
+2. **Six effects retired**, hidden from the picker but kept compiled and tested via
+   `VisualEffectType.retired`.
+3. **Three new effects** — GRADIENT (user-picked multi-stop ramp), EDGES, DITHER. Nine colour
+   grades were built and then cut on review.
+4. **DITHER locked to the subject** — `FrameGeometry` carries both zoom scale *and* content
+   offset, because scaling the cell alone left the grid crawling as the animation pans.
+5. **The drill-down effect UI**, Stages 1–7 of the plan: declarative `EffectParameter`
+   declarations, namespaced per-effect value storage, dotted numeric sliders, the detail panel
+   with discard/confirm semantics, device-scaled cards up to 160pt, and face-filter thumbnails.
+6. **Three docs** split by role — this file (what/when), EFFECTS.md (how), LEARNINGS (rules).
+
+### Do this first
+
+- [ ] **Device-verify DITHER.** The only user-reported bug still unconfirmed. The fix has been
+      on `main` for two sessions and the phase *mechanism* is proven by
+      `dither_phaseIsPeriodicInCellSize`, but the *result* has never been watched in a real
+      GIF. If it still crawls, the prime suspect is named in the section below. This is the one
+      item that needs your eyes rather than mine.
+
+### Then, in rough value order
+
+- [ ] **Stage 8 of the effect-UI plan — cleanup.** The only stage left. Delete the computed
+      shims (`effectIntensity` / `effectSize` / `faceFilterIntensity` / `faceFilterSpeed`),
+      `supportsSizeControl`, `secondSliderLabel`, and `FaceFilterType`'s three label properties,
+      now that everything reads from `parameters`. Leaves the effect system fully migrated
+      rather than half-shimmed. **Keep** `colorPickerKind` / `supportsColorPicker` — `parameters`
+      is built from them.
+- [ ] **Two cheap P1 correctness fixes**, both unblocked by Stage 5's `regenerateIfNeeded()`:
+      RESET on an existing GIF leaves the preview stale, and `saveGIFToLibrary` can save the
+      *original* file when regeneration failed.
+- [ ] **ZOOM tab overflows on iPhone SE 3** — visibly broken, and Stage 6 built the exact
+      mechanism it needs (measured-space sizing).
+- [ ] **Gallery Stage B** — close the failure mode, not just the trigger.
+- [ ] **Face-effect GIF generation does ~25 full-resolution GPU renders** — the largest
+      remaining performance win, self-contained in `GIFGenerator`.
+
+### Bigger, needs design
+
+- **Phase 17e** — CIKernel infrastructure and Riso Print. Fully specified in EFFECTS.md, with
+  the real WGSL now in `Docs/reference/`. Highest-risk change remaining: the build-rule hazard
+  would break the animated canvas border *at runtime*. Do the de-risking gate first.
+- **Phase 17f** — expose the parameters the new UI can now carry. Candidates already identified
+  with file and value.
+- **Phase 19b** — copy effects between photos, and stacking. Stacking reverses a documented
+  decision; read that entry before committing to it.
+
+---
 
 ## Needs device verification
 
