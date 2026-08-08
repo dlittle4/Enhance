@@ -79,37 +79,7 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
     /// Label for the second slider.
     var secondSliderLabel: String { secondaryLabel ?? "" }
 
-    /// Human-readable intensity bucket for a slider value.
-    func intensityBucket(_ value: Double) -> String {
-        switch value {
-        case ..<0.3:  return "LIGHT"
-        case ..<0.6:  return "MEDIUM"
-        case ..<0.85: return "HEAVY"
-        default:      return "MAX"
-        }
-    }
 
-    /// Human-readable bucket for the second slider value.
-    func secondSliderBucket(_ value: Double) -> String {
-        switch self {
-        case .googlyEyes, .heartEyes, .rainbow:
-            switch value {
-            case ..<0.25: return "SLOW"
-            case ..<0.5:  return "MEDIUM"
-            case ..<0.75: return "FAST"
-            default:      return "HYPER"
-            }
-        case .lazerEyes, .fisheye, .heartVignette:
-            switch value {
-            case ..<0.3:  return "SMALL"
-            case ..<0.6:  return "MEDIUM"
-            case ..<0.85: return "LARGE"
-            default:      return "MAX"
-            }
-        default:
-            return "MEDIUM"
-        }
-    }
 
     /// Progress value used for the static live preview. Most effects look best
     /// at 1.0 (full strength). Pixelate needs a low value because its full

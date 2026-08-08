@@ -271,18 +271,6 @@ class EditorViewModel {
         }
     }
 
-    var faceFilterSliderLabel: String {
-        selectedFaceFilter?.sliderLabel ?? "INTENSITY"
-    }
-
-    var faceFilterIntensityLabel: String {
-        selectedFaceFilter?.intensityBucket(faceFilterIntensity) ?? "MEDIUM"
-    }
-
-    var faceFilterSecondLabel: String {
-        selectedFaceFilter?.secondSliderBucket(faceFilterSpeed) ?? "MEDIUM"
-    }
-
     /// Reads the value store directly by well-known id — deliberately *not* via
     /// `filter.parameters`, which allocates an array and would run on every debounced
     /// preview update.
@@ -351,24 +339,6 @@ class EditorViewModel {
         pauseDuration = pauseDuration >= 5 ? 1 : pauseDuration + 1
     }
 
-    var intensityLabel: String {
-        switch effectIntensity {
-        case ..<0.3: return "LOW"
-        case ..<0.6: return "MEDIUM"
-        case ..<0.85: return "HIGH"
-        default: return "MAX"
-        }
-    }
-
-    var sizeLabel: String {
-        switch effectSize {
-        case ..<0.3: return "SMALL"
-        case ..<0.6: return "MEDIUM"
-        case ..<0.85: return "LARGE"
-        default: return "MAX"
-        }
-    }
-
     func resetEffects() {
         pushUndo()
 
@@ -401,41 +371,14 @@ class EditorViewModel {
         }
     }
 
-    func onIntensityDragEnded() {
+    /// Commit point for any parameter slider: refresh the preview, then regenerate.
+    ///
+    /// This replaces four methods (intensity / size / face intensity / face second) that
+    /// were byte-identical apart from calling `updateFaceFilterPreview()` instead of
+    /// `updatePreviewImage()` — and those forward to the same `updateCombinedPreview()`,
+    /// so the distinction never existed.
+    func onParameterDragEnded() {
         updatePreviewImage()
-        guard !isRegenerating else { return }
-        if case .existingGif = content {
-            hasModifiedSettings = true
-            regenerateGIF()
-        } else if isSplit {
-            regenerateGIF()
-        }
-    }
-
-    func onSizeDragEnded() {
-        updatePreviewImage()
-        guard !isRegenerating else { return }
-        if case .existingGif = content {
-            hasModifiedSettings = true
-            regenerateGIF()
-        } else if isSplit {
-            regenerateGIF()
-        }
-    }
-
-    func onFaceFilterIntensityDragEnded() {
-        updateFaceFilterPreview()
-        guard !isRegenerating else { return }
-        if case .existingGif = content {
-            hasModifiedSettings = true
-            regenerateGIF()
-        } else if isSplit {
-            regenerateGIF()
-        }
-    }
-
-    func onFaceFilterSpeedDragEnded() {
-        updateFaceFilterPreview()
         guard !isRegenerating else { return }
         if case .existingGif = content {
             hasModifiedSettings = true

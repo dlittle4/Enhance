@@ -15,7 +15,6 @@ struct EditorView: View {
 
     private let mintGreen = Color.enhanceMint
     private let buttonHeight: CGFloat = 60
-    @State private var sliderUndoPushed = false
 
     var body: some View {
         ZStack {
@@ -334,27 +333,8 @@ struct EditorView: View {
                     visualEffectsGrid
 
                     if let effect = viewModel.selectedVisualEffect {
-                        if effect.supportsSizeControl {
-                            HStack(spacing: 8) {
-                                intensitySlider
-                                sizeSlider
-                            }
+                        parameterRows(for: effect, colorSelection: $viewModel.tintColor)
                             .transition(.opacity)
-                        } else {
-                            intensitySlider
-                                .transition(.opacity)
-                        }
-
-                        switch effect.colorPickerKind {
-                        case .tintColor:
-                            colorSwatchRow(selection: $viewModel.tintColor)
-                                .transition(.opacity)
-                        case .gradientStops:
-                            gradientStopsPicker
-                                .transition(.opacity)
-                        case .none:
-                            EmptyView()
-                        }
                     }
                 }
                 .transition(.opacity)
@@ -363,21 +343,8 @@ struct EditorView: View {
                     faceFiltersGrid
 
                     if let filter = viewModel.selectedFaceFilter {
-                        if filter.supportsSecondSlider {
-                            HStack(spacing: 8) {
-                                faceFilterIntensitySlider
-                                faceFilterSecondSlider
-                            }
+                        parameterRows(for: filter, colorSelection: $viewModel.laserColor)
                             .transition(.opacity)
-                        } else {
-                            faceFilterIntensitySlider
-                                .transition(.opacity)
-                        }
-
-                        if filter == .lazerEyes {
-                            colorSwatchRow(selection: $viewModel.laserColor)
-                                .transition(.opacity)
-                        }
                     }
                 }
                 .transition(.opacity)
@@ -472,9 +439,10 @@ struct EditorView: View {
 
     // MARK: - Pickers
 
-    /// Shared colour swatch row. Used by visual effects (writing `tintColor`) and
-    /// face filters (writing `laserColor`) — previously two near-identical copies.
-    private func colorSwatchRow(selection: Binding<LaserColor>) -> some View {
+    /// Colour swatches for a `.tintColor` parameter. Used by visual effects (writing
+    /// `tintColor`) and face filters (writing `laserColor`). Content only — the label
+    /// column and row height come from `ParameterPickerRow`.
+    private func colorSwatchContent(selection: Binding<LaserColor>) -> some View {
         HStack {
             ForEach(LaserColor.allCases) { color in
                 Spacer()
@@ -496,18 +464,13 @@ struct EditorView: View {
                 Spacer()
             }
         }
-        .frame(height: 44)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.white.opacity(0.04))
-        )
     }
 
     /// Gradient Map stop pickers — three native colour wells, left to right for
     /// shadows → midtones → highlights. The colours themselves make the order obvious
     /// enough without labels.
     ///
-    /// Deliberately left unstyled, unlike `colorSwatchRow`'s mint-ringed swatches.
+    /// Deliberately left unstyled, unlike `colorSwatchContent`'s mint-ringed swatches.
     /// Two attempts at matching that treatment both failed and are recorded in
     /// LEARNINGS (2026-08-07): painting a custom swatch over the well breaks hit
     /// testing, because a `UIColorWell`'s tap target is its own swatch rather than the
@@ -516,7 +479,7 @@ struct EditorView: View {
     /// `UIColorPickerViewController` from a plain `Button` instead crashed, since that
     /// controller manages its own presentation and cannot be used as `.sheet` content.
     /// The system well's own affordance is the pragmatic answer here.
-    private var gradientStopsPicker: some View {
+    private var gradientStopsContent: some View {
         HStack {
             Spacer()
             ColorPicker("", selection: $viewModel.gradientStops.dark, supportsOpacity: false)
@@ -529,10 +492,49 @@ struct EditorView: View {
                 .labelsHidden()
             Spacer()
         }
-        .frame(height: 44)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color.white.opacity(0.04))
+    }
+
+    // MARK: - Declaration-driven parameter rows
+
+    /// Renders one row per declared `EffectParameter`. This is what removes the old
+    /// two-control ceiling: adding a parameter to an effect's `parameters` is now the
+    /// only change needed for it to appear.
+    ///
+    /// `colorSelection` is passed in rather than derived because a `.tintColor`
+    /// parameter writes `tintColor` for visual effects but `laserColor` for face filters.
+    @ViewBuilder
+    private func parameterRows<E: ParameterizedEffect>(
+        for effect: E,
+        colorSelection: Binding<LaserColor>
+    ) -> some View {
+        ForEach(effect.parameters) { param in
+            switch param.kind {
+            case .slider:
+                ParameterSliderRow(
+                    label: param.label,
+                    value: parameterBinding(param, for: effect),
+                    onBeginDrag: { viewModel.pushUndo() },
+                    onCommit: { viewModel.onParameterDragEnded() }
+                )
+            case .tintColor:
+                ParameterPickerRow(label: param.label) {
+                    colorSwatchContent(selection: colorSelection)
+                }
+            case .gradientStops:
+                ParameterPickerRow(label: param.label) {
+                    gradientStopsContent
+                }
+            }
+        }
+    }
+
+    private func parameterBinding<E: ParameterizedEffect>(
+        _ param: EffectParameter,
+        for effect: E
+    ) -> Binding<Double> {
+        Binding(
+            get: { viewModel.value(param.id, for: effect, default: param.defaultValue) },
+            set: { viewModel.setValue($0, param.id, for: effect) }
         )
     }
 
@@ -654,101 +656,7 @@ struct EditorView: View {
         .disabled(viewModel.isRegenerating)
     }
 
-    // MARK: - Intensity Slider
 
-    private var intensitySlider: some View {
-        GeometryReader { geo in
-            let fillWidth = geo.size.width * viewModel.effectIntensity
-
-            ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(hex: 0x323232))
-
-                HStack(spacing: 0) {
-                    Rectangle()
-                        .fill(mintGreen.opacity(0.3))
-                        .frame(width: fillWidth)
-
-                    Spacer(minLength: 0)
-                }
-
-                VStack(spacing: 2) {
-                    Text("INTENSITY")
-                        .font(.silkscreenControl)
-                        .foregroundColor(mintGreen)
-                    Text(viewModel.intensityLabel)
-                        .font(.silkscreenControl)
-                        .foregroundColor(mintGreen)
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        if !sliderUndoPushed {
-                            viewModel.pushUndo()
-                            sliderUndoPushed = true
-                        }
-                        let newIntensity = max(0.05, min(1.0, value.location.x / geo.size.width))
-                        viewModel.effectIntensity = newIntensity
-                    }
-                    .onEnded { _ in
-                        sliderUndoPushed = false
-                        viewModel.onIntensityDragEnded()
-                    }
-            )
-        }
-        .frame(height: 60)
-        .animation(.easeOut(duration: 0.1), value: viewModel.effectIntensity)
-    }
-
-    // MARK: - Size Slider
-
-    private var sizeSlider: some View {
-        GeometryReader { geo in
-            let fillWidth = geo.size.width * viewModel.effectSize
-
-            ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(hex: 0x323232))
-
-                HStack(spacing: 0) {
-                    Rectangle()
-                        .fill(mintGreen.opacity(0.3))
-                        .frame(width: fillWidth)
-
-                    Spacer(minLength: 0)
-                }
-
-                VStack(spacing: 2) {
-                    Text(viewModel.selectedVisualEffect?.secondSliderLabel ?? "SIZE")
-                        .font(.silkscreenControl)
-                        .foregroundColor(mintGreen)
-                    Text(viewModel.sizeLabel)
-                        .font(.silkscreenControl)
-                        .foregroundColor(mintGreen)
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        if !sliderUndoPushed {
-                            viewModel.pushUndo()
-                            sliderUndoPushed = true
-                        }
-                        let newSize = max(0.05, min(1.0, value.location.x / geo.size.width))
-                        viewModel.effectSize = newSize
-                    }
-                    .onEnded { _ in
-                        sliderUndoPushed = false
-                        viewModel.onSizeDragEnded()
-                    }
-            )
-        }
-        .frame(height: 60)
-        .animation(.easeOut(duration: 0.1), value: viewModel.effectSize)
-    }
 
     // MARK: - Face Filters Grid
 
@@ -807,101 +715,7 @@ struct EditorView: View {
         .opacity(isBlocked ? 0.35 : 1.0)
     }
 
-    // MARK: - Face Filter Intensity Slider
 
-    private var faceFilterIntensitySlider: some View {
-        GeometryReader { geo in
-            let fillWidth = geo.size.width * viewModel.faceFilterIntensity
-
-            ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(hex: 0x323232))
-
-                HStack(spacing: 0) {
-                    Rectangle()
-                        .fill(mintGreen.opacity(0.3))
-                        .frame(width: fillWidth)
-
-                    Spacer(minLength: 0)
-                }
-
-                VStack(spacing: 2) {
-                    Text(viewModel.faceFilterSliderLabel)
-                        .font(.silkscreenControl)
-                        .foregroundColor(mintGreen)
-                    Text(viewModel.faceFilterIntensityLabel)
-                        .font(.silkscreenControl)
-                        .foregroundColor(mintGreen)
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        if !sliderUndoPushed {
-                            viewModel.pushUndo()
-                            sliderUndoPushed = true
-                        }
-                        let newVal = max(0.05, min(1.0, value.location.x / geo.size.width))
-                        viewModel.faceFilterIntensity = newVal
-                    }
-                    .onEnded { _ in
-                        sliderUndoPushed = false
-                        viewModel.onFaceFilterIntensityDragEnded()
-                    }
-            )
-        }
-        .frame(height: 60)
-        .animation(.easeOut(duration: 0.1), value: viewModel.faceFilterIntensity)
-    }
-
-    // MARK: - Face Filter Second Slider
-
-    private var faceFilterSecondSlider: some View {
-        GeometryReader { geo in
-            let fillWidth = geo.size.width * viewModel.faceFilterSpeed
-
-            ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(hex: 0x323232))
-
-                HStack(spacing: 0) {
-                    Rectangle()
-                        .fill(mintGreen.opacity(0.3))
-                        .frame(width: fillWidth)
-
-                    Spacer(minLength: 0)
-                }
-
-                VStack(spacing: 2) {
-                    Text(viewModel.selectedFaceFilter?.secondSliderLabel ?? "")
-                        .font(.silkscreenControl)
-                        .foregroundColor(mintGreen)
-                    Text(viewModel.faceFilterSecondLabel)
-                        .font(.silkscreenControl)
-                        .foregroundColor(mintGreen)
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        if !sliderUndoPushed {
-                            viewModel.pushUndo()
-                            sliderUndoPushed = true
-                        }
-                        let newVal = max(0.05, min(1.0, value.location.x / geo.size.width))
-                        viewModel.faceFilterSpeed = newVal
-                    }
-                    .onEnded { _ in
-                        sliderUndoPushed = false
-                        viewModel.onFaceFilterSpeedDragEnded()
-                    }
-            )
-        }
-        .frame(height: 60)
-        .animation(.easeOut(duration: 0.1), value: viewModel.faceFilterSpeed)
-    }
 
     // MARK: - Effect Category Icon Tabs
 

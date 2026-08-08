@@ -131,13 +131,6 @@ struct FaceFilterTests {
         }
     }
 
-    @Test func faceFilterType_intensityBuckets() {
-        let filter = FaceFilterType.squeeze
-        #expect(filter.intensityBucket(0.1) == "LIGHT")
-        #expect(filter.intensityBucket(0.5) == "MEDIUM")
-        #expect(filter.intensityBucket(0.7) == "HEAVY")
-        #expect(filter.intensityBucket(0.9) == "MAX")
-    }
 
     // MARK: - EditorViewModel face filter state
 

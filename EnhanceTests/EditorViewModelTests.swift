@@ -80,24 +80,13 @@ struct EditorViewModelTests {
         #expect(vm.hasNonDefaultSettings == true)
     }
 
-    // MARK: - effectSize defaults
+    // MARK: - Parameter defaults
 
     @Test func effectSize_defaultsToHalf() {
         let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
         #expect(vm.effectSize == 0.5)
     }
 
-    @Test func sizeLabel_returnsCorrectBuckets() {
-        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
-        vm.effectSize = 0.1
-        #expect(vm.sizeLabel == "SMALL")
-        vm.effectSize = 0.5
-        #expect(vm.sizeLabel == "MEDIUM")
-        vm.effectSize = 0.7
-        #expect(vm.sizeLabel == "LARGE")
-        vm.effectSize = 0.9
-        #expect(vm.sizeLabel == "MAX")
-    }
 
     // MARK: - resetEffects
     

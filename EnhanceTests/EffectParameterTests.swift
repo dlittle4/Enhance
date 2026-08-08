@@ -154,6 +154,47 @@ struct EffectParameterTests {
         #expect(EffectParameter.displayValue(9.0) == EffectParameter.sliderSteps)
     }
 
+    // MARK: - Slider quantisation
+
+    /// Values snap to the dot lattice so the knob's integer is honest — a continuous
+    /// value would read "10" across a range of knob positions. This is a real behaviour
+    /// change from the old continuous sliders.
+    @Test func quantise_snapsToDotPositions() {
+        let steps = Double(EffectParameter.sliderSteps)
+        for step in 1...EffectParameter.sliderSteps {
+            let exact = Double(step) / steps
+            #expect(ParameterSliderRow.quantise(exact) == exact, "step \(step) should be stable")
+            // Nudging either side of a dot must land back on it.
+            #expect(ParameterSliderRow.quantise(exact - 0.01) == exact, "step \(step) from below")
+            #expect(ParameterSliderRow.quantise(exact + 0.01) == exact, "step \(step) from above")
+        }
+    }
+
+    /// The floor is one step, not zero: effects treat a zero strength as "off", and the
+    /// old sliders clamped to 0.05 for the same reason. 0.05 is exactly 1/20, so the
+    /// lowest reachable value displays as "1".
+    @Test func quantise_flooredAtOneStepNotZero() {
+        let oneStep = 1.0 / Double(EffectParameter.sliderSteps)
+        #expect(ParameterSliderRow.quantise(0.0) == oneStep)
+        #expect(ParameterSliderRow.quantise(-5.0) == oneStep)
+        #expect(EffectParameter.displayValue(ParameterSliderRow.quantise(0.0)) == 1)
+    }
+
+    @Test func quantise_clampsAboveOne() {
+        #expect(ParameterSliderRow.quantise(1.0) == 1.0)
+        #expect(ParameterSliderRow.quantise(7.5) == 1.0)
+        #expect(EffectParameter.displayValue(ParameterSliderRow.quantise(9.0)) == EffectParameter.sliderSteps)
+    }
+
+    /// Every quantised value must round-trip through `displayValue` to a distinct
+    /// integer, otherwise two knob positions would show the same number.
+    @Test func quantise_producesDistinctDisplayValues() {
+        let displayed = (1...EffectParameter.sliderSteps).map {
+            EffectParameter.displayValue(ParameterSliderRow.quantise(Double($0) / Double(EffectParameter.sliderSteps)))
+        }
+        #expect(Set(displayed).count == displayed.count)
+    }
+
     // MARK: - Declaration shape
 
     /// Invariants the detail panel depends on. `parameters.count <= 5` specifically
