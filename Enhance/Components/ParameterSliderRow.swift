@@ -14,6 +14,16 @@ struct ParameterSliderRow: View {
     /// Called on drag end — the discrete commit point that triggers regeneration.
     var onCommit: () -> Void = {}
 
+    /// Lets the knob reach 0. See `quantise(_:allowingZero:)`.
+    var allowsZero: Bool = false
+
+    /// Replaces the knob's lattice integer with real units.
+    ///
+    /// The integer is a *position* readout — knob "7" tells you nothing about playback
+    /// speed, whereas the button it replaced read "0.5X". Rows whose value has a unit
+    /// should show it.
+    var valueText: String? = nil
+
     /// Owned here rather than by the parent: each row has its own drag, so a shared
     /// flag across rows was never the right shape.
     @State private var didPushUndo = false
@@ -70,9 +80,11 @@ struct ParameterSliderRow: View {
                     .fill(Color.enhanceMint)
                     .frame(width: knobSize, height: knobSize)
                     .overlay(
-                        Text("\(EffectParameter.displayValue(value))")
+                        Text(valueText ?? "\(EffectParameter.displayValue(value))")
                             .font(.custom("Silkscreen-Bold", size: 13))
                             .foregroundColor(Color(hex: 0x120E0A))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
                     )
                     .position(x: knobCentre, y: midY)
             }
@@ -86,7 +98,7 @@ struct ParameterSliderRow: View {
                         }
                         // Map back out of knob-centre space before quantising.
                         let raw = (drag.location.x - knobSize / 2) / travel
-                        value = Self.quantise(raw)
+                        value = Self.quantise(raw, allowingZero: allowsZero)
                     }
                     .onEnded { _ in
                         didPushUndo = false
@@ -103,9 +115,13 @@ struct ParameterSliderRow: View {
     /// The floor is one step rather than zero: `0.05` is exactly 1/20, so the lowest
     /// reachable value reads as "1". This matches the old sliders, which also clamped
     /// to 0.05 to avoid handing an effect a zero strength.
-    static func quantise(_ raw: Double) -> Double {
+    ///
+    /// `allowingZero` opts out, for rows whose zero is meaningful rather than degenerate
+    /// — a 0s pause is a real setting, an effect at zero strength is just "off". The two
+    /// floors are deliberate opposites, not an inconsistency.
+    static func quantise(_ raw: Double, allowingZero: Bool = false) -> Double {
         let steps = Double(EffectParameter.sliderSteps)
         let snapped = (max(0, min(1, raw)) * steps).rounded() / steps
-        return max(1 / steps, snapped)
+        return max(allowingZero ? 0 : 1 / steps, snapped)
     }
 }

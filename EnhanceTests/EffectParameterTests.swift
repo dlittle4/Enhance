@@ -156,6 +156,15 @@ struct EffectParameterTests {
         #expect(EffectParameter.displayValue(ParameterSliderRow.quantise(0.0)) == 1)
     }
 
+    /// The opposite floor, for rows whose zero is a real setting rather than "off" —
+    /// a 0s pause is meaningful, an effect at zero strength is just disabled. The two
+    /// floors are deliberate opposites, not an inconsistency.
+    @Test func quantise_allowingZero_reachesZero() {
+        #expect(ParameterSliderRow.quantise(0.0, allowingZero: true) == 0.0)
+        #expect(ParameterSliderRow.quantise(-5.0, allowingZero: true) == 0.0)
+        #expect(ParameterSliderRow.quantise(1.0, allowingZero: true) == 1.0)
+    }
+
     @Test func quantise_clampsAboveOne() {
         #expect(ParameterSliderRow.quantise(1.0) == 1.0)
         #expect(ParameterSliderRow.quantise(7.5) == 1.0)
