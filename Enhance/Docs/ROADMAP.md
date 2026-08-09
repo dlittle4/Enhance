@@ -18,10 +18,9 @@ Each step should feel fast, tactile, and visually satisfying.
 
 ## Pick up here
 
-**State:** `main` at `de5347a`, in sync with `origin/main`. **150 tests, 0 failing.**
-Branch `claude/codebase-review-bugs-5a9c50` is level with `main` — the session's pattern was
-to commit on the branch and fast-forward `main` at each green stage, so Xcode always saw a
-working build. 28 commits this session.
+**State:** branch `claude/codebase-review-bugs-5a9c50`, **174 tests, 0 failing.** The
+session's pattern was to commit on the branch and fast-forward `main` at each green stage, so
+Xcode always saw a working build.
 
 ### What shipped
 
@@ -40,9 +39,18 @@ working build. 28 commits this session.
    declarations, namespaced per-effect value storage, dotted numeric sliders, the detail panel
    with discard/confirm semantics, device-scaled cards up to 160pt, and face-filter thumbnails.
 6. **Three docs** split by role — this file (what/when), EFFECTS.md (how), LEARNINGS (rules).
+7. **Stage 8 — the effect system fully migrated.** Every computed shim and legacy label
+   property deleted, three zero-reference files removed, and a real bug fixed on the way out:
+   the panel pushed undo *twice* per slider drag, so the second undo stepped the user forward.
+8. **The ZOOM tab joined the drill-down pattern**, which is what fixed its iPhone SE 3
+   overflow. SPEED and PAUSE became continuous over the generator's actual clamps
+   (0.25–4×, 0–5s) instead of discrete cycle buttons that never reached the full range.
 
 ### Do this first
 
+- [ ] **Device-verify the continuous speed range on real hardware.** `4×` and `0.25×` were
+      unreachable before, so exposing them exposes an untested path — see "Needs device
+      verification" for the specific failure to look for.
 - [ ] **Device-verify DITHER.** The only user-reported bug still unconfirmed. The fix has been
       on `main` for two sessions and the phase *mechanism* is proven by
       `dither_phaseIsPeriodicInCellSize`, but the *result* has never been watched in a real
@@ -51,17 +59,14 @@ working build. 28 commits this session.
 
 ### Then, in rough value order
 
-- [ ] **Stage 8 of the effect-UI plan — cleanup.** The only stage left. Delete the computed
-      shims (`effectIntensity` / `effectSize` / `faceFilterIntensity` / `faceFilterSpeed`),
-      `supportsSizeControl`, `secondSliderLabel`, and `FaceFilterType`'s three label properties,
-      now that everything reads from `parameters`. Leaves the effect system fully migrated
-      rather than half-shimmed. **Keep** `colorPickerKind` / `supportsColorPicker` — `parameters`
-      is built from them.
-- [ ] **Two cheap P1 correctness fixes**, both unblocked by Stage 5's `regenerateIfNeeded()`:
-      RESET on an existing GIF leaves the preview stale, and `saveGIFToLibrary` can save the
-      *original* file when regeneration failed.
-- [ ] **ZOOM tab overflows on iPhone SE 3** — visibly broken, and Stage 6 built the exact
-      mechanism it needs (measured-space sizing).
+- [x] ~~**Stage 8 of the effect-UI plan — cleanup.**~~ Done. The effect system is fully
+      migrated; no shims remain.
+- [x] ~~**RESET on an existing GIF leaves the preview stale.**~~ Fixed — RESET routes through
+      `regenerateIfNeeded()` like every other control.
+- [x] ~~**ZOOM tab overflows on iPhone SE 3.**~~ Fixed by moving the tab to the drill-down
+      pattern; verified on device.
+- [ ] **`saveGIFToLibrary` can save the wrong file** — the remaining cheap P1. If regeneration
+      failed on an existing GIF, "SAVE NEW COPY" silently duplicates the unmodified original.
 - [ ] **Gallery Stage B** — close the failure mode, not just the trigger.
 - [ ] **Face-effect GIF generation does ~25 full-resolution GPU renders** — the largest
       remaining performance win, self-contained in `GIFGenerator`.
@@ -97,6 +102,15 @@ rendering frames and inspecting them, which cannot catch everything.
       while 11 thumbnails render (was 8 before the new effects).
 - [ ] **GRADIENT colour wells** — the three system wells show Apple's spectrum ring; confirmed
       working but never seen alongside the rest of the row on device.
+- [ ] **`4×` and `0.25×` playback actually play at those rates.** The specific hazard:
+      `frameCount = max(12, Int(1/speed/0.04))` floors at 12 above 2×, so 4× yields 12 frames at
+      ~0.0208s — and **many decoders round delays under 0.04s up to 0.1s**, which would make 4×
+      play *slower* than 1×. This range was unreachable before, so exposing it exposes the bug
+      for the first time. If it misbehaves, floor the *delay* and cut the duration rather than
+      flooring the frame count.
+- [ ] **A `0s` pause reads as no pause.** `max(1, …)` still emits one ~0.04s frame; confirm that
+      is invisible rather than a stutter.
+- [ ] **Zoom card gallery scroll feel** with only three cards, which do not fill the width.
 
 ---
 
@@ -160,10 +174,14 @@ Each entry names the file and line where the defect lives.
       saves *and* "SAVE NEW COPY" — never calls it, so re-opening falls back to the hardcoded
       `scale = 2.0, rect = (0.15, 0.15, 0.7, 0.7)` (`:632`). Structural blocker: the save callback
       does not return the new PHAsset identifier, so there is currently no key to store against.
-- [ ] **RESET on an existing GIF leaves the preview stale.** `resetEffects()` (`:265`) clears all
-      effects but only touches `enhanceState` in the `.newImage` branch. For an existing GIF it never
-      regenerates and never sets `hasModifiedSettings` — buttons go inactive, the displayed GIF keeps
-      the old effects, and SAVE stays disabled so the reset cannot be committed.
+- [x] **RESET on an existing GIF leaves the preview stale.** *(fixed 2026-08-08.)* `resetEffects()`
+      cleared all effects but only touched `enhanceState` in the `.newImage` branch, so on an
+      existing GIF it never regenerated and never set `hasModifiedSettings` — the displayed GIF kept
+      the old effects and SAVE stayed disabled, making the reset look like a no-op. It now calls
+      `regenerateIfNeeded()` on the other branch. Note the near-miss: an undebounced
+      `.onChange(of: playbackSpeed)` had been accidentally papering over half of this, and deleting
+      that handler in the same session would have made the bug fully visible had it not been fixed
+      alongside.
 - [ ] **`saveGIFToLibrary` can save the wrong file.** It reads `gifURL` (`:771`), which falls back to
       `existingGifURL`. If regeneration failed on an existing GIF, "SAVE NEW COPY" silently duplicates
       the original, unmodified GIF. `updateOriginalGIF` correctly requires `generatedGifURL`.
@@ -175,13 +193,18 @@ Each entry names the file and line where the defect lives.
 
 ### P1 — Correctness (cont.)
 
-- [ ] **The ZOOM tab overflows on short devices.** Measured on iPhone SE 3 (667pt): the zoom
-      controls need ~246pt (42pt tabs + three 60pt rows + spacing) against roughly 110pt of
-      controls budget, so the modifier row and SPEED/PAUSE collide with the ENHANCE button.
-      Pre-existing and untouched by the effect-UI work — the IMAGE and FACE tabs now scale
-      their cards to fit (`AppConstants.Layout.effectCardSize(forControlsHeight:)`), but the
-      zoom tab still uses three fixed 60pt rows. Options: scale those rows the same way, or
-      move speed/pause behind a drill-down like the effect panel.
+- [x] **The ZOOM tab overflows on short devices.** *(fixed 2026-08-08.)* Measured on iPhone SE 3
+      (667pt): the zoom controls needed ~246pt (42pt tabs + three 60pt rows + spacing) against
+      roughly 110pt of budget, so the modifier row and SPEED/PAUSE collided with ENHANCE. Fixed by
+      moving the tab to the same cards → drill-down panel the other two use.
+      **Two further overflows surfaced only on device, both general rather than SE-specific:**
+      (a) panel rows were a fixed 44pt, so a three-row panel did not fit — they now size from the
+      height the panel is actually given (`PanelMetrics`), clamped 34–44pt, *with the header
+      counted as one more unit in that division*; omitting it overflowed by ~8pt.
+      (b) the colour swatch row forced the whole panel **wider than the display** — `Spacer()`
+      carries its own ~8pt minimum *on top of* the HStack's default spacing, so six swatches had a
+      ~390pt intrinsic minimum against a 195pt slot. Both `spacing` and `minLength` had to be zero.
+      This one had shipped in LAZER EYES for some time and was never noticed.
 - [ ] **Onboarding tagline truncates on SE 3** — "DRAMATIC ZOOMS AND S…". Fixed font size
       against a narrower screen.
 
@@ -710,6 +733,56 @@ Carousel 8 → 11 visible effects, all stock Core Image, no new build infrastruc
 - [ ] **`ColorPicker` aesthetics** — the system colour wheel is a modal iOS sheet and will look
       foreign against the Silkscreen pixel-art styling. Accepted deliberately for the colour
       freedom; revisit if it grates in use.
+
+### Phase 17g: Drill-down effect UI ✓ (sessions 14–15)
+
+Cards browse, a panel edits. Replaces the stacked full-width control rows, which had a hard
+two-slider ceiling and no room to grow.
+
+**Framework (Stages 1–7)**
+- [x] `EffectParameter` declarations are the single source of truth for an effect's UI — adding
+      a control is a line in `parameters`, with no layout change and no per-effect branching
+- [x] Namespaced keyed value store (`parameterValues`), so `VisualEffectType.fisheye` and
+      `FaceFilterType.fisheye` cannot collide
+- [x] Dotted numeric sliders quantised to a 20-step lattice, so the knob's number is honest
+- [x] `EffectDetailPanel` with discard/confirm semantics — one undo entry per visit, and global
+      undo disabled while it is open
+- [x] Cards scale from measured space up to 160pt, and face-filter thumbnails
+
+**Stage 8 — cleanup**
+- [x] Deleted every computed shim (`effectIntensity` / `effectSize` / `faceFilterIntensity` /
+      `faceFilterSpeed`), `supportsSizeControl`, `secondSliderLabel`, `FaceFilterType`'s three
+      label properties, and `EffectParameter.unselectedKey`. Kept `colorPickerKind` /
+      `supportsColorPicker` — `parameters` is built from them
+- [x] Deleted three zero-reference files: `AnimatorPickerView`, `AnimationConfig`,
+      `PreviewControlsView`
+- [x] **Fixed a double undo push.** The panel passed `onBeginDrag: { pushUndo() }` *and*
+      `commitEditing()` pushed the entry snapshot, so dragging a slider then confirming recorded
+      two entries and the second undo stepped the user **forward**. The existing "exactly one
+      entry" test missed it by calling `setValue` directly, bypassing the row
+
+**The ZOOM tab**
+- [x] Cards + detail panel, matching the other two tabs and fixing the SE 3 overflow
+- [x] SPEED and PAUSE are continuous over the generator's real clamps. Speed is **geometric**
+      (`0.25 · 16^u`) so equal travel means equal ratio, 1× sits at the track midpoint, and both
+      defaults land on lattice steps — an off-lattice default would snap on first touch and
+      silently change a value the user never edited. Pause is linear over 0–5s
+- [x] `isDefaultSpeed` is tolerant, not `==`: the geometric round trip yields
+      `0.5000000000000001`, which would otherwise leave RESET on screen forever
+- [x] MOTION is a `SegmentedBar` bound to a normalising `modifierSelection`, so `nil` stays
+      canonical for "no modifier" everywhere else in the model
+- [x] Dropped the undebounced `.onChange(of: playbackSpeed / pauseDuration)` regeneration — fine
+      for discrete buttons, a full GIF render per value change for a continuous slider
+
+**Deliberately unreachable, not removed**
+- [ ] **Zoom is always on.** One of the three zoom types is always selected; there is no NONE
+      card and cards do not toggle off. **Consequence: effects-only GIFs at 1× are impossible.**
+      Because this is provisional, the `nil`-animator paths (`hasEffectsWithoutZoom`,
+      `activeAnimator`'s `StaticAnimator` branch, `regenerateGIF`'s `selectedAnimatorType == nil`
+      gate) are kept intact but unreachable, so reversing it is a UI change rather than a
+      re-implementation. **If it is ever re-exposed, note that `activeAnimator` returns a bare
+      `StaticAnimator()` and silently discards the modifier** — that path was already broken
+      before it became unreachable.
 
 ### Phase 17e: New Image Effects — Phase 2 (not started)
 

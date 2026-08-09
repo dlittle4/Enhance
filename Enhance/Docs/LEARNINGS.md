@@ -1171,3 +1171,70 @@ A survey found three offenders, not one: **FISHEYE** (`CIBumpDistortion`), **SWI
 
 **Rule:** any effect that ends in `applyingFilter` must `.cropped(to: image.extent)` unless it has a specific reason not to — distortion, blur, and pixelate filters all grow their extent, and generators are infinite. Assert extent preservation across every effect rather than per effect, at more than one progress value, because effects with inverted or delayed ramps are pass-throughs at the endpoints. And never treat "it rendered" as evidence of correct geometry: rendering from the output's own extent will always succeed.
 
+
+## 2026-08-08: A control that pushes undo on drag-start is wrong inside a panel that records one entry per visit
+
+**Problem:** `ParameterSliderRow` takes an `onBeginDrag` hook for pushing undo, which is right for a control living directly in the editor. But `EffectDetailPanel` has its own history contract: it snapshots on open and `commitEditing()` pushes exactly one entry on confirm, with global undo disabled while it is open. `parameterRows` passed `onBeginDrag: { viewModel.pushUndo() }` anyway. Dragging a slider then confirming recorded **two** entries — so the first undo restored the pre-drag value and the second stepped the user *forward* to the value they had just undone.
+
+**Why the test missed it:** `commitEditing_keepsValuesAndPushesExactlyOneUndoEntry` calls `setValue` directly. That is the view model's API, and by that API exactly one entry is correct. The second push lived in the view, in an argument passed to a row — a layer the test never touched. The assertion was true and the behaviour was broken.
+
+**Fix:** dropped the `onBeginDrag` argument at that call site. The panel owns the entry.
+
+**Rule:** when a container defines a history contract, audit every child for its own history side effects — the two are written at different times by different reasoning, and they compose silently. And a "pushes exactly *one* entry" test is only meaningful if it exercises the path the user takes; asserting a count through the model layer cannot see a second push wired up in the view.
+
+---
+
+## 2026-08-08: `Spacer()` carries its own minimum, on top of the stack's spacing
+
+**Problem:** The colour swatch row forced the effect panel **wider than the screen** on a 4.7" device — labels ran off the left edge and swatches off the right. The row is the common "Spacer, item, Spacer" evenly-distributing pattern: six 26pt swatches in an `HStack`, each flanked by a `Spacer()`.
+
+`HStack(spacing:)` was the obvious suspect, and zeroing it removed 136pt — and changed nothing visible. A bare `Spacer()` also has a **default `minLength` of roughly the platform spacing**, which is a separate value that the stack's `spacing` does not control. Twelve Spacers therefore contributed ~96pt of their own irreducible width. And because that is an intrinsic *minimum* rather than a preference, it propagated up: the row could not be narrower, so the panel could not be narrower, so `.frame(width:)` on the panel was overridden and the whole thing overhung both edges of the display.
+
+**Fix:** `HStack(spacing: 0)` **and** `Spacer(minLength: 0)`. Both. The swatches themselves (156pt) then set the floor and the Spacers only distribute the surplus.
+
+**Rule:** for evenly-distributed content, always write `Spacer(minLength: 0)` — a plain `Spacer` is only safe when the container has room to spare, and it fails on the narrow device rather than the one you develop on. More generally: `.frame(width:)` is a proposal, not a clamp, and a child with a larger intrinsic minimum silently wins. When a container is mysteriously wider than the frame you gave it, look for the child that cannot shrink, not for a bug in the container.
+
+---
+
+## 2026-08-08: Adaptive row heights must count the header, and the knob must scale with the row
+
+**Problem:** Fixed 44pt panel rows do not fit three rows plus a header on a 667pt screen. Making rows size themselves from the height the panel was actually given (`GeometryReader` → `PanelMetrics`) was the right shape, but the first formula divided the available space by the *row* count only. The header is the same height as a row and competes for the same space, so the result overflowed by ~8pt.
+
+Eight points sounds cosmetic. It is not, because `EffectDetailPanel` computes `needsScroll` from measured content, and `DragGesture(minimumDistance: 0)` loses to a `ScrollView`. So a tiny overflow silently re-enabled scrolling, and the visible symptom was **"dragging a slider scrolls the panel instead of adjusting it"** — a gesture bug with no resemblance to a layout bug. A second, quieter symptom: the 34pt knob was clipped by its now-36pt row.
+
+**Fix:** divide by `rowCount + 1`, and make `knobSize` a function of `rowHeight` (`min(34, rowHeight - 2)`) so a shrunken row can never clip its own contents.
+
+**Rule:** when deriving a per-item size from available space, enumerate *everything* competing for that space — headers, padding, and inter-item gaps — and write the arithmetic out in the doc comment so the next person can check it against the constants. Anything sized in absolute points inside an adaptive row must be expressed relative to the row. And treat a measured `needsScroll` as a tripwire: if a layout can overflow at all, the failure will surface as a gesture problem long before anyone notices the missing pixels.
+
+---
+
+## 2026-08-08: Exception to the segmented-bar rule — `.straight` is the honest name for "none"
+
+**Problem:** 2026-03-13 recorded the rule "when converting from mandatory to optional selection, prefer toggle buttons over a segmented control", because a segmented control has no honest way to show "none". Rebuilding the ZOOM tab's MOTION control appeared to violate it: `SegmentedBar` came back, replacing the toggle buttons.
+
+**Why it is not a violation:** the modifier is only nominally optional. `activeAnimator` collapses `nil` and `.straight` to the same animator, so "no modifier" and "straight" are the same GIF. There is nothing for a "none" state to mean that LINEAR does not already mean. The earlier rule was written for the *zoom type*, where deselecting genuinely removed the animation.
+
+`nil` is still canonical in the model — `hasNonDefaultSettings`, `hasEffectsWithoutZoom` and `resetEffects` all test against it. The view binds to a normalising accessor instead of an optional:
+
+```swift
+var modifierSelection: ModifierType {
+    get { selectedModifier ?? .straight }
+    set { selectedModifier = (newValue == .straight) ? nil : newValue }
+}
+```
+
+so LINEAR displays as selected but is never stored.
+
+**Rule:** the toggle-vs-segmented rule turns on whether "none" is a *distinct outcome*, not on whether the stored type is optional. When the model's `nil` and one of its cases produce identical behaviour, a segmented control is the truthful UI — and a normalising computed property lets the view say so without making `nil` non-canonical in the model.
+
+---
+
+## 2026-08-08: A default that sits between slider steps changes itself on first touch
+
+**Problem:** Making SPEED continuous meant choosing a map from a 0–1 slider position to a playback multiplier. A linear map over 0.25–4× puts the 0.5× default at `u = 0.0667`, which is not on the slider's 20-step lattice. The first time the user touched the knob — even to put it back — it would quantise to 0.05 or 0.10 and silently change a value they had never edited.
+
+**Fix:** a geometric map, `0.25 · 16^u`. Chosen for the perceptual reason (doubling is what the eye notices, so equal travel should mean equal *ratio* — the same argument as logarithmic zoom interpolation, 2026-03-08), but the property that made it *correct* rather than merely nicer is that both defaults land exactly on lattice steps: 0.5× at step 5, 1.0s at step 4. 1× landing on the track midpoint is a third free win.
+
+A related trap: the geometric round trip is not bit-exact. `speed(unit: unit(speed: 0.5))` yields `0.5000000000000001`, so `playbackSpeed != 0.5` in `hasNonDefaultSettings` stayed true forever once the knob had been moved and put back — RESET would never disappear again. `isDefaultSpeed` compares with an epsilon.
+
+**Rule:** when a control quantises, check that every default is *reachable* by it before choosing the mapping — an unreachable default is a value the UI silently edits on first contact. And once any value round-trips through a non-linear transform, every equality comparison against it needs a tolerance; float equality is only safe while the reachable set is a handful of exact literals, which is exactly the condition that a continuous control removes.
