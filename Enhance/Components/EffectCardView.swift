@@ -6,9 +6,8 @@ import SwiftUI
 /// Replaces the 60pt text chips. The thumbnail was already there at chip size, but at
 /// 110pt it becomes the point of the card rather than incidental texture — you can see
 /// what an effect does before selecting it.
-struct EffectCardView: View {
+struct EffectCardView<Background: View>: View {
     let title: String
-    let thumbnail: UIImage?
     let isActive: Bool
 
     /// Face filters that need a face, or exactly one face, when the photo does not
@@ -18,6 +17,11 @@ struct EffectCardView: View {
     /// Supplied by the caller from measured space rather than fixed, so cards scale
     /// with the device — see `AppConstants.Layout.effectCardSize(forControlsHeight:)`.
     let size: CGFloat
+
+    /// The card's backdrop. Generic so the ZOOM cards can supply an animated preview —
+    /// see `EffectCardView.init(title:thumbnail:…)` for the ordinary still case, which
+    /// is what IMAGE and FACE use.
+    @ViewBuilder var background: () -> Background
 
     var action: () -> Void
 
@@ -36,7 +40,7 @@ struct EffectCardView: View {
     var body: some View {
         Button(action: action) {
             ZStack(alignment: .bottomLeading) {
-                background
+                background()
 
                 Text(title)
                     .font(.silkscreenControl)
@@ -65,22 +69,60 @@ struct EffectCardView: View {
         .opacity(isBlocked ? 0.35 : 1.0)
     }
 
-    @ViewBuilder
-    private var background: some View {
-        if let thumbnail {
-            Image(uiImage: thumbnail)
+}
+
+/// The ordinary still backdrop: the effect applied to the user's photo, or a flat fill
+/// when there is no thumbnail to show.
+struct EffectCardThumbnail: View {
+    let image: UIImage?
+    let isActive: Bool
+    let size: CGFloat
+
+    var body: some View {
+        if let image {
+            Image(uiImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(width: size, height: size)
                 .clipped()
-                // Scrim so the title stays readable over an arbitrary photo. Lighter
-                // when active, since the selected card should read brightest.
-                .overlay(Color.black.opacity(isActive ? 0.25 : 0.45))
+                .effectCardScrim(isActive: isActive)
         } else {
-            // Face cards have no thumbnail path yet, and on a photo with no faces one
-            // would be meaningless anyway.
+            // A photo with no faces, where a face-effect thumbnail would be meaningless.
             Rectangle()
                 .fill(isActive ? Color(hex: 0x323232) : Color.white.opacity(0.04))
         }
+    }
+}
+
+extension View {
+    /// Keeps a card title readable over an arbitrary photo. Lighter when active, since
+    /// the selected card should read brightest.
+    ///
+    /// Applied by each backdrop rather than by the card, so the flat fill — which is
+    /// already near-black — is not darkened a second time.
+    func effectCardScrim(isActive: Bool) -> some View {
+        overlay(Color.black.opacity(isActive ? 0.25 : 0.45))
+    }
+}
+
+extension EffectCardView where Background == EffectCardThumbnail {
+    /// Still-thumbnail card. Keeps the original call shape, so IMAGE and FACE are
+    /// unchanged by the ZOOM cards needing something livelier.
+    init(
+        title: String,
+        thumbnail: UIImage?,
+        isActive: Bool,
+        isBlocked: Bool = false,
+        size: CGFloat,
+        action: @escaping () -> Void
+    ) {
+        self.init(
+            title: title,
+            isActive: isActive,
+            isBlocked: isBlocked,
+            size: size,
+            background: { EffectCardThumbnail(image: thumbnail, isActive: isActive, size: size) },
+            action: action
+        )
     }
 }

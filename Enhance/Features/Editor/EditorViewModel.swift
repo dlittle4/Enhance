@@ -529,6 +529,40 @@ class EditorViewModel {
     private var thumbnailSourceCGImage: CGImage?
     private let thumbnailDimension: Int = 120
 
+    /// The un-effected photo behind the ZOOM cards, at preview resolution.
+    ///
+    /// Shares `getPreviewSourceCGImage`'s cache with the live canvas preview rather than
+    /// decoding its own copy. Note these cards *magnify* it, unlike the 120pt effect
+    /// thumbnails, so at a high user zoom it will read soft — acceptable, because the
+    /// card is communicating a framing rather than image detail.
+    var zoomPreviewImage: UIImage?
+
+    /// Where the ZOOM cards' camera move travels to.
+    ///
+    /// Falls back to a representative centred zoom until the user has picked one.
+    /// Without that fallback the cards would be *correct* and useless: with no zoom set
+    /// the two endpoint framings are identical, so all three cards would show the same
+    /// untouched photo and none of them would say anything about its zoom type.
+    var zoomPreviewFraming: (scale: CGFloat, center: CGPoint) {
+        let scale = max(1, currentScale)
+        guard scale > 1.01 else { return (2.5, CGPoint(x: 0.5, y: 0.5)) }
+        return (scale, CGPoint(x: visibleRect.midX, y: visibleRect.midY))
+    }
+
+    func generateZoomPreviewImage() {
+        guard zoomPreviewImage == nil else { return }
+        guard let source = image ?? sourceImage else { return }
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self,
+                  let cgImage = self.getPreviewSourceCGImage(from: source) else { return }
+            let preview = UIImage(cgImage: cgImage)
+            DispatchQueue.main.async {
+                self.zoomPreviewImage = preview
+            }
+        }
+    }
+
     /// Generates small preview thumbnails for all visual effects on a background thread.
     func generateEffectThumbnails() {
         guard let source = image ?? sourceImage else { return }

@@ -145,6 +145,32 @@ struct EditorViewModelTests {
         try? FileManager.default.removeItem(at: url)
     }
 
+    // MARK: - zoomPreviewFraming
+
+    /// With no zoom set, all three animators interpolate between two *identical*
+    /// framings, so every zoom card would sit perfectly still and look broken. The
+    /// fallback is what keeps the cards demonstrating the motion.
+    @Test func zoomPreviewFraming_withoutAUserZoom_fallsBackToARepresentativeZoom() {
+        let vm = EditorViewModel(content: .newImage(UIImage()), gifGenerator: StubGIFGenerator())
+
+        #expect(vm.currentScale == 1.0)
+        let framing = vm.zoomPreviewFraming
+        #expect(framing.scale > 1.5, "a still card is useless; the fallback must actually move")
+        #expect(framing.center == CGPoint(x: 0.5, y: 0.5))
+    }
+
+    @Test func zoomPreviewFraming_withAUserZoom_usesTheirFraming() {
+        let vm = EditorViewModel(content: .newImage(UIImage()), gifGenerator: StubGIFGenerator())
+
+        vm.currentScale = 3.0
+        vm.visibleRect = CGRect(x: 0.1, y: 0.5, width: 0.2, height: 0.2)
+
+        let framing = vm.zoomPreviewFraming
+        #expect(framing.scale == 3.0)
+        #expect(abs(framing.center.x - 0.2) < 1e-9)
+        #expect(abs(framing.center.y - 0.6) < 1e-9)
+    }
+
     // MARK: - activeAnimator
     
     @Test func activeAnimator_withStraight_returnsBaseAnimator() {

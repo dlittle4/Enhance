@@ -774,6 +774,24 @@ two-slider ceiling and no room to grow.
 - [x] Dropped the undebounced `.onChange(of: playbackSpeed / pauseDuration)` regeneration — fine
       for discrete buttons, a full GIF render per value change for a continuous slider
 
+**Browse-card polish**
+- [x] **The ZOOM cards show a framing, not a flat fill.** The three animators travel
+      between the same two endpoints and differ only in the path, so each card shows the
+      framing that type ends on: ZOOM IN tight, ZOOM OUT wide, PULSE between them. PULSE
+      is deliberately *not* its true last frame — `sin(π)` returns it to where it started,
+      so a literal reading would make its card identical to ZOOM OUT's
+- [x] Falls back to a representative centred 2.5x until the user sets a zoom. Without it
+      the two endpoint framings are identical and all three cards show the same untouched
+      photo
+- [x] **Carousel edges dissolve instead of slicing a card.** The gallery now spans the
+      full screen width and insets its content to the canvas edges; clipping at the canvas
+      width put the cut on a line the layout treats as a margin, so a sliced card read as
+      a rendering fault rather than as content continuing off-screen. The fade is driven
+      from `ScrollGeometry`, so it appears only on the side that actually has more content
+      — this is the carousel's only "there is more" cue, since it has no scrollbar
+- [x] One `EffectCarousel` component replaces three near-identical copies of the scroll
+      view, one per tab
+
 **Deliberately unreachable, not removed**
 - [ ] **Zoom is always on.** One of the three zoom types is always selected; there is no NONE
       card and cards do not toggle off. **Consequence: effects-only GIFs at 1× are impossible.**

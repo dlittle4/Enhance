@@ -13,6 +13,11 @@ struct EditorView: View {
     private var innerRadius: CGFloat { outerRadius - borderInset }
     private var borderedSize: CGFloat { canvasSize + borderInset * 2 }
 
+    /// Gap between the screen edge and the canvas. The carousel spans the full width and
+    /// insets its content by this, so cards line up with the canvas at rest while still
+    /// being able to scroll out to the edge.
+    private let canvasInset: CGFloat = 20
+
     private let mintGreen = Color.enhanceMint
     private let buttonHeight: CGFloat = 60
 
@@ -374,6 +379,7 @@ struct EditorView: View {
     private func controlsSection(cardSize: CGFloat) -> some View {
         VStack(spacing: 8) {
             effectCategoryTabs
+                .frame(width: borderedSize)
 
             switch viewModel.selectedEffectCategory {
             case .zoomEffects:
@@ -396,7 +402,6 @@ struct EditorView: View {
 
         }
         .animation(.easeInOut(duration: 0.25), value: viewModel.selectedEffectCategory)
-        .frame(width: borderedSize)
     }
 
     private var bottomButtons: some View {
@@ -412,39 +417,43 @@ struct EditorView: View {
     // MARK: - Zoom Gallery
 
     private func zoomEffectsGrid(cardSize: CGFloat) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(AnimatorType.allCases) { animType in
-                        zoomToggle(animType, cardSize: cardSize)
-                            .id(animType)
-                    }
-                }
-                .padding(.vertical, 2)
-                .padding(.horizontal, 2)
-            }
-            .onAppear {
-                if let selected = viewModel.selectedAnimatorType {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(selected, anchor: .center)
-                        }
-                    }
-                }
-            }
+        EffectCarousel(
+            items: AnimatorType.allCases,
+            scrollTo: viewModel.selectedAnimatorType,
+            contentInset: canvasInset
+        ) { animType in
+            zoomToggle(animType, cardSize: cardSize)
         }
+        .onAppear { viewModel.generateZoomPreviewImage() }
     }
 
     private func zoomToggle(_ animType: AnimatorType, cardSize: CGFloat) -> some View {
-        EffectCardView(
+        let isActive = viewModel.selectedAnimatorType == animType
+        let framing = viewModel.zoomPreviewFraming
+
+        return EffectCardView(
             // Raw values are mixed case ("Zoom In") unlike every other family.
             title: animType.rawValue.uppercased(),
-            // No thumbnail: a zoom is motion, which a still cannot show. EffectCardView
-            // already falls back to a flat fill.
-            thumbnail: nil,
-            isActive: viewModel.selectedAnimatorType == animType,
+            isActive: isActive,
             isBlocked: viewModel.isRegenerating,
-            size: cardSize
+            size: cardSize,
+            background: {
+                // The photo cropped to where this zoom type ends, since the three differ
+                // by framing rather than by any filter — see ZoomCardFraming. Falls back
+                // to the flat fill until the photo has been downscaled for preview.
+                if let preview = viewModel.zoomPreviewImage {
+                    ZoomCardThumbnail(
+                        image: preview,
+                        type: animType,
+                        zoomScale: framing.scale,
+                        zoomCenter: framing.center,
+                        size: cardSize
+                    )
+                    .effectCardScrim(isActive: isActive)
+                } else {
+                    EffectCardThumbnail(image: nil, isActive: isActive, size: cardSize)
+                }
+            }
         ) {
             HapticService.selection()
             if viewModel.selectedAnimatorType != animType {
@@ -572,26 +581,12 @@ struct EditorView: View {
     // MARK: - Visual Effects Grid
 
     private func visualEffectsGrid(cardSize: CGFloat) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(VisualEffectType.selectable) { effectType in
-                        visualEffectToggle(effectType, cardSize: cardSize)
-                            .id(effectType)
-                    }
-                }
-                .padding(.vertical, 2)
-                .padding(.horizontal, 2)
-            }
-            .onAppear {
-                if let selected = viewModel.selectedVisualEffect {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(selected, anchor: .center)
-                        }
-                    }
-                }
-            }
+        EffectCarousel(
+            items: VisualEffectType.selectable,
+            scrollTo: viewModel.selectedVisualEffect,
+            contentInset: canvasInset
+        ) { effectType in
+            visualEffectToggle(effectType, cardSize: cardSize)
         }
     }
 
@@ -617,26 +612,12 @@ struct EditorView: View {
     // MARK: - Face Filters Grid
 
     private func faceFiltersGrid(cardSize: CGFloat) -> some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(FaceFilterType.allCases) { filterType in
-                        faceFilterToggle(filterType, cardSize: cardSize)
-                            .id(filterType)
-                    }
-                }
-                .padding(.vertical, 2)
-                .padding(.horizontal, 2)
-            }
-            .onAppear {
-                if let selected = viewModel.selectedFaceFilter {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            proxy.scrollTo(selected, anchor: .center)
-                        }
-                    }
-                }
-            }
+        EffectCarousel(
+            items: FaceFilterType.allCases,
+            scrollTo: viewModel.selectedFaceFilter,
+            contentInset: canvasInset
+        ) { filterType in
+            faceFilterToggle(filterType, cardSize: cardSize)
         }
     }
 
