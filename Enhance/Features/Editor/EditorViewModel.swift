@@ -1071,8 +1071,10 @@ class EditorViewModel {
     
     // MARK: - Arrival hint
 
-    /// Wording deliberately in the same voice as the ENHANCE nag ("Zoom in on the image
-    /// first!"), because it is the same instruction arriving earlier.
+    /// Same instruction as the ENHANCE nag ("Zoom in on the image first!"), just arriving
+    /// earlier. Kept short so the toast pill fits comfortably over the image container
+    /// rather than stretching across it; naming the subject was detail the gesture hint
+    /// did not need.
     static let zoomHintMessage = "Pinch to zoom in"
 
     /// Set the first time the user works the canvas by hand. Latched rather than derived
