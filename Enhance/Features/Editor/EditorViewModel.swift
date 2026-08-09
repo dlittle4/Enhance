@@ -444,6 +444,12 @@ class EditorViewModel {
                 enhanceState = .ready
                 isGenerating = false
             }
+        } else {
+            // Editing an existing GIF: clearing the state above changes nothing the user
+            // can see until it is re-rendered, so RESET used to leave the old effects on
+            // screen with SAVE disabled. Every other control routes through here; RESET
+            // is the one that mutates the most and asked for it the least.
+            regenerateIfNeeded()
         }
     }
 

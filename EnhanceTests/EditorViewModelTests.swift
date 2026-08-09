@@ -125,7 +125,26 @@ struct EditorViewModelTests {
         #expect(vm.enhanceState == .share)
         try? FileManager.default.removeItem(at: url)
     }
-    
+
+    /// RESET on an existing GIF used to clear the state without re-rendering, so the
+    /// old effects stayed on screen and SAVE stayed disabled.
+    ///
+    /// Asserts the flag rather than the rendered GIF on purpose: `regenerateIfNeeded`
+    /// sets `hasModifiedSettings` *before* calling `regenerateGIF()`, which bails while
+    /// `sourceImg` is nil because `extractSourceImage` is async. So this is true the
+    /// moment reset returns, with no waiting and no timing assumption.
+    @Test func resetEffects_onExistingGif_marksSettingsModified() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("regen.gif")
+        try? Data().write(to: url)
+        let vm = EditorViewModel(content: .existingGif(url, 0, "id"), gifGenerator: StubGIFGenerator())
+
+        #expect(!vm.hasModifiedSettings)
+        vm.resetEffects()
+
+        #expect(vm.hasModifiedSettings)
+        try? FileManager.default.removeItem(at: url)
+    }
+
     // MARK: - activeAnimator
     
     @Test func activeAnimator_withStraight_returnsBaseAnimator() {
