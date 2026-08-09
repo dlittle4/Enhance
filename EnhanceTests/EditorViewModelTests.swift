@@ -293,16 +293,44 @@ struct EditorViewModelTests {
 
     // MARK: - Effect edit session
 
-    /// The panel refuses to open without a selection, which is what keeps the
-    /// "never editing with nothing selected" invariant from needing checks elsewhere.
-    @Test func beginEditing_withoutSelection_doesNotOpen() {
+    /// The panel refuses to open without a selection *on the tabs that need one*, which
+    /// is what keeps the "never editing with nothing selected" invariant.
+    @Test func beginEditing_onImageTab_withoutSelection_doesNotOpen() {
         let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedEffectCategory = .visualEffects
+        vm.beginEditing()
+        #expect(vm.isEditingEffect == false)
+    }
+
+    @Test func beginEditing_onFaceTab_withoutSelection_doesNotOpen() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedEffectCategory = .faceFilters
+        vm.beginEditing()
+        #expect(vm.isEditingEffect == false)
+    }
+
+    /// Zoom is the exception: speed, pause and motion are meaningful even with no zoom
+    /// type selected, so the panel always has something to edit.
+    @Test func beginEditing_onZoomTab_alwaysOpens() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedEffectCategory = .zoomEffects
+        vm.selectedAnimatorType = nil
+        vm.beginEditing()
+        #expect(vm.isEditingEffect == true)
+    }
+
+    /// A stale selection on another tab must not open a blank panel here.
+    @Test func beginEditing_onImageTab_ignoresAFaceSelection() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedFaceFilter = .googlyEyes
+        vm.selectedEffectCategory = .visualEffects
         vm.beginEditing()
         #expect(vm.isEditingEffect == false)
     }
 
     @Test func beginEditing_withSelection_opens() {
         let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedEffectCategory = .visualEffects
         vm.selectedVisualEffect = .dither
         vm.beginEditing()
         #expect(vm.isEditingEffect == true)
@@ -389,13 +417,50 @@ struct EditorViewModelTests {
         #expect(vm.editingParameters.count == 3)
     }
 
-    /// The zoom tab has no per-effect controls to drill into, so it declares none.
-    @Test func editingParameters_forZoomCategory_isEmpty() {
+    /// The zoom panel builds its rows directly rather than from a declared list, so
+    /// `editingParameters` stays empty — but the title comes from the animator, and the
+    /// raw values are mixed case ("Zoom In") so the uppercasing is load-bearing.
+    @Test func editingTitle_forZoomCategory_isTheUppercasedAnimatorName() {
         let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
         vm.selectedEffectCategory = .zoomEffects
         vm.selectedVisualEffect = .dither
+
+        vm.selectedAnimatorType = .zoomIn
         #expect(vm.editingParameters.isEmpty)
-        #expect(vm.editingTitle == "")
+        #expect(vm.editingTitle == "ZOOM IN")
+
+        vm.selectedAnimatorType = .pulse
+        #expect(vm.editingTitle == "PULSE")
+
+        vm.selectedAnimatorType = nil
+        #expect(vm.editingTitle == "NO ZOOM")
+    }
+
+    // MARK: - Modifier normalisation
+
+    @Test func modifierSelection_mapsNilToStraight() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        #expect(vm.selectedModifier == nil)
+        #expect(vm.modifierSelection == .straight)
+    }
+
+    /// LINEAR displays as selected but must never be *stored* — nil stays canonical, so
+    /// hasActiveModifier, hasEffectsWithoutZoom and resetEffects keep working untouched.
+    @Test func modifierSelection_writingStraightStoresNil() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedModifier = .shake
+        vm.modifierSelection = .straight
+        #expect(vm.selectedModifier == nil)
+        #expect(vm.modifierSelection == .straight)
+    }
+
+    @Test func modifierSelection_roundTripsRealModifiers() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        for mod in [ModifierType.shake, .spiral] {
+            vm.modifierSelection = mod
+            #expect(vm.selectedModifier == mod)
+            #expect(vm.modifierSelection == mod)
+        }
     }
 
     // MARK: - Face filter thumbnails

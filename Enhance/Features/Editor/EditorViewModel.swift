@@ -126,6 +126,29 @@ class EditorViewModel {
     /// State as it was when the panel opened, so the back chevron can discard.
     private var editEntrySnapshot: EditorSnapshot?
 
+    /// Whether the active category has something for the panel to edit.
+    ///
+    /// Zoom always does: even with no zoom type selected, speed, pause and motion are
+    /// still meaningful. The other two need a selection, and checking per category also
+    /// stops the zoom tab opening a blank panel because a visual effect happens to be
+    /// selected on another tab.
+    private var hasEditableSelection: Bool {
+        switch selectedEffectCategory {
+        case .zoomEffects:   return true
+        case .visualEffects: return selectedVisualEffect != nil
+        case .faceFilters:   return selectedFaceFilter != nil
+        }
+    }
+
+    /// Normalises the optional modifier for an always-one-selected control.
+    ///
+    /// `nil` stays canonical in storage — `hasActiveModifier`, `hasEffectsWithoutZoom`
+    /// and `resetEffects` all keep working untouched — while LINEAR displays as selected.
+    var modifierSelection: ModifierType {
+        get { selectedModifier ?? .straight }
+        set { selectedModifier = (newValue == .straight) ? nil : newValue }
+    }
+
     /// The parameters the open panel should render, resolved from the active category.
     var editingParameters: [EffectParameter] {
         switch selectedEffectCategory {
@@ -135,18 +158,29 @@ class EditorViewModel {
         }
     }
 
+    /// How many rows the open panel will render. The panel needs this to size them
+    /// before layout, and cannot infer it from opaque content.
+    var editingRowCount: Int {
+        switch selectedEffectCategory {
+        // Speed, pause, motion — built directly rather than declared.
+        case .zoomEffects:   return 3
+        case .visualEffects: return selectedVisualEffect?.parameters.count ?? 0
+        case .faceFilters:   return selectedFaceFilter?.parameters.count ?? 0
+        }
+    }
+
     var editingTitle: String {
         switch selectedEffectCategory {
         case .visualEffects: return selectedVisualEffect?.rawValue ?? ""
         case .faceFilters:   return selectedFaceFilter?.rawValue ?? ""
-        case .zoomEffects:   return ""
+        case .zoomEffects:   return selectedAnimatorType?.rawValue.uppercased() ?? "NO ZOOM"
         }
     }
 
     /// Opens the panel for the current selection, capturing the values to revert to.
     /// No-ops without a selection, which keeps the `isEditingEffect` invariant.
     func beginEditing() {
-        guard selectedVisualEffect != nil || selectedFaceFilter != nil else { return }
+        guard hasEditableSelection else { return }
         editEntrySnapshot = currentSnapshot()
         isEditingEffect = true
     }
@@ -376,19 +410,6 @@ class EditorViewModel {
     /// identically — so it must not count as a modifier here either.
     var hasActiveModifier: Bool {
         selectedModifier != nil && selectedModifier != .straight
-    }
-
-    func cycleSpeed() {
-        switch playbackSpeed {
-        case 0.25: playbackSpeed = 0.5
-        case 0.5:  playbackSpeed = 1.0
-        case 1.0:  playbackSpeed = 2.0
-        default:   playbackSpeed = 0.25
-        }
-    }
-
-    func cyclePause() {
-        pauseDuration = pauseDuration >= 5 ? 1 : pauseDuration + 1
     }
 
     func resetEffects() {

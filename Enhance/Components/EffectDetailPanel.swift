@@ -7,9 +7,22 @@ import SwiftUI
 /// scrolling behaviour.
 struct EffectDetailPanel<Rows: View>: View {
     let title: String
+
+    /// Height the panel has actually been given, measured by the caller. Rows shrink to
+    /// fit it rather than overflowing — see `AppConstants.Layout.parameterRowHeight(forPanelHeight:rowCount:)`.
+    var availableHeight: CGFloat = 0
+
+    /// How many rows `rows` will produce. The panel cannot infer this from opaque
+    /// content, and needs it to size them before they are laid out.
+    var rowCount: Int = 0
+
     var onCancel: () -> Void
     var onConfirm: () -> Void
     @ViewBuilder var rows: () -> Rows
+
+    private var rowHeight: CGFloat {
+        AppConstants.Layout.parameterRowHeight(forPanelHeight: availableHeight, rowCount: rowCount)
+    }
 
     /// Measured so the row list only becomes scrollable when it actually overflows.
     @State private var contentHeight: CGFloat = 0
@@ -25,6 +38,7 @@ struct EffectDetailPanel<Rows: View>: View {
                 VStack(spacing: 8) {
                     rows()
                 }
+                .environment(\.panelRowHeight, rowHeight)
                 .frame(maxWidth: .infinity)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
             }
@@ -59,7 +73,7 @@ struct EffectDetailPanel<Rows: View>: View {
             .foregroundColor(.enhanceMint)
             .lineLimit(1)
             .frame(maxWidth: .infinity)
-            .frame(height: AppConstants.Layout.parameterRowHeight)
+            .frame(height: rowHeight)
             .overlay(alignment: .leading) {
                 Button {
                     HapticService.light()

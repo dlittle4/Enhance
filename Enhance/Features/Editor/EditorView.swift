@@ -40,16 +40,25 @@ struct EditorView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     }
                     .opacity(viewModel.showControls ? 1 : 0)
-                } else {
-                    Spacer(minLength: 0)
                 }
+                // No `Spacer` in the editing branch. A Spacer and the panel's
+                // `.frame(maxHeight: .infinity)` are both fully flexible, so SwiftUI
+                // splits the remaining column between them and the panel gets roughly
+                // half the space it appears to claim — on a short device that clips the
+                // last row straight off the screen.
+                
 
                 if viewModel.isEditingEffect {
-                    effectDetailPanel
-                        .frame(width: borderedSize)
-                        .frame(maxHeight: .infinity)
-                        .padding(.bottom, 16)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    // Same measured-space pattern as the card gallery: GeometryReader is
+                    // greedy, so it reports exactly the panel's vertical budget and the
+                    // rows size themselves to fit it.
+                    GeometryReader { geo in
+                        effectDetailPanel(availableHeight: geo.size.height)
+                            .frame(width: borderedSize)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    }
+                    .padding(.bottom, 16)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
                     bottomButtons
                         .opacity(viewModel.showControls ? 1 : 0)
@@ -83,14 +92,8 @@ struct EditorView: View {
         .onChange(of: viewModel.selectedModifier) { _, _ in
             viewModel.regenerateIfNeeded()
         }
-        .onChange(of: viewModel.playbackSpeed) { _, _ in
-            viewModel.regenerateIfNeeded()
-        }
         .onChange(of: viewModel.selectedVisualEffect) { _, _ in
             viewModel.updatePreviewImage()
-            viewModel.regenerateIfNeeded()
-        }
-        .onChange(of: viewModel.pauseDuration) { _, _ in
             viewModel.regenerateIfNeeded()
         }
         .onChange(of: viewModel.visibleRect) { _, _ in
@@ -140,9 +143,11 @@ struct EditorView: View {
 
     // MARK: - Effect Detail Panel
 
-    private var effectDetailPanel: some View {
+    private func effectDetailPanel(availableHeight: CGFloat) -> some View {
         EffectDetailPanel(
             title: viewModel.editingTitle,
+            availableHeight: availableHeight,
+            rowCount: viewModel.editingRowCount,
             onCancel: { viewModel.cancelEditing() },
             onConfirm: { viewModel.commitEditing() }
         ) {
@@ -163,7 +168,31 @@ struct EditorView: View {
                 parameterRows(for: filter, colorSelection: $viewModel.laserColor)
             }
         case .zoomEffects:
-            EmptyView()
+            // Built directly rather than through `parameterRows`. Speed and pause are
+            // *output* settings that shape the whole GIF, not per-effect parameters —
+            // keeping them as named view-model properties avoids per-zoom-type storage
+            // (switching ZOOM IN -> PULSE would silently reset them) and sidesteps the
+            // 0…1 lattice, whose one-step floor cannot express a 0s pause.
+            ParameterSliderRow(
+                label: "SPEED",
+                value: $viewModel.speedUnit,
+                onCommit: { viewModel.onParameterDragEnded() },
+                valueText: viewModel.speedLabel
+            )
+            ParameterSliderRow(
+                label: "PAUSE",
+                value: $viewModel.pauseUnit,
+                onCommit: { viewModel.onParameterDragEnded() },
+                allowsZero: true,
+                valueText: viewModel.pauseLabel
+            )
+            ParameterPickerRow(label: "MOTION") {
+                SegmentedBar(
+                    items: ModifierType.allCases,
+                    selection: $viewModel.modifierSelection,
+                    label: { $0.rawValue }
+                )
+            }
         }
     }
 
@@ -348,8 +377,10 @@ struct EditorView: View {
 
             switch viewModel.selectedEffectCategory {
             case .zoomEffects:
-                zoomControlsBars
-                    .transition(.opacity)
+                VStack(spacing: 8) {
+                    zoomEffectsGrid(cardSize: cardSize)
+                }
+                .transition(.opacity)
             case .visualEffects:
                 VStack(spacing: 8) {
                     visualEffectsGrid(cardSize: cardSize)
@@ -378,76 +409,50 @@ struct EditorView: View {
         }
     }
 
-    private var zoomControlsBars: some View {
-        Group {
-            HStack(spacing: 8) {
-                ForEach(AnimatorType.allCases) { animType in
-                    zoomToggle(animType)
+    // MARK: - Zoom Gallery
+
+    private func zoomEffectsGrid(cardSize: CGFloat) -> some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(AnimatorType.allCases) { animType in
+                        zoomToggle(animType, cardSize: cardSize)
+                            .id(animType)
+                    }
+                }
+                .padding(.vertical, 2)
+                .padding(.horizontal, 2)
+            }
+            .onAppear {
+                if let selected = viewModel.selectedAnimatorType {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            proxy.scrollTo(selected, anchor: .center)
+                        }
+                    }
                 }
             }
-            .disabled(viewModel.isRegenerating)
-
-            HStack(spacing: 8) {
-                ForEach(ModifierType.allCases) { modType in
-                    modifierToggle(modType)
-                }
-            }
-            .disabled(viewModel.isRegenerating)
-
-            speedPauseRow
         }
     }
 
-    private func zoomToggle(_ animType: AnimatorType) -> some View {
-        let isActive = viewModel.selectedAnimatorType == animType
-        return Button {
-            viewModel.pushUndo()
-            HapticService.light()
-            withAnimation(.easeOut(duration: AppConstants.Animation.quick)) {
-                viewModel.selectedAnimatorType = isActive ? nil : animType
+    private func zoomToggle(_ animType: AnimatorType, cardSize: CGFloat) -> some View {
+        EffectCardView(
+            // Raw values are mixed case ("Zoom In") unlike every other family.
+            title: animType.rawValue.uppercased(),
+            // No thumbnail: a zoom is motion, which a still cannot show. EffectCardView
+            // already falls back to a flat fill.
+            thumbnail: nil,
+            isActive: viewModel.selectedAnimatorType == animType,
+            isBlocked: viewModel.isRegenerating,
+            size: cardSize
+        ) {
+            HapticService.selection()
+            if viewModel.selectedAnimatorType != animType {
+                viewModel.pushUndo()
+                viewModel.selectedAnimatorType = animType
             }
-        } label: {
-            Text(animType.rawValue.uppercased())
-                .font(.silkscreenControl)
-                .foregroundColor(isActive ? mintGreen : .white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 60)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(isActive ? Color(red: 100/255, green: 148/255, blue: 122/255).opacity(0.7) : Color.white.opacity(0.04))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(isActive ? mintGreen : .clear, lineWidth: 2)
-                )
+            viewModel.beginEditing()
         }
-        .buttonStyle(.plain)
-    }
-
-    private func modifierToggle(_ modType: ModifierType) -> some View {
-        let isActive = viewModel.selectedModifier == modType
-        return Button {
-            viewModel.pushUndo()
-            HapticService.light()
-            withAnimation(.easeOut(duration: AppConstants.Animation.quick)) {
-                viewModel.selectedModifier = isActive ? nil : modType
-            }
-        } label: {
-            Text(modType.rawValue)
-                .font(.silkscreenControl)
-                .foregroundColor(isActive ? mintGreen : .white)
-                .frame(maxWidth: .infinity)
-                .frame(height: 60)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(isActive ? Color(red: 100/255, green: 148/255, blue: 122/255).opacity(0.7) : Color.white.opacity(0.04))
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(isActive ? mintGreen : .clear, lineWidth: 2)
-                )
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Pickers
@@ -456,9 +461,17 @@ struct EditorView: View {
     /// `tintColor`) and face filters (writing `laserColor`). Content only — the label
     /// column and row height come from `ParameterPickerRow`.
     private func colorSwatchContent(selection: Binding<LaserColor>) -> some View {
-        HStack {
+        // The zeroed spacing and `minLength` are both load-bearing. The
+        // Spacer-on-both-sides pattern distributes the swatches evenly, but a bare
+        // `Spacer()` carries its own ~8pt minimum *in addition to* the HStack's default
+        // spacing, so six swatches cost 156pt of circles plus ~230pt of irreducible gap.
+        // That exceeds the row's width on a 4.7" screen, and because it is an intrinsic
+        // minimum rather than a preference, it pushed the whole panel past both edges of
+        // the display. At zero, the swatches alone (156pt) set the floor and the Spacers
+        // only distribute whatever is left over.
+        HStack(spacing: 0) {
             ForEach(LaserColor.allCases) { color in
-                Spacer()
+                Spacer(minLength: 0)
                 Button {
                     viewModel.pushUndo()
                     HapticService.light()
@@ -474,7 +487,7 @@ struct EditorView: View {
                         )
                 }
                 .buttonStyle(.plain)
-                Spacer()
+                Spacer(minLength: 0)
             }
         }
     }
@@ -554,56 +567,6 @@ struct EditorView: View {
             get: { viewModel.value(param.id, for: effect, default: param.defaultValue) },
             set: { viewModel.setValue($0, param.id, for: effect) }
         )
-    }
-
-    private var speedPauseRow: some View {
-        HStack(spacing: 8) {
-            Button {
-                viewModel.pushUndo()
-                HapticService.light()
-                viewModel.cycleSpeed()
-            } label: {
-                VStack(spacing: 2) {
-                    Text("SPEED")
-                        .font(.silkscreenControl)
-                        .foregroundColor(.white)
-                    Text(viewModel.speedLabel)
-                        .font(.silkscreenControl)
-                        .foregroundColor(.white)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 60)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color(hex: 0x202020))
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(viewModel.isRegenerating)
-
-            Button {
-                viewModel.pushUndo()
-                HapticService.light()
-                viewModel.cyclePause()
-            } label: {
-                VStack(spacing: 2) {
-                    Text("PAUSE")
-                        .font(.silkscreenControl)
-                        .foregroundColor(.white)
-                    Text(viewModel.pauseLabel)
-                        .font(.silkscreenControl)
-                        .foregroundColor(.white)
-                }
-                .frame(maxWidth: .infinity)
-                .frame(height: 60)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color(hex: 0x202020))
-                )
-            }
-            .buttonStyle(.plain)
-            .disabled(viewModel.isRegenerating)
-        }
     }
 
     // MARK: - Visual Effects Grid

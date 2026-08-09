@@ -5,6 +5,7 @@ import SwiftUI
 /// Replaces four near-identical bespoke sliders (intensity / size / face intensity /
 /// face second) that differed only in which view-model property they wrote.
 struct ParameterSliderRow: View {
+    @Environment(\.panelRowHeight) private var rowHeight
     let label: String
     @Binding var value: Double
 
@@ -28,7 +29,8 @@ struct ParameterSliderRow: View {
     /// flag across rows was never the right shape.
     @State private var didPushUndo = false
 
-    private let knobSize: CGFloat = 34
+    /// Scales with the row so a shrunken row cannot clip it.
+    private var knobSize: CGFloat { min(34, rowHeight - 2) }
     private let labelWidth: CGFloat = 96
     private let dotSize: CGFloat = 3
 
@@ -44,7 +46,7 @@ struct ParameterSliderRow: View {
 
             track
         }
-        .frame(height: AppConstants.Layout.parameterRowHeight)
+        .frame(height: rowHeight)
     }
 
     private var track: some View {

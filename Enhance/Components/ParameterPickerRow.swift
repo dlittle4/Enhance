@@ -9,6 +9,7 @@ import SwiftUI
 /// (see LEARNINGS 2026-08-07 — three failed attempts at restyling `ColorPicker`), so
 /// the caller keeps ownership of the actual control and this only supplies the row.
 struct ParameterPickerRow<Content: View>: View {
+    @Environment(\.panelRowHeight) private var rowHeight
     let label: String
     @ViewBuilder var content: () -> Content
 
@@ -25,6 +26,6 @@ struct ParameterPickerRow<Content: View>: View {
             content()
                 .frame(maxWidth: .infinity)
         }
-        .frame(height: AppConstants.Layout.parameterRowHeight)
+        .frame(height: rowHeight)
     }
 }
