@@ -1073,7 +1073,7 @@ class EditorViewModel {
 
     /// Wording deliberately in the same voice as the ENHANCE nag ("Zoom in on the image
     /// first!"), because it is the same instruction arriving earlier.
-    static let zoomHintMessage = "Pinch to zoom in on your subject"
+    static let zoomHintMessage = "Pinch to zoom in"
 
     /// Set the first time the user works the canvas by hand. Latched rather than derived
     /// from `currentScale`, so the hint does not blink back when they pinch out to 1x
