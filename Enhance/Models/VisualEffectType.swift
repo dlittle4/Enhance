@@ -97,17 +97,6 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
         return params
     }
 
-    /// Whether this effect supports the separate size slider.
-    /// Derived from `parameters` so the two cannot drift apart.
-    var supportsSizeControl: Bool {
-        parameters.contains { $0.id == EffectParameter.sizeID }
-    }
-
-    /// Label for the second slider (used for size or other secondary controls).
-    var secondSliderLabel: String {
-        parameters.first { $0.id == EffectParameter.sizeID }?.label ?? "SIZE"
-    }
-
     /// Which picker row to show beneath the sliders, if any.
     var colorPickerKind: EffectPickerKind? {
         switch self {

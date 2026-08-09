@@ -78,37 +78,6 @@ class EditorViewModel {
         parameterValues[EffectParameter.key(paramID, for: effect)] = newValue
     }
 
-    /// Key for a visual-effect parameter under the current selection, falling back to a
-    /// stable unselected key so the shims below never silently drop a write.
-    private func visualKey(_ paramID: String) -> String {
-        guard let effect = selectedVisualEffect else {
-            return EffectParameter.unselectedKey(paramID, namespace: VisualEffectType.parameterNamespace)
-        }
-        return EffectParameter.key(paramID, for: effect)
-    }
-
-    private func faceKey(_ paramID: String) -> String {
-        guard let filter = selectedFaceFilter else {
-            return EffectParameter.unselectedKey(paramID, namespace: FaceFilterType.parameterNamespace)
-        }
-        return EffectParameter.key(paramID, for: filter)
-    }
-
-    // MARK: - Legacy value API
-    // Shims over `parameterValues`, keyed on the current selection. They keep the
-    // existing view and tests working while the storage changes underneath, and come
-    // out once the editor reads values straight from the declared parameter list.
-
-    var effectIntensity: Double {
-        get { parameterValues[visualKey(EffectParameter.intensityID)] ?? 0.5 }
-        set { parameterValues[visualKey(EffectParameter.intensityID)] = newValue }
-    }
-
-    var effectSize: Double {
-        get { parameterValues[visualKey(EffectParameter.sizeID)] ?? 0.5 }
-        set { parameterValues[visualKey(EffectParameter.sizeID)] = newValue }
-    }
-
     var tintColor: LaserColor = .red
     var gradientStops: GradientStops = .default
     var previewImage: UIImage? = nil
@@ -118,16 +87,6 @@ class EditorViewModel {
     var detectedFaces: [DetectedFace] = []
     var selectedFaceIndex: Int? = nil
     var selectedFaceFilter: FaceFilterType? = nil
-    var faceFilterIntensity: Double {
-        get { parameterValues[faceKey(EffectParameter.intensityID)] ?? 0.5 }
-        set { parameterValues[faceKey(EffectParameter.intensityID)] = newValue }
-    }
-
-    var faceFilterSpeed: Double {
-        get { parameterValues[faceKey(EffectParameter.secondaryID)] ?? 0.5 }
-        set { parameterValues[faceKey(EffectParameter.secondaryID)] = newValue }
-    }
-
     var laserColor: LaserColor = .red
     var isDetectingFaces: Bool = false
     private let faceDetectionService = FaceDetectionService()

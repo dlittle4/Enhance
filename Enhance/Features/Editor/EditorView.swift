@@ -523,10 +523,15 @@ struct EditorView: View {
         ForEach(effect.parameters) { param in
             switch param.kind {
             case .slider:
+                // Deliberately no `onBeginDrag: { pushUndo() }`. These rows only exist
+                // while the panel is open, and `commitEditing()` already records one
+                // entry for the whole visit — a per-drag push on top of that leaves the
+                // stack as [dragStart, entry], so the second undo steps the user
+                // *forward*. Undo is disabled while the panel is open, so a push here
+                // can only corrupt the stack, never help.
                 ParameterSliderRow(
                     label: param.label,
                     value: parameterBinding(param, for: effect),
-                    onBeginDrag: { viewModel.pushUndo() },
                     onCommit: { viewModel.onParameterDragEnded() }
                 )
             case .tintColor:

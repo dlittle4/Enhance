@@ -74,11 +74,6 @@ struct EffectParameter: Identifiable, Hashable {
         "\(E.parameterNamespace)|\(effect.parameterKeyComponent)|\(paramID)"
     }
 
-    /// Key used when no effect is selected, so the legacy value shims always have
-    /// somewhere stable to read and write rather than silently dropping the value.
-    static func unselectedKey(_ paramID: String, namespace: String) -> String {
-        "\(namespace)|·none·|\(paramID)"
-    }
 }
 
 /// An effect whose controls are declared rather than hardcoded, and whose values are

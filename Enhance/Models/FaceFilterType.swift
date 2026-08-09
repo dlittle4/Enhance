@@ -67,20 +67,6 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         }
     }
 
-    // MARK: - Legacy label API
-    // Derived from the two properties above so they cannot drift from `parameters`.
-    // Deleted once the editor renders rows straight from `parameters`.
-
-    var sliderLabel: String { primaryLabel }
-
-    /// Whether this filter exposes a second slider.
-    var supportsSecondSlider: Bool { secondaryLabel != nil }
-
-    /// Label for the second slider.
-    var secondSliderLabel: String { secondaryLabel ?? "" }
-
-
-
     /// Progress value used for the static live preview. Most effects look best
     /// at 1.0 (full strength). Pixelate needs a low value because its full
     /// strength is at progress=0 (fully pixelated → resolves to clear).

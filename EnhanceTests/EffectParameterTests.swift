@@ -37,22 +37,9 @@ struct EffectParameterTests {
         }
     }
 
-    /// The legacy API must keep matching the table. Green before the refactor and
-    /// after it, which is what makes the migration provably label-for-label identical.
-    @Test func faceFilter_legacyLabelsMatchTable() {
-        for type in FaceFilterType.allCases {
-            guard let expected = Self.expectedFaceLabels[type] else { continue }
-            #expect(type.sliderLabel == expected.primary, "\(type.rawValue) primary")
-            #expect(type.supportsSecondSlider == (expected.secondary != nil), "\(type.rawValue) hasSecond")
-            if let secondary = expected.secondary {
-                #expect(type.secondSliderLabel == secondary, "\(type.rawValue) secondary")
-            }
-        }
-    }
-
-    /// The new declarative list must produce the same labels as the legacy API — this
-    /// is the assertion that makes the migration label-for-label identical rather than
-    /// merely plausible.
+    /// The declarative list must produce exactly the labels captured in the table above,
+    /// which is what makes the migration off the old switches provably label-for-label
+    /// identical rather than merely plausible.
     @Test func faceFilter_parametersMatchTable() {
         for type in FaceFilterType.allCases {
             guard let expected = Self.expectedFaceLabels[type] else { continue }
@@ -69,7 +56,9 @@ struct EffectParameterTests {
     /// The face and visual second slots must use different ids — `sizeID` maps to
     /// `EffectOptions.size`, which face filters do not use.
     @Test func faceFilter_secondSlotUsesSecondaryIdNotSize() {
-        let withSecond = FaceFilterType.allCases.filter(\.supportsSecondSlider)
+        let withSecond = FaceFilterType.allCases.filter { type in
+            type.parameters.contains { $0.id == EffectParameter.secondaryID }
+        }
         #expect(!withSecond.isEmpty)
         for type in withSecond {
             let ids = type.parameters.map(\.id)
@@ -125,19 +114,6 @@ struct EffectParameterTests {
 
         #expect(fisheyeIntensity != ditherIntensity)
         #expect(fisheyeIntensity != fisheyeSize)
-    }
-
-    /// The unselected fallback must not collide with any real effect's key, or values
-    /// written with nothing selected would leak into an effect.
-    @Test func unselectedKey_collidesWithNoRealEffect() {
-        let fallback = EffectParameter.unselectedKey(
-            EffectParameter.intensityID,
-            namespace: VisualEffectType.parameterNamespace
-        )
-        let realKeys = VisualEffectType.allCases.map {
-            EffectParameter.key(EffectParameter.intensityID, for: $0)
-        }
-        #expect(!realKeys.contains(fallback))
     }
 
     // MARK: - displayValue

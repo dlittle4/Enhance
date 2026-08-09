@@ -134,13 +134,13 @@ struct FaceFilterTests {
 
     // MARK: - EditorViewModel face filter state
 
-    @Test func faceFilterIntensity_defaultsToHalf() {
+    @Test func faceFilterState_startsEmpty() {
         let img = UIGraphicsImageRenderer(size: CGSize(width: 10, height: 10)).image { ctx in
             UIColor.blue.setFill()
             ctx.fill(CGRect(x: 0, y: 0, width: 10, height: 10))
         }
         let vm = EditorViewModel(content: .newImage(img))
-        #expect(vm.faceFilterIntensity == 0.5)
+        #expect(vm.value(EffectParameter.intensityID, for: FaceFilterType.squeeze) == 0.5)
         #expect(vm.selectedFaceFilter == nil)
         #expect(vm.detectedFaces.isEmpty)
     }
@@ -162,15 +162,15 @@ struct FaceFilterTests {
         }
         let vm = EditorViewModel(content: .newImage(img))
         vm.selectedFaceFilter = .squeeze
-        vm.faceFilterIntensity = 0.9
-        vm.faceFilterSpeed = 0.8
+        vm.setValue(0.9, EffectParameter.intensityID, for: FaceFilterType.squeeze)
+        vm.setValue(0.8, EffectParameter.secondaryID, for: FaceFilterType.squeeze)
         vm.selectedFaceIndex = 0
 
         vm.resetEffects()
 
         #expect(vm.selectedFaceFilter == nil)
-        #expect(vm.faceFilterIntensity == 0.5)
-        #expect(vm.faceFilterSpeed == 0.5)
+        #expect(vm.value(EffectParameter.intensityID, for: FaceFilterType.squeeze) == 0.5)
+        #expect(vm.value(EffectParameter.secondaryID, for: FaceFilterType.squeeze) == 0.5)
         #expect(vm.selectedFaceIndex == nil)
         #expect(vm.detectedFaces.isEmpty)
     }

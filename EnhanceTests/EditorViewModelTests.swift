@@ -80,14 +80,6 @@ struct EditorViewModelTests {
         #expect(vm.hasNonDefaultSettings == true)
     }
 
-    // MARK: - Parameter defaults
-
-    @Test func effectSize_defaultsToHalf() {
-        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
-        #expect(vm.effectSize == 0.5)
-    }
-
-
     // MARK: - resetEffects
     
     @Test func resetEffects_restoresDefaults() {
@@ -97,7 +89,6 @@ struct EditorViewModelTests {
         vm.playbackSpeed = 3.0
         vm.selectedVisualEffect = .halftone
         vm.selectedEffectCategory = .visualEffects
-        vm.effectSize = 0.9
         
         vm.resetEffects()
         
@@ -108,7 +99,6 @@ struct EditorViewModelTests {
         #expect(vm.playbackSpeed == 0.5)
         #expect(vm.selectedVisualEffect == nil)
         #expect(vm.selectedEffectCategory == .zoomEffects)
-        #expect(vm.effectSize == 0.5)
     }
     
     @Test func resetEffects_forNewImage_clearsGeneratedGIF() {
@@ -299,19 +289,6 @@ struct EditorViewModelTests {
 
         vm.undo()
         #expect(vm.value(EffectParameter.sizeID, for: VisualEffectType.dither) == 0.2)
-    }
-
-    /// The legacy shims must address the same storage as the typed API, or the view and
-    /// the effect pipeline would disagree while both look correct.
-    @Test func legacyShims_addressTheSameStorageAsTypedAPI() {
-        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
-        vm.selectedVisualEffect = .fisheye
-
-        vm.effectIntensity = 0.3
-        #expect(vm.value(EffectParameter.intensityID, for: VisualEffectType.fisheye) == 0.3)
-
-        vm.setValue(0.6, EffectParameter.sizeID, for: VisualEffectType.fisheye)
-        #expect(vm.effectSize == 0.6)
     }
 
     // MARK: - Effect edit session
