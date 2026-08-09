@@ -434,5 +434,74 @@ struct EditorViewModelTests {
 
         #expect(vm.faceFilterThumbnails.isEmpty)
     }
+
+    // MARK: - Continuous speed and pause
+
+    /// The regression this guards shows up as "RESET never goes away". Speed used to be
+    /// one of four exact literals so `!= 0.5` worked; the geometric map makes the
+    /// round-trip 0.5000000000000001, and an equality check would leave RESET visible
+    /// forever once the knob had been moved and put back.
+    @Test func hasNonDefaultSettings_afterSpeedRoundTrip_isFalse() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        #expect(vm.hasNonDefaultSettings == false)
+
+        let original = vm.speedUnit
+        vm.speedUnit = 0.9
+        #expect(vm.hasNonDefaultSettings == true)
+
+        vm.speedUnit = original
+        #expect(vm.hasNonDefaultSettings == false, "returning to the default position must clear RESET")
+    }
+
+    @Test func speedUnit_roundTripsThroughTheViewModel() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.speedUnit = 0.5
+        #expect(abs(vm.playbackSpeed - 1.0) < 1e-9, "midpoint should be 1x")
+        #expect(abs(vm.speedUnit - 0.5) < 1e-9)
+
+        vm.speedUnit = 1.0
+        #expect(abs(vm.playbackSpeed - 4.0) < 1e-9, "top of the track should reach the generator's clamp")
+    }
+
+    /// A whole second of pause was the old minimum; zero is now reachable and meaningful.
+    @Test func pauseDuration_reachesZero() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.pauseUnit = 0
+        #expect(vm.pauseDuration == 0)
+        vm.pauseUnit = 1
+        #expect(vm.pauseDuration == 5.0)
+    }
+
+    /// Pins the `Int(playbackSpeed)` truncation that used to render 1.5 as "1X".
+    @Test func speedLabel_showsRealUnitsNotTheLatticeInteger() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.playbackSpeed = 1.5
+        #expect(vm.speedLabel == "1.5X")
+        vm.pauseDuration = 2.5
+        #expect(vm.pauseLabel == "2.5S")
+    }
+
+    /// pauseDuration changed Int -> Double, and it travels through EditorSnapshot.
+    @Test func undo_restoresFractionalPause() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.pauseDuration = 1.0
+        vm.pushUndo()
+        vm.pauseDuration = 3.75
+
+        vm.undo()
+        #expect(vm.pauseDuration == 1.0)
+    }
+
+    /// `.straight` is stored as nil everywhere else, so it must not light up RESET.
+    @Test func hasNonDefaultSettings_withStraightModifier_isFalse() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedModifier = .straight
+        #expect(vm.hasActiveModifier == false)
+        #expect(vm.hasNonDefaultSettings == false)
+
+        vm.selectedModifier = .shake
+        #expect(vm.hasActiveModifier == true)
+        #expect(vm.hasNonDefaultSettings == true)
+    }
 }
 

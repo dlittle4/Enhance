@@ -10,7 +10,7 @@ struct EditorSnapshot {
     let animatorType: AnimatorType?
     let modifier: ModifierType?
     let playbackSpeed: Double
-    let pauseDuration: Int
+    let pauseDuration: Double
     let visualEffect: VisualEffectType?
     /// The whole parameter store. One field replaces the four fixed Doubles this used to
     /// carry; copy-on-write means snapshots share storage until the next write.
@@ -52,8 +52,8 @@ class EditorViewModel {
     var selectedAnimatorType: AnimatorType? = .zoomIn
     var selectedModifier: ModifierType? = nil
     var isPlaying: Bool = true
-    var playbackSpeed: Double = 0.5
-    var pauseDuration: Int = 1
+    var playbackSpeed: Double = ZoomPlayback.defaultSpeed
+    var pauseDuration: Double = ZoomPlayback.defaultPause
     var showSaveSheet: Bool = false
     var hasModifiedSettings: Bool = false
     var selectedEffectCategory: EffectCategory = .zoomEffects
@@ -338,23 +338,44 @@ class EditorViewModel {
     var hasNonDefaultSettings: Bool {
         let hasVisualEffect = selectedVisualEffect != nil
         let hasFaceFilter = selectedFaceFilter != nil
+        // Tolerant comparison, not `!=`. Speed used to be one of four exact literals so
+        // equality worked; with a continuous geometric slider, moving the knob off the
+        // default and back yields 0.5000000000000001 and RESET would never disappear.
+        let timingChanged = !ZoomPlayback.isDefaultSpeed(playbackSpeed)
+            || !ZoomPlayback.isDefaultPause(pauseDuration)
+        let base = selectedAnimatorType != .zoomIn || hasActiveModifier || timingChanged
+            || hasVisualEffect || hasFaceFilter
+
         if case .newImage = content {
-            return selectedAnimatorType != .zoomIn || selectedModifier != nil || playbackSpeed != 0.5 || pauseDuration != 1 || isSplit || hasVisualEffect || hasFaceFilter
+            return base || isSplit
         }
-        return selectedAnimatorType != .zoomIn || selectedModifier != nil || playbackSpeed != 0.5 || pauseDuration != 1 || hasVisualEffect || hasFaceFilter
+        return base
     }
 
-    var speedLabel: String {
-        switch playbackSpeed {
-        case 0.25: return "0.25X"
-        case 0.5:  return "0.5X"
-        case 1.0:  return "1X"
-        default:   return "\(Int(playbackSpeed))X"
-        }
+    var speedLabel: String { ZoomPlayback.speedText(playbackSpeed) }
+
+    var pauseLabel: String { ZoomPlayback.pauseText(pauseDuration) }
+
+    // MARK: - Slider positions
+    //
+    // The panel's sliders work in 0…1; the generator works in multiples and seconds.
+    // Exposing the conversion as properties means the view binds `$viewModel.speedUnit`
+    // directly, with no bespoke `Binding` at the call site.
+
+    var speedUnit: Double {
+        get { ZoomPlayback.unit(speed: playbackSpeed) }
+        set { playbackSpeed = ZoomPlayback.speed(unit: newValue) }
     }
 
-    var pauseLabel: String {
-        pauseDuration == 1 ? "1 SECOND" : "\(pauseDuration) SECONDS"
+    var pauseUnit: Double {
+        get { ZoomPlayback.unit(pause: pauseDuration) }
+        set { pauseDuration = ZoomPlayback.pause(unit: newValue) }
+    }
+
+    /// `.straight` is stored as nil everywhere else — `activeAnimator` treats the two
+    /// identically — so it must not count as a modifier here either.
+    var hasActiveModifier: Bool {
+        selectedModifier != nil && selectedModifier != .straight
     }
 
     func cycleSpeed() {
@@ -375,8 +396,8 @@ class EditorViewModel {
 
         selectedAnimatorType = .zoomIn
         selectedModifier = nil
-        playbackSpeed = 0.5
-        pauseDuration = 1
+        playbackSpeed = ZoomPlayback.defaultSpeed
+        pauseDuration = ZoomPlayback.defaultPause
         selectedVisualEffect = nil
         isEditingEffect = false
         editEntrySnapshot = nil
@@ -809,7 +830,7 @@ class EditorViewModel {
                 from: imageToUse, currentScale: generationScale,
                 visibleRect: generationVisibleRect, animator: animator,
                 speed: playbackSpeed,
-                pauseDuration: Double(pauseDuration),
+                pauseDuration: pauseDuration,
                 visualEffects: activeVisualEffectList,
                 faceEffect: activeFaceEffect,
                 detectedFaces: activeFaces
@@ -856,7 +877,7 @@ class EditorViewModel {
                 from: sourceImg, currentScale: generationScale,
                 visibleRect: generationVisibleRect, animator: animator,
                 speed: playbackSpeed,
-                pauseDuration: Double(pauseDuration),
+                pauseDuration: pauseDuration,
                 visualEffects: activeVisualEffectList,
                 faceEffect: activeFaceEffect,
                 detectedFaces: activeFaces
