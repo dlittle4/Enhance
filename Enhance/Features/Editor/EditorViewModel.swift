@@ -1048,6 +1048,41 @@ class EditorViewModel {
         }
     }
     
+    // MARK: - Arrival hint
+
+    /// Wording deliberately in the same voice as the ENHANCE nag ("Zoom in on the image
+    /// first!"), because it is the same instruction arriving earlier.
+    static let zoomHintMessage = "Pinch and zoom on the photo"
+
+    /// Set the first time the user works the canvas by hand. Latched rather than derived
+    /// from `currentScale`, so the hint does not blink back when they pinch out to 1x
+    /// again — by then they have discovered the gesture and the hint is noise.
+    private(set) var hasUsedCanvas = false
+
+    /// Whether to show the arrival hint. Nothing on the editor said that pinching is how
+    /// the zoom target gets chosen, so a first-time user could reasonably tap ENHANCE and
+    /// be told off for it.
+    var showsZoomHint: Bool {
+        // An existing GIF opens with its saved zoom already applied, so its user has
+        // made this choice before and does not need telling.
+        guard case .newImage = content else { return false }
+        guard !hasUsedCanvas else { return false }
+        // The canvas shows a finished GIF, not a pinchable image.
+        guard !isSplit else { return false }
+        // The panel owns the screen while it is open.
+        guard !isEditingEffect else { return false }
+        // Rides in with the rest of the controls rather than popping in mid-transition.
+        guard showControls else { return false }
+        return currentScale <= 1.0
+    }
+
+    func noteCanvasInteraction() {
+        guard !hasUsedCanvas else { return }
+        withAnimation(.easeInOut(duration: AppConstants.Animation.standard)) {
+            hasUsedCanvas = true
+        }
+    }
+
     func showToast(_ message: String) {
         saveMessage = message
         withAnimation { showSaveMessage = true }

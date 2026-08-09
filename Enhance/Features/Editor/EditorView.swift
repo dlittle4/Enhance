@@ -284,7 +284,8 @@ struct EditorView: View {
                                     }
                                 }
                                 viewModel.updateFaceFilterPreview()
-                            }
+                            },
+                            onInteraction: { viewModel.noteCanvasInteraction() }
                         )
                         .frame(width: canvasSize, height: canvasSize)
                     }
@@ -321,7 +322,8 @@ struct EditorView: View {
                                     }
                                 }
                                 viewModel.updateFaceFilterPreview()
-                            }
+                            },
+                            onInteraction: { viewModel.noteCanvasInteraction() }
                         )
                         .frame(width: canvasSize, height: canvasSize)
                     }
@@ -836,25 +838,44 @@ struct EditorView: View {
     private var toastOverlay: some View {
         Group {
             if viewModel.showSaveMessage {
-                Text(viewModel.saveMessage)
-                    .font(.silkscreenBody)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, AppConstants.Spacing.grid)
-                    .padding(.vertical, AppConstants.Spacing.small)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(Color.black)
-                    )
+                toastLabel(viewModel.saveMessage)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                     .onAppear {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                             withAnimation { viewModel.showSaveMessage = false }
                         }
                     }
+            } else if viewModel.showsZoomHint {
+                // `else if`, so a real message always wins the slot. Two pills stacked in
+                // the same corner would be worse than either alone — and the case is easy
+                // to hit, since tapping ENHANCE without zooming is exactly what this hint
+                // exists to prevent.
+                toastLabel(EditorViewModel.zoomHintMessage)
+                    .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showSaveMessage)
+        .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showsZoomHint)
         .frame(maxHeight: .infinity, alignment: .bottom)
         .padding(.bottom, AppConstants.Spacing.grid)
+    }
+
+    /// Chrome shared by the transient toast and the persistent arrival hint. The hint's
+    /// whole point is that it looks like the message ENHANCE would give you, so the two
+    /// must not be able to drift apart.
+    private func toastLabel(_ message: String) -> some View {
+        Text(message)
+            .font(.silkscreenBody)
+            .foregroundColor(.white)
+            // Silkscreen is wide and the canvas is only 325pt, so a longer message would
+            // otherwise wrap or overflow rather than shrink.
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .padding(.horizontal, AppConstants.Spacing.grid)
+            .padding(.vertical, AppConstants.Spacing.small)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.black)
+            )
     }
 }

@@ -145,6 +145,91 @@ struct EditorViewModelTests {
         try? FileManager.default.removeItem(at: url)
     }
 
+    // MARK: - showsZoomHint
+
+    private func makeHintReadyViewModel() -> EditorViewModel {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        // The editor fades its controls in after the open transition; the hint rides in
+        // with them rather than popping in mid-transition.
+        vm.showControls = true
+        return vm
+    }
+
+    @Test func showsZoomHint_onArrival_isTrue() {
+        #expect(makeHintReadyViewModel().showsZoomHint)
+    }
+
+    @Test func showsZoomHint_beforeControlsAppear_isFalse() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        #expect(vm.showControls == false)
+        #expect(!vm.showsZoomHint)
+    }
+
+    @Test func showsZoomHint_afterTheUserWorksTheCanvas_isFalse() {
+        let vm = makeHintReadyViewModel()
+        vm.noteCanvasInteraction()
+        #expect(!vm.showsZoomHint)
+    }
+
+    /// The load-bearing one. Latched rather than derived from `currentScale`, so pinching
+    /// back out to 1x does not bring the hint back — by then the user has found the
+    /// gesture and repeating the instruction is just noise.
+    @Test func showsZoomHint_afterZoomingBackToOne_staysHidden() {
+        let vm = makeHintReadyViewModel()
+
+        vm.noteCanvasInteraction()
+        vm.currentScale = 3.0
+        #expect(!vm.showsZoomHint)
+
+        vm.currentScale = 1.0
+        #expect(!vm.showsZoomHint, "the hint must not blink back once the gesture is known")
+    }
+
+    @Test func showsZoomHint_whileZoomed_isFalse() {
+        let vm = makeHintReadyViewModel()
+        vm.currentScale = 2.0
+        #expect(!vm.showsZoomHint)
+    }
+
+    /// An existing GIF opens with its saved zoom already applied, so its user has made
+    /// this choice before.
+    @Test func showsZoomHint_forExistingGif_isFalse() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("hint.gif")
+        try? Data().write(to: url)
+        let vm = EditorViewModel(content: .existingGif(url, 0, "id"), gifGenerator: StubGIFGenerator())
+        vm.showControls = true
+        vm.currentScale = 1.0
+
+        #expect(!vm.showsZoomHint)
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    /// The panel owns the screen while open, and the canvas is not the thing being edited.
+    @Test func showsZoomHint_whileEditingAnEffect_isFalse() {
+        let vm = makeHintReadyViewModel()
+        vm.beginEditing()
+
+        #expect(vm.isEditingEffect)
+        #expect(!vm.showsZoomHint)
+    }
+
+    /// Once a GIF exists the canvas shows it rather than a pinchable image.
+    @Test func showsZoomHint_afterGenerating_isFalse() {
+        let vm = makeHintReadyViewModel()
+        vm.enhanceState = .share
+
+        #expect(vm.isSplit)
+        #expect(!vm.showsZoomHint)
+    }
+
+    @Test func noteCanvasInteraction_isIdempotent() {
+        let vm = makeHintReadyViewModel()
+        vm.noteCanvasInteraction()
+        vm.noteCanvasInteraction()
+        #expect(vm.hasUsedCanvas)
+        #expect(!vm.showsZoomHint)
+    }
+
     // MARK: - zoomPreviewFraming
 
     /// With no zoom set, all three animators interpolate between two *identical*

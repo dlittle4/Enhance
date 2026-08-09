@@ -792,6 +792,16 @@ two-slider ceiling and no room to grow.
 - [x] One `EffectCarousel` component replaces three near-identical copies of the scroll
       view, one per tab
 
+**Discoverability**
+- [x] **An arrival hint tells the user to pinch.** Nothing on the editor said that pinching
+      the canvas is how the zoom target gets chosen, so a first-time user could reasonably
+      tap ENHANCE and be told off for it. Reuses the ENHANCE nag's own toast chrome — same
+      instruction, arriving earlier — and latches off the first time they work the canvas
+- [x] Dismissal is driven from the scroll view's `willBegin` delegate callbacks, not from
+      `currentScale` changing. Those two are also written *programmatically* (an existing
+      GIF restores its saved zoom; the nag bounces the scale), and a value-based signal
+      cannot tell a real gesture from either
+
 **Deliberately unreachable, not removed**
 - [ ] **Zoom is always on.** One of the three zoom types is always selected; there is no NONE
       card and cards do not toggle off. **Consequence: effects-only GIFs at 1× are impossible.**

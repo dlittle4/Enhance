@@ -11,6 +11,15 @@ struct ImageCanvasView: View {
     var faceOverlays: [(id: UUID, rect: CGRect, isSelected: Bool)] = []
     var onFaceSelected: ((Int) -> Void)? = nil
 
+    /// Fired the first time — and every time — the user works the canvas by hand.
+    ///
+    /// Driven from the scroll view's `willBegin` delegate callbacks rather than from
+    /// `scale` or `visibleRect` changing, because those two are also written
+    /// *programmatically*: an existing GIF restores its saved zoom on open, and the
+    /// ENHANCE nag bounces the scale to hint at pinching. Neither is the user touching
+    /// the photo, and a value-based signal cannot tell the difference.
+    var onInteraction: (() -> Void)? = nil
+
     private let canvasSize: CGFloat = 325
 
     var body: some View {
@@ -21,6 +30,7 @@ struct ImageCanvasView: View {
                 visibleRect: $visibleRect,
                 faceOverlays: faceOverlays,
                 onFaceSelected: onFaceSelected,
+                onInteraction: onInteraction,
                 canvasSize: canvasSize
             )
 
@@ -41,6 +51,7 @@ private struct ScrollableCanvasView: UIViewRepresentable {
     @Binding var visibleRect: CGRect
     var faceOverlays: [(id: UUID, rect: CGRect, isSelected: Bool)]
     var onFaceSelected: ((Int) -> Void)?
+    var onInteraction: (() -> Void)?
     let canvasSize: CGFloat
 
     func makeCoordinator() -> Coordinator {
@@ -126,6 +137,14 @@ private struct ScrollableCanvasView: UIViewRepresentable {
             imageView
         }
 
+        func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
+            parent.onInteraction?()
+        }
+
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            parent.onInteraction?()
+        }
+
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
             centerContent(in: scrollView)
             syncBindings(scrollView)
@@ -196,6 +215,7 @@ private struct ScrollableCanvasView: UIViewRepresentable {
 
         @objc func handleDoubleTap(_ recognizer: UITapGestureRecognizer) {
             guard let scrollView = recognizer.view as? UIScrollView else { return }
+            parent.onInteraction?()
 
             if scrollView.zoomScale > 1.05 {
                 scrollView.setZoomScale(1.0, animated: true)
