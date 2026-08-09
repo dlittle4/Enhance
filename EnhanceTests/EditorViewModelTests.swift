@@ -230,30 +230,88 @@ struct EditorViewModelTests {
         #expect(!vm.showsZoomHint)
     }
 
-    // MARK: - zoomPreviewFraming
+    // MARK: - zoomCardFraming
 
-    /// With no zoom set, all three animators interpolate between two *identical*
-    /// framings, so every zoom card would sit perfectly still and look broken. The
-    /// fallback is what keeps the cards demonstrating the motion.
-    @Test func zoomPreviewFraming_withoutAUserZoom_fallsBackToARepresentativeZoom() {
-        let vm = EditorViewModel(content: .newImage(UIImage()), gifGenerator: StubGIFGenerator())
+    /// With no zoom set the two endpoint framings are identical, so all three cards would
+    /// show the same untouched photo. The fallback is what keeps them distinguishable.
+    @Test func zoomCardFraming_withoutAUserZoom_isTheFallback() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
 
         #expect(vm.currentScale == 1.0)
-        let framing = vm.zoomPreviewFraming
-        #expect(framing.scale > 1.5, "a still card is useless; the fallback must actually move")
-        #expect(framing.center == CGPoint(x: 0.5, y: 0.5))
+        #expect(vm.zoomCardFraming == .fallback)
+        #expect(vm.zoomCardFraming.scale > 1.5, "identical stills would say nothing")
     }
 
-    @Test func zoomPreviewFraming_withAUserZoom_usesTheirFraming() {
-        let vm = EditorViewModel(content: .newImage(UIImage()), gifGenerator: StubGIFGenerator())
+    /// The point of the snapshot: `currentScale` and `visibleRect` are rewritten on every
+    /// scroll-delegate callback, so cards reading them live would re-crop continuously
+    /// under the user's fingers.
+    @Test func zoomCardFraming_doesNotTrackTheCanvasUntilTheGestureSettles() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
 
         vm.currentScale = 3.0
         vm.visibleRect = CGRect(x: 0.1, y: 0.5, width: 0.2, height: 0.2)
 
-        let framing = vm.zoomPreviewFraming
-        #expect(framing.scale == 3.0)
-        #expect(abs(framing.center.x - 0.2) < 1e-9)
-        #expect(abs(framing.center.y - 0.6) < 1e-9)
+        #expect(vm.zoomCardFraming == .fallback, "mid-gesture values must not reach the cards")
+    }
+
+    @Test func commitZoomCardFraming_publishesTheUsersFraming() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+
+        vm.currentScale = 3.0
+        vm.visibleRect = CGRect(x: 0.1, y: 0.5, width: 0.2, height: 0.2)
+        vm.commitZoomCardFraming()
+
+        #expect(vm.zoomCardFraming.scale == 3.0)
+        #expect(abs(vm.zoomCardFraming.center.x - 0.2) < 1e-9)
+        #expect(abs(vm.zoomCardFraming.center.y - 0.6) < 1e-9)
+    }
+
+    /// Pinching back out to 1x should return the cards to the fallback rather than leave
+    /// them cropped to a zoom that no longer exists.
+    @Test func commitZoomCardFraming_afterZoomingBackOut_returnsToTheFallback() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+
+        vm.currentScale = 3.0
+        vm.commitZoomCardFraming()
+        #expect(vm.zoomCardFraming != .fallback)
+
+        vm.currentScale = 1.0
+        vm.commitZoomCardFraming()
+        #expect(vm.zoomCardFraming == .fallback)
+    }
+
+    // MARK: - zoomPreviewImage
+
+    /// The zoom tab asks for its thumbnail in `onAppear`. For an existing GIF that runs
+    /// *before* `sourceImage` has finished loading, so the call is a no-op — and the tab
+    /// never asks again. The cards stayed blank until the user switched tabs and came
+    /// back, which re-fired the onAppear.
+    ///
+    /// Pins the invariant the fix depends on: an early no-op must leave the build
+    /// retryable, so the retry fired when `sourceImage` lands actually produces an image.
+    @Test func generateZoomPreviewImage_afterAnEarlyNoOp_stillBuildsWhenTheSourceArrives() async {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("zoomthumb.gif")
+        try? Data().write(to: url)
+        let vm = EditorViewModel(content: .existingGif(url, 0, "id"), gifGenerator: StubGIFGenerator())
+
+        // What the zoom tab does on appear, before the source has loaded.
+        #expect(vm.image == nil && vm.sourceImage == nil)
+        vm.generateZoomPreviewImage()
+        #expect(vm.zoomPreviewImage == nil)
+
+        // What the source-image load now does when it completes.
+        vm.sourceImage = makeImage()
+        vm.generateZoomPreviewImage()
+
+        // Polled rather than slept: the build hops to a utility queue and back.
+        var built = false
+        for _ in 0..<40 {
+            if vm.zoomPreviewImage != nil { built = true; break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(built, "an early no-op must not prevent a later build")
+
+        try? FileManager.default.removeItem(at: url)
     }
 
     // MARK: - activeAnimator

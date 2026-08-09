@@ -20,6 +20,11 @@ struct ImageCanvasView: View {
     /// the photo, and a value-based signal cannot tell the difference.
     var onInteraction: (() -> Void)? = nil
 
+    /// Fired when a canvas gesture settles. Separate from `onInteraction` because some
+    /// work should happen once the framing is final rather than on every delegate
+    /// callback under the user's fingers.
+    var onInteractionEnded: (() -> Void)? = nil
+
     private let canvasSize: CGFloat = 325
 
     var body: some View {
@@ -31,6 +36,7 @@ struct ImageCanvasView: View {
                 faceOverlays: faceOverlays,
                 onFaceSelected: onFaceSelected,
                 onInteraction: onInteraction,
+                onInteractionEnded: onInteractionEnded,
                 canvasSize: canvasSize
             )
 
@@ -52,6 +58,7 @@ private struct ScrollableCanvasView: UIViewRepresentable {
     var faceOverlays: [(id: UUID, rect: CGRect, isSelected: Bool)]
     var onFaceSelected: ((Int) -> Void)?
     var onInteraction: (() -> Void)?
+    var onInteractionEnded: (() -> Void)?
     let canvasSize: CGFloat
 
     func makeCoordinator() -> Coordinator {
@@ -156,6 +163,17 @@ private struct ScrollableCanvasView: UIViewRepresentable {
 
         func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
             syncBindings(scrollView)
+            parent.onInteractionEnded?()
+        }
+
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+            // Deferred to `didEndDecelerating` when the pan is still coasting, so the
+            // framing is only published once it has actually come to rest.
+            if !decelerate { parent.onInteractionEnded?() }
+        }
+
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            parent.onInteractionEnded?()
         }
 
         // MARK: Bindings

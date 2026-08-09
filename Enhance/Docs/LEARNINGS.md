@@ -1238,3 +1238,15 @@ so LINEAR displays as selected but is never stored.
 A related trap: the geometric round trip is not bit-exact. `speed(unit: unit(speed: 0.5))` yields `0.5000000000000001`, so `playbackSpeed != 0.5` in `hasNonDefaultSettings` stayed true forever once the knob had been moved and put back — RESET would never disappear again. `isDefaultSpeed` compares with an epsilon.
 
 **Rule:** when a control quantises, check that every default is *reachable* by it before choosing the mapping — an unreachable default is a value the UI silently edits on first contact. And once any value round-trips through a non-linear transform, every equality comparison against it needs a tolerance; float equality is only safe while the reachable set is a handful of exact literals, which is exactly the condition that a continuous control removes.
+
+## 2026-08-09: `onAppear` is a bad trigger for work that depends on async state
+
+**Problem:** The ZOOM cards showed no thumbnail when a GIF was opened from the gallery. They appeared correctly if the user switched to another tab and came back.
+
+The tab asked for its thumbnail in `onAppear`. For a new photo that works, because `image` is available from `content` at init. For an **existing GIF** there is no `image` — `sourceImage` is decoded from the GIF's first frame asynchronously, and lands *after* the tab has already appeared. So the request hit `guard let source = image ?? sourceImage else { return }` and returned. Nothing asked again. Switching tabs tore the view down and rebuilt it, which re-fired `onAppear` — by then the source existed, so the "fix" was to visit an unrelated tab.
+
+**Fix:** call the builder from the completion where `sourceImage` is assigned, as well as from `onAppear`. The existing `guard zoomPreviewImage == nil` already made it idempotent, so both callers are safe.
+
+**This is the second time this exact shape has appeared in `EditorViewModel`.** `generateFaceFilterThumbnails` carries a comment saying it must be called from face detection's completion and never from the category change — same cause, different symptom: fired early it ran with zero faces and cached thirteen unmodified copies of the photo for the session.
+
+**Rule:** `onAppear` fires when a view is *mounted*, which says nothing about whether the data it needs has arrived. Any view-triggered work that reads asynchronously-loaded state needs a second trigger at the point that state lands, and the work itself must be idempotent so both paths can fire freely. When a bug's reproduction step is "go somewhere else and come back", the cause is almost always a one-shot trigger that ran too early — the detour is just re-running it.

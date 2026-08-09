@@ -285,7 +285,8 @@ struct EditorView: View {
                                 }
                                 viewModel.updateFaceFilterPreview()
                             },
-                            onInteraction: { viewModel.noteCanvasInteraction() }
+                            onInteraction: { viewModel.noteCanvasInteraction() },
+                            onInteractionEnded: { viewModel.commitZoomCardFraming() }
                         )
                         .frame(width: canvasSize, height: canvasSize)
                     }
@@ -323,7 +324,8 @@ struct EditorView: View {
                                 }
                                 viewModel.updateFaceFilterPreview()
                             },
-                            onInteraction: { viewModel.noteCanvasInteraction() }
+                            onInteraction: { viewModel.noteCanvasInteraction() },
+                            onInteractionEnded: { viewModel.commitZoomCardFraming() }
                         )
                         .frame(width: canvasSize, height: canvasSize)
                     }
@@ -431,7 +433,7 @@ struct EditorView: View {
 
     private func zoomToggle(_ animType: AnimatorType, cardSize: CGFloat) -> some View {
         let isActive = viewModel.selectedAnimatorType == animType
-        let framing = viewModel.zoomPreviewFraming
+        let framing = viewModel.zoomCardFraming
 
         return EffectCardView(
             // Raw values are mixed case ("Zoom In") unlike every other family.

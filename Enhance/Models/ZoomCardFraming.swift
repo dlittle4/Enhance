@@ -73,3 +73,18 @@ enum ZoomCardFraming {
         )
     }
 }
+
+/// The framing a zoom travels to: how far in, and where.
+///
+/// A value type so it can be *snapshotted*. The zoom cards deliberately do not read
+/// `currentScale` / `visibleRect` live — those are rewritten on every scroll-delegate
+/// callback, so live cards would re-crop continuously under the user's fingers while they
+/// are trying to look at the photo.
+struct ZoomFraming: Equatable {
+    var scale: CGFloat
+    var center: CGPoint
+
+    /// Stand-in used until the user picks a zoom. Without it the two endpoint framings
+    /// are identical and all three cards show the same untouched photo.
+    static let fallback = ZoomFraming(scale: 2.5, center: CGPoint(x: 0.5, y: 0.5))
+}

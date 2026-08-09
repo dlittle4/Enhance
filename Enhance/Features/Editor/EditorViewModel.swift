@@ -537,16 +537,29 @@ class EditorViewModel {
     /// card is communicating a framing rather than image detail.
     var zoomPreviewImage: UIImage?
 
-    /// Where the ZOOM cards' camera move travels to.
+    /// What the ZOOM cards crop to.
     ///
-    /// Falls back to a representative centred zoom until the user has picked one.
-    /// Without that fallback the cards would be *correct* and useless: with no zoom set
-    /// the two endpoint framings are identical, so all three cards would show the same
-    /// untouched photo and none of them would say anything about its zoom type.
-    var zoomPreviewFraming: (scale: CGFloat, center: CGPoint) {
+    /// A published **snapshot**, not a live read of `currentScale` / `visibleRect`. Those
+    /// are rewritten on every scroll-delegate callback, so reading them directly made all
+    /// three cards re-crop continuously while the user was pinching — motion in the
+    /// corner of the eye, competing with the photo they were framing. It now moves only
+    /// when a gesture settles.
+    private(set) var zoomCardFraming: ZoomFraming = .fallback
+
+    /// Publishes the current canvas framing to the cards. Called when a canvas gesture
+    /// comes to rest, and once after an existing GIF restores its saved zoom.
+    func commitZoomCardFraming() {
+        let resolved: ZoomFraming
         let scale = max(1, currentScale)
-        guard scale > 1.01 else { return (2.5, CGPoint(x: 0.5, y: 0.5)) }
-        return (scale, CGPoint(x: visibleRect.midX, y: visibleRect.midY))
+        if scale > 1.01 {
+            resolved = ZoomFraming(scale: scale, center: CGPoint(x: visibleRect.midX, y: visibleRect.midY))
+        } else {
+            resolved = .fallback
+        }
+        guard resolved != zoomCardFraming else { return }
+        withAnimation(.easeInOut(duration: AppConstants.Animation.quick)) {
+            zoomCardFraming = resolved
+        }
     }
 
     func generateZoomPreviewImage() {
@@ -839,6 +852,14 @@ class EditorViewModel {
 
                 self.currentScale = self.generationScale
                 self.visibleRect = self.generationVisibleRect
+                // Restored programmatically, so no gesture will publish it.
+                self.commitZoomCardFraming()
+
+                // `image` is nil for an existing GIF and `sourceImage` only lands here,
+                // *after* the zoom tab has already appeared and asked for its thumbnail.
+                // Without this retry the cards stayed blank until the user switched tabs
+                // and came back, which re-fired the onAppear.
+                self.generateZoomPreviewImage()
 
                 if self.selectedEffectCategory == .faceFilters {
                     self.detectFacesIfNeeded()
@@ -1052,7 +1073,7 @@ class EditorViewModel {
 
     /// Wording deliberately in the same voice as the ENHANCE nag ("Zoom in on the image
     /// first!"), because it is the same instruction arriving earlier.
-    static let zoomHintMessage = "Pinch and zoom on the photo"
+    static let zoomHintMessage = "Pinch to zoom in on your subject"
 
     /// Set the first time the user works the canvas by hand. Latched rather than derived
     /// from `currentScale`, so the hint does not blink back when they pinch out to 1x
