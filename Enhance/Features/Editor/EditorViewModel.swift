@@ -793,10 +793,6 @@ class EditorViewModel {
         return nil
     }
     
-    var gifURL: URL? {
-        generatedGifURL ?? existingGifURL
-    }
-    
     var gifIndex: Int {
         return -1
     }
@@ -993,7 +989,11 @@ class EditorViewModel {
     }
     
     func saveGIFToLibrary(photoManager: PhotoManager) {
-        guard let url = gifURL, generatedGIF != nil else {
+        // `generatedGifURL`, never a fallback to `existingGifURL`. Saving on an existing GIF
+        // means saving a *new copy of the edit*; if regeneration never produced a file, the
+        // old fallback silently saved the untouched original instead. `updateOriginalGIF`
+        // already requires the generated file for the same reason — this makes SAVE match.
+        guard let url = generatedGifURL, generatedGIF != nil else {
             showToast("Error: No GIF to save")
             return
         }
