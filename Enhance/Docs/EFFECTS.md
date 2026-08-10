@@ -10,21 +10,39 @@
 
 ## Current state
 
-**11 effects live**, in carousel order:
+**12 effects live**, in carousel order:
 
-`CHROMA SHIFT` · `HALFTONE` · `FISHEYE` · `SWIRL` · `PIXELATE` · `RAINBOW` · `HEAT HAZE` ·
-`MOTION BLUR` · `GRADIENT` · `EDGES` · `DITHER`
+`CHROMA SHIFT` · `LENS` · `HALFTONE` · `FISHEYE` · `SWIRL` · `PIXELATE` · `RAINBOW` ·
+`HEAT HAZE` · `MOTION BLUR` · `GRADIENT` · `EDGES` · `DITHER`
 
 **6 retired** (compiled and tested, hidden from the picker — remove from
 `VisualEffectType.retired` to bring one back): Monotone, Duotone, Bloom, Inversion,
 Vintage Grain, Pop Art.
 
-**13 face filters**, all shipped.
+**14 face filters**, all shipped. LENS is the seventh effect living in *both* carousels, via
+`FaceVisualEffect`.
 
 Every effect so far is composed from stock `CIFilter`s. **There is no custom Core Image
 kernel infrastructure in the project** — the only `.metal` file, `Shaders/Pixellate.metal`,
 is a SwiftUI `[[stitchable]]` shader used for the animated canvas border, and it cannot
 render GIF frames (see the hazard below).
+
+### LENS — a Figma shader ported without its source
+
+`LensDistortionEffect` is worth calling out because it disproved the assumption that porting a
+Figma *shader* effect needs a kernel. The shader source was **not obtainable** (the Figma
+capture harness says so outright), so it was reconstructed by measuring the reference renders —
+five properties identified numerically, one of them inert and dropped. The result is radial
+chromatic dispersion built from **three `CIZoomBlur` passes**, one per colour channel at
+different amounts, additively recombined and masked by a `CIRadialGradient` for the REACH
+control. About eight stock nodes, no kernel. Full analysis: `Docs/FEATURE-LENS-DISTORTION.md`.
+
+Two properties are deliberate and load-bearing, recorded so they are not "fixed" later:
+- **No `FrameGeometry`.** A lens aberration belongs to the lens, so it stays fixed to the output
+  frame under zoom rather than tracking the subject like a dither grid.
+- **Chroma is not monotonic in AMOUNT.** Past mid-range the streaks spread so far they dilute —
+  max dispersion is a wide low-saturation wash, matching the reference. The test asserts the
+  control is *live across its range*, not that saturation rises.
 
 ---
 

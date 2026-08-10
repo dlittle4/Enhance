@@ -21,6 +21,7 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
     case fadeToBW   = "FADE TO B&W"
     case chromaShift = "CHROMA SHIFT"
     case rainbow    = "RAINBOW"
+    case lensDistortion = "LENS"
 
     var id: String { rawValue }
 
@@ -63,6 +64,7 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         case .heartVignette:  return "SIZE"
         case .heartEyes:      return "SPEED"
         case .rainbow:        return "SPEED"
+        case .lensDistortion: return "REACH"
         default:              return nil
         }
     }
@@ -96,6 +98,7 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         case .fadeToBW:   return FaceVisualEffect(effect: FadeToBWEffect(intensity: clamped), skipDelay: true)
         case .chromaShift: return FaceVisualEffect(effect: ChromaticAberrationEffect(intensity: clamped), skipDelay: true)
         case .rainbow:    return RainbowFaceEffect(intensity: clamped, pulses: clampedSecond)
+        case .lensDistortion: return FaceVisualEffect(effect: LensDistortionEffect(intensity: clamped, reach: clampedSecond), skipDelay: true)
         }
     }
 }

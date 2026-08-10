@@ -81,11 +81,11 @@ assumption turned out to be false. Rationale in "Why this order" below.
 - [x] ~~**`saveGIFToLibrary` can save the wrong file.**~~ Fixed — SAVE reads `generatedGifURL`
       directly; the `gifURL` fallback property is deleted so the trap can't return.
 
-**3 — LENS (Phase 17h). The cheapest new effect available.**
+**3 — LENS (Phase 17h). ✓ Done 2026-08-09.**
 
-- [ ] Two sliders, ~8 stock Core Image nodes, no new infrastructure, and both carousels for one
-      effect class via the existing adapter. Fully specified in
-      [FEATURE-LENS-DISTORTION.md](FEATURE-LENS-DISTORTION.md).
+- [x] Shipped in both carousels — AMOUNT + REACH, three `CIZoomBlur` passes recombined, no new
+      infrastructure. Rendered on the reference photo and inspected: radial prismatic dispersion,
+      centre-clean, REACH confines it to an edge fringe at 0 and fills the frame at 1. 216 tests.
 
 **4 — Feature Scrambler (Phase 17i), re-scoped to THIRD EYE only.**
 
@@ -865,7 +865,7 @@ two-slider ceiling and no room to grow.
       `StaticAnimator()` and silently discards the modifier** — that path was already broken
       before it became unreachable.
 
-### Phase 17h: LENS — radial chromatic dispersion (not started)
+### Phase 17h: LENS — radial chromatic dispersion ✓ (2026-08-09)
 
 > Full analysis, evidence and parameter table in
 > **[FEATURE-LENS-DISTORTION.md](FEATURE-LENS-DISTORTION.md)**. This section tracks status only.
@@ -878,16 +878,16 @@ renders, not the Figma implementation. Five properties were identified by numeri
 
 Despite the name, the effect is not geometric distortion: it is radial prismatic dispersion.
 
-- [ ] `LensDistortionEffect: VisualEffect` — three `CIZoomBlur` passes, one per colour channel at
+- [x] `LensDistortionEffect: VisualEffect` — three `CIZoomBlur` passes, one per colour channel at
       different amounts, recombined additively, masked by a `CIRadialGradient` for reach.
-- [ ] Two sliders only: **AMOUNT** (geometric mapping) and **REACH** (linear). Reuses the existing
+- [x] Two sliders only: **AMOUNT** (geometric mapping) and **REACH** (linear). Reuses the existing
       `intensityID` / `sizeID` constants.
-- [ ] `VisualEffectType.lensDistortion` + `FaceFilterType.lensDistortion`, the latter one line
+- [x] `VisualEffectType.lensDistortion` + `FaceFilterType.lensDistortion`, the latter one line
       through `FaceVisualEffect`.
-- [ ] **No `FrameGeometry`, deliberately.** A lens aberration is anchored to the lens, not the
+- [x] **No `FrameGeometry`, deliberately.** A lens aberration is anchored to the lens, not the
       subject, so staying locked to the output frame under zoom is correct rather than the
       crawling bug DITHER had. This must be stated in the doc comment or someone will "fix" it.
-- [ ] `.cropped(to: image.extent)` is mandatory — `CIZoomBlur` grows its extent, the exact
+- [x] `.cropped(to: image.extent)` is mandatory — `CIZoomBlur` grows its extent, the exact
       failure that produced a black band for FISHEYE, SWIRL and PIXELATE.
 
 **Why this is cheap:** no new `EffectParameter.Kind`, no picker, no `EditorSnapshot` field, no

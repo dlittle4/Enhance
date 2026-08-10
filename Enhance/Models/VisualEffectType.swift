@@ -27,6 +27,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     static let parameterNamespace = "visual"
 
     case chromaShift   = "CHROMA SHIFT"
+    case lensDistortion = "LENS"
     case halftone      = "HALFTONE"
     case fisheye       = "FISHEYE"
     case swirl         = "SWIRL"
@@ -81,6 +82,8 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "SIZE"))
         case .dither:
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "SCALE"))
+        case .lensDistortion:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "REACH"))
         default:
             break
         }
@@ -125,6 +128,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
 
         switch self {
         case .chromaShift:  return ChromaticAberrationEffect(intensity: clamped)
+        case .lensDistortion: return LensDistortionEffect(intensity: clamped, reach: max(0, min(1, options.size)))
         case .halftone:     return HalftoneEffect(intensity: clamped)
         case .fisheye:      return FisheyeEffect(intensity: clamped, size: max(0, min(1, options.size)))
         case .swirl:        return SwirlEffect(intensity: clamped)
