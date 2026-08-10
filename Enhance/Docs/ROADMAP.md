@@ -22,10 +22,11 @@ Each step should feel fast, tactile, and visually satisfying.
 pushed to `origin/main`. Unit suite green. The session's pattern is to commit on the branch and
 fast-forward `main` at each green stage, so Xcode always sees a working build.
 
-**Next:** step 5 below — Phase 17f (control audit) is the smallest, then Gallery Stage B. THIRD
-EYE's on-device matrix (Stage D2) is still open under "Needs device verification". Its Stage E
-layout pack (MOUTH EYES / EYE MOUTH / SHUFFLE) is the natural follow-on and its groundwork —
-the `FaceRegion` compositor and `FaceRegions` model — already exists.
+THIRD EYE's on-device pass is confirmed (2026-08-10) — V1 fully done.
+
+**Next:** step 5 below — Phase 17f (control audit) is the smallest, then Gallery Stage B. The
+Stage E layout pack (MOUTH EYES / EYE MOUTH / SHUFFLE) is the natural Scrambler follow-on and its
+groundwork — the `FaceRegion` compositor and `FaceRegions` model — already exists.
 
 ### What shipped
 
@@ -98,7 +99,7 @@ assumption turned out to be false. Rationale in "Why this order" below.
       forehead over the zoom with a `smoothstep` settle, INTENSITY + SIZE (two rows), single-face.
       Left behind the reusable landmark compositor (`FaceRegion` / `FaceRegionMaskBuilder` /
       `FaceRegionCompositor`) and the `FaceRegions` + `LandmarkQuality` model. Confirmed on a real
-      photo (eye travels to the forehead and settles). **Device matrix (Stage D2) still pending.**
+      photo. **Device pass confirmed 2026-08-10 — looks good on device.** V1 fully verified.
 
 **5 — Then, in rough value order.**
 
@@ -148,12 +149,10 @@ rendering frames and inspecting them, which cannot catch everything.
       per frame and confirm it moves monotonically with the pan.
 - [ ] **DITHER legibility after GIF palettisation.** Does the stipple survive the 256-colour
       quantisation, or read as noise? If it needs help, the SCALE slider is the first lever.
-- [ ] **THIRD EYE (Feature Scrambler V1)** — the full Stage D2 matrix. Verified only by
-      rendered-frame inspection and one real-photo check that the eye travels to the forehead and
-      settles. Watch for: crop seams / halo where the copied eye meets skin (padding 0.35, feather
-      0.55 are the levers); placement height across face shapes; the reveal reading deliberately at
-      the 12-frame 4× floor for Zoom In, Zoom Out, and Pulse; and the eye fallback on a profile
-      face with one visible eye.
+- [x] **THIRD EYE (Feature Scrambler V1)** — device pass confirmed 2026-08-10, looks good. The
+      deep edge cases (4× 12-frame floor across Zoom In/Out/Pulse; the one-eye profile fallback;
+      the animal fallback) were not each individually exercised and can be spot-checked if a report
+      comes in — padding 0.35 / feather 0.55 remain the seam/halo levers.
 - [ ] **20-item effects carousel** — scroll feel, and whether entering the IMAGE tab stutters
       while 11 thumbnails render (was 8 before the new effects).
 - [ ] **GRADIENT colour wells** — the three system wells show Apple's spectrum ring; confirmed
@@ -940,9 +939,9 @@ the lesson EDGES and the black band taught.
       positive value keeps the tuned opacity floor. Parity table updated. Padding/feather/placement
       constants locked after visual QA on a real photo.
 - [x] **Stage C2** (face-effect render perf prerequisite) was already done — see "Next up" step 1.
-- [ ] **Stage D2 — device matrix still pending.** 0.25×/0.5×/1×/4×, Zoom In/Out/Pulse, Shake/Spiral,
-      and front/profile/occluded/glasses/small/multi-face/animal photos; inspect in Photos,
-      Messages, and the in-app gallery. Added to "Needs device verification".
+- [x] **Stage D2 — device pass confirmed 2026-08-10.** Looks good on device; no crawling, seams,
+      or stale preview reported. Deep-matrix edge cases (4× 12-frame floor, animal fallback) can be
+      spot-checked opportunistically but are no longer blocking.
 
 **Stage E — layout pack (deferred, unchanged plan).** MOUTH EYES / EYE MOUTH / SHUFFLE behind a
 preset-row picker, typed `scrambleLayout` state on the view model and `EditorSnapshot`, and
