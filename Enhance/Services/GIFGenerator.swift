@@ -16,6 +16,19 @@ public class GIFGenerator: GIFGenerating {
         public let centerY: CGFloat
     }
 
+    /// Everything the face-effect pass needs, resolved once before the frame loop.
+    ///
+    /// Exists because the face effect is the only part of the generator that re-renders a
+    /// *whole image* per frame, and it was doing so at full source resolution — see
+    /// `prepareFaceEffectPass`.
+    private struct FaceEffectPass {
+        let effect: FaceEffect
+        /// Downscaled to the largest size the zoom can actually reveal.
+        let source: CGImage
+        /// Faces converted into `source`'s coordinate space.
+        let faces: [DetectedFace]
+    }
+
     public struct DrawingContext {
         let normalizedImage: UIImage
         let outputSize: CGSize
@@ -38,8 +51,9 @@ public class GIFGenerator: GIFGenerating {
             return nil
         }
 
-        addAnimatedFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects, faceEffect: faceEffect, detectedFaces: detectedFaces)
-        addPauseFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects, faceEffect: faceEffect, detectedFaces: detectedFaces)
+        let facePass = prepareFaceEffectPass(context: context, effect: faceEffect, faces: detectedFaces)
+        addAnimatedFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects, facePass: facePass)
+        addPauseFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects, facePass: facePass)
 
         if CGImageDestinationFinalize(destination) {
             return data as Data
@@ -105,7 +119,7 @@ public class GIFGenerator: GIFGenerating {
         return destination
     }
 
-    private func addAnimatedFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], faceEffect: FaceEffect? = nil, detectedFaces: [DetectedFace] = []) {
+    private func addAnimatedFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?) {
         for i in 0..<context.frameCount {
             autoreleasepool {
                 let frameProgress = CGFloat(i) / CGFloat(context.frameCount - 1)
@@ -116,7 +130,7 @@ public class GIFGenerator: GIFGenerating {
                     outputSize: context.outputSize
                 )
 
-                let sourceForFrame = faceEffectedSource(context: context, effect: faceEffect, faces: detectedFaces, progress: frameProgress, frameIndex: i)
+                let sourceForFrame = faceEffectedSource(pass: facePass, progress: frameProgress, frameIndex: i)
                 if let frameImage = createFrameImage(transform: transform, context: context, sourceOverride: sourceForFrame) {
                     let geometry = frameGeometry(params: frameParams, transform: transform, context: context)
                     let outputImage = applyVisualEffects(frameImage, effects: visualEffects, progress: frameProgress, frameIndex: i, geometry: geometry)
@@ -132,13 +146,13 @@ public class GIFGenerator: GIFGenerating {
         }
     }
 
-    private func addPauseFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], faceEffect: FaceEffect? = nil, detectedFaces: [DetectedFace] = []) {
+    private func addPauseFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?) {
         let finalParams = animator.animationParameters(for: 1.0, in: context)
         let finalTransform = calculateTransformForFrame(
             params: finalParams, drawRect: context.drawRect, outputSize: context.outputSize
         )
 
-        let sourceForFrame = faceEffectedSource(context: context, effect: faceEffect, faces: detectedFaces, progress: 1.0, frameIndex: context.frameCount)
+        let sourceForFrame = faceEffectedSource(pass: facePass, progress: 1.0, frameIndex: context.frameCount)
         if let finalFrameImage = createFrameImage(transform: finalTransform, context: context, sourceOverride: sourceForFrame) {
             let geometry = frameGeometry(params: finalParams, transform: finalTransform, context: context)
             let outputImage = applyVisualEffects(finalFrameImage, effects: visualEffects, progress: 1.0, frameIndex: context.frameCount, geometry: geometry)
@@ -154,13 +168,66 @@ public class GIFGenerator: GIFGenerating {
         }
     }
 
-    /// Apply face effect to every target face on the full source image so effects
-    /// are baked in before the zoom/crop transform, keeping them fixed on each face.
-    private func faceEffectedSource(context: DrawingContext, effect: FaceEffect?, faces: [DetectedFace], progress: CGFloat, frameIndex: Int) -> UIImage? {
+    /// Largest scale the face-effect source is worth keeping.
+    ///
+    /// `fillScale × maxZoom` is the greatest magnification any source pixel undergoes. Below 1
+    /// the generator is downsampling, so pre-shrinking by that factor discards only detail the
+    /// output could never show. Clamped to 1 so a small source is never upscaled — that would
+    /// cost more and add nothing.
+    static func faceEffectSourceScale(fillScale: CGFloat, maxZoom: CGFloat) -> CGFloat {
+        guard fillScale > 0, maxZoom > 0 else { return 1 }
+        return min(1.0, fillScale * maxZoom)
+    }
+
+    /// Resolves the source and face coordinates for the face-effect pass, once.
+    ///
+    /// **This is the hot path in the whole generator.** The face effect has to be baked into
+    /// the image *before* the zoom transform so it stays fixed on the face, which means one
+    /// whole-image render per frame — and it used to render the full camera-resolution source
+    /// every time, for a 600×600 output. A 12MP photo is ~28× more pixels than the zoom can
+    /// ever reveal, paid once per frame, and continuous speed pushed the frame count as high
+    /// as 100.
+    ///
+    /// So the source is pre-scaled to the largest size the animation can actually magnify it
+    /// to. A source pixel's greatest magnification is `fillScale × maxZoom`: below 1 the
+    /// generator is downsampling anyway, so shrinking the source by that factor first is free
+    /// of visible cost. Above 1 it is already upsampling and the source is left alone.
+    private func prepareFaceEffectPass(context: DrawingContext, effect: FaceEffect?, faces: [DetectedFace]) -> FaceEffectPass? {
         guard let effect, !faces.isEmpty, let cgImage = context.normalizedImage.cgImage else { return nil }
-        var result = CIImage(cgImage: cgImage)
-        for face in faces {
-            result = effect.apply(to: result, face: face, progress: progress, frameIndex: frameIndex)
+
+        let sourceWidth = context.normalizedImage.size.width
+        guard sourceWidth > 0 else { return nil }
+        // drawRect is the source laid into the output at zoom 1, so this is fillScale.
+        let fillScale = context.drawRect.width / sourceWidth
+        let scale = Self.faceEffectSourceScale(fillScale: fillScale, maxZoom: context.userZoomParams.scale)
+
+        guard scale < 0.999,
+              CGFloat(cgImage.width) * scale >= 1, CGFloat(cgImage.height) * scale >= 1 else {
+            return FaceEffectPass(effect: effect, source: cgImage, faces: faces)
+        }
+
+        let shrunk = CIImage(cgImage: cgImage)
+            .applyingFilter("CILanczosScaleTransform", parameters: [kCIInputScaleKey: scale])
+        guard let scaledCG = ciContext.createCGImage(shrunk, from: shrunk.extent) else {
+            return FaceEffectPass(effect: effect, source: cgImage, faces: faces)
+        }
+
+        // Landmarks are in full-source pixels; every consumer of a downscaled copy has to
+        // convert them, which is what `DetectedFace.scaled` exists for.
+        return FaceEffectPass(
+            effect: effect,
+            source: scaledCG,
+            faces: faces.map { $0.scaled(x: scale, y: scale) }
+        )
+    }
+
+    /// Applies the face effect for one frame. Drawn into the same `drawRect` regardless of
+    /// the source's pixel size, so nothing downstream needs to know it was scaled.
+    private func faceEffectedSource(pass: FaceEffectPass?, progress: CGFloat, frameIndex: Int) -> UIImage? {
+        guard let pass else { return nil }
+        var result = CIImage(cgImage: pass.source)
+        for face in pass.faces {
+            result = pass.effect.apply(to: result, face: face, progress: progress, frameIndex: frameIndex)
         }
         guard let outputCG = ciContext.createCGImage(result, from: result.extent) else { return nil }
         return UIImage(cgImage: outputCG)

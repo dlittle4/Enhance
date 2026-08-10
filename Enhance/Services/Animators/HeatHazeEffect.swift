@@ -4,6 +4,11 @@ import UIKit
 /// Simulates rising heat distortion with animated sine-wave displacement.
 /// Each row of the image is shifted horizontally by a time-varying sine wave.
 struct HeatHazeEffect: VisualEffect {
+    /// One shared context, not one per `apply`. A `CIContext` is expensive to build and this
+    /// is called once per GIF frame — up to 100 of them at 0.25× playback. LEARNINGS
+    /// 2026-03-08 states the rule; this was the only effect still breaking it.
+    private static let sharedContext = CIContext(options: [.useSoftwareRenderer: false])
+
     private let maxAmplitude: CGFloat
 
     init(intensity: Double = 0.5) {
@@ -25,7 +30,7 @@ struct HeatHazeEffect: VisualEffect {
         let bytesPerRow = width * 4
         var pixelData = [UInt8](repeating: 0, count: height * bytesPerRow)
 
-        guard let cgImage = CIContext().createCGImage(image, from: extent) else { return image }
+        guard let cgImage = Self.sharedContext.createCGImage(image, from: extent) else { return image }
         guard let context = CGContext(
             data: &pixelData,
             width: width, height: height,
