@@ -18,7 +18,7 @@
 ## 1. Executive recommendation
 
 Ship a deliberately small first version: **one text layer, five entrance presets, direct
-manipulation (drag, pinch, rotate), and a compact style editor**. Text is anchored to the 600×600
+manipulation (drag, pinch, rotate), and a two-phase editor reached from the preset carousel**. Text is anchored to the 600×600
 output frame rather than to source-image pixels, so it remains readable while the photo moves
 beneath it. Every preset consumes the same normalized `progress` value as the zoom animator,
 settles by roughly 70% of the moving portion, and remains fully visible during the pause.
@@ -43,9 +43,10 @@ implementation:
   resolution-independent layout and one transform function, and each rasterizes at its own native
   resolution. Parity becomes a property of the structure rather than a list of invariants two
   drawing paths are asked to honour (§7).
-- **Modal gesture arbitration.** While TEXT is the active category and the overlay is selected,
-  the text owns pinch, rotate and drag, and the photo's own recognizers are suspended. This
-  dissolves the conflict with the `UIScrollView` canvas instead of negotiating with it (§8).
+- **First-touch gesture routing.** The photo keeps its pan and zoom at all times, exactly as under
+  every other category. A gesture whose first touch lands on the text drives the text; anywhere
+  else it drives the photo. The routing is locked for the duration of a touch sequence, which is
+  what makes a two-finger gesture straddling the text boundary unambiguous (§8).
 
 The first release optimizes for the quick, preset-led interaction used by social creation apps
 rather than exposing keyframes or a timeline. Instagram's implementation is especially relevant:
@@ -69,10 +70,11 @@ Sources:
 | Change | Reason |
 |---|---|
 | **Pinch-to-resize and free rotation are in V1.** Revision 1 deferred both and used a size slider. | Product decision. The slider's stated justification — "this avoids gesture conflict with the already pinchable photo canvas" — was a real constraint, not a preference, so §8 answers it directly instead of working around it. |
-| **Gesture arbitration is modal.** Tap the text to select; while TEXT is active and the overlay is selected, pinch/rotate/drag drive the text and the photo's pan/zoom is suspended; double-tap opens the style editor; tap outside deselects. | The canvas is a `UIScrollView` that owns pinch, pan and double-tap-to-zoom. Hit-test-based arbitration leaves two-finger gestures straddling the text boundary genuinely ambiguous; modality has no ambiguous case. |
+| **Gesture arbitration is first-touch routing.** The photo pans and zooms exactly as it does under every other category, always. A gesture whose *first* touch lands on the text drives the text; anywhere else drives the photo. | The canvas is a `UIScrollView` that owns pinch, pan and double-tap-to-zoom, so something has to arbitrate. Routing on first touch is deterministic, needs no modal state, and is the behaviour every sticker editor has trained users on. §8.3 handles the one case it does not answer by itself — a two-finger gesture straddling the text boundary. |
 | **Rotation is a static resting orientation** with haptic snap detents near 0°, ±90° and 180°. Presets animate on top of it. | Keeps the animation contract at one composition step. Users almost never land exactly level, and near-level crooked text reads as a bug in an exported GIF. |
 | **Still exactly one text layer.** | Unchanged from revision 1. Pinch and rotate are gesture fidelity, not scope: they add two model fields and a gesture layer, with no layer list, z-ordering, per-layer timing or selection management. |
-| **SIZE and ANGLE controls in the style editor.** | Pinch and rotate are two more affordances VoiceOver cannot perform. The controls are the accessible path and double as precise input for everyone. |
+| **Size, angle and position get accessibility adjustable actions, not panel rows.** | Pinch and rotate are affordances VoiceOver cannot perform, so an equivalent is mandatory. Sliders were the first answer, but the panel holds three rows (§10) and spending two of them mirroring gestures would leave no room for style or animation. An adjustable action with a rotor to pick the axis is the better VoiceOver design anyway, and costs no panel height. |
+| **The editor is two-phase, entered from the preset carousel.** No ADD TEXT card: selecting a preset creates the overlay, opens the keyboard, and DONE hands off to a three-row settings panel. | Matches how every other category already works — an effect card is what applies an effect — so there is no new interaction concept to teach. |
 
 ### Defects found in revision 1
 
@@ -126,70 +128,76 @@ icon matching the existing monochrome category icons. The tab row is currently a
 `HStack(spacing: 48)` of three icons; derive the spacing from measured width rather than adding a
 fourth 48 — the SE 3 layout budget is the recurring theme of this project's layout bugs.
 
-When TEXT is opened with no overlay, the carousel begins with an **ADD TEXT** card followed by the
-five animation presets. Tapping ADD TEXT opens the style editor and keyboard. Tapping a preset
-with no text opens the same editor with that preset already selected; this removes an unnecessary
-dead end.
+The carousel is **five animation preset cards and nothing else** — the same shape as the visual
+effects and face filters carousels, with no ADD TEXT card in front of it. Selecting a preset is
+what creates the overlay, exactly as selecting an effect card is what applies an effect. There is
+no separate "add" step to explain, and preset cards can show their own animated preview (§10).
 
-### Text editing
+### The editing flow
 
-A keyboard-safe sheet, not the effect detail panel. The panel's budget is five rows with no
-scroll, and the text editor needs eight — text field, FONT, COLOR, DECORATION, ALIGN, SIZE, ANGLE,
-DELETE. `BottomSheet` is the house component, but its `[.medium]` detent will not clear a
-keyboard, so this needs a content-sized detent verified on a 4.7" screen.
+Selecting a preset opens a single edit session with two phases:
 
-Contents:
+```text
+tap TEXT icon
+   → carousel of five preset cards
+      → tap a preset            ── creates the overlay, opens the editor
+         → keyboard, type the word
+            → DONE              ── keyboard collapses, text is committed
+               → settings panel ── COLOR, STYLE, and one animation control
+                  → CONFIRM     ── one undo entry for the whole visit
+```
 
-- a multiline text field, limited to 120 extended grapheme clusters (three rendered lines is a
-  field-sizing guideline, not a renderer constraint);
-- font choices: Silkscreen Regular, Silkscreen Bold, System Rounded, System Serif, and System
-  Condensed — all local or system fonts, no licensing or download dependency;
-- a small high-contrast colour palette: white, black, mint, pink, yellow, and blue;
-- decoration: **NONE**, **SHADOW**, **BLOCK**, and **OUTLINE**;
-- SIZE and ANGLE controls, which mirror pinch and rotation exactly and are the VoiceOver path;
-- alignment;
-- Delete, plus Cancel and Done using the same edit-session semantics as the existing effect panel.
+**Phase 1, the keyboard.** A multiline field limited to 120 extended grapheme clusters. (Three
+rendered lines is a field-sizing guideline, not a renderer constraint.) DONE dismisses the keyboard
+rather than closing the session. On a 4.7" screen the field and its DONE affordance must both clear
+the keyboard — the recurring short-device constraint in this project.
 
-Animation selection stays in the horizontal card carousel. This separates "what it says and how it
-looks" from "how it enters," and prevents a single cramped panel from mixing both concepts.
+**Phase 2, the settings panel.** The existing `EffectDetailPanel`, with `<` to cancel and the
+mint check to confirm, so the whole visit records exactly one undo entry. Cancelling a *newly
+created* overlay removes it, since the preset tap and the edit are one session.
+
+Reopening is symmetric: **double-tapping the text returns to phase 1** with the keyboard up;
+tapping a preset card again returns to phase 2.
+
+The panel holds three rows (§10). The five-row cap enforced elsewhere in the app is the ceiling,
+not the budget: `parameterRowHeight(forPanelHeight:rowCount:)` divides the panel by `rowCount + 1`
+and floors at 34 pt, and past that floor `needsScroll` flips on — at which point, per LEARNINGS
+2026-08-08, a slider drag scrolls the panel instead of moving the knob. The zoom category's
+hardcoded three rows is the honest budget.
 
 ### Canvas interaction
 
 While the TEXT category is active and an overlay exists, the text renders directly over
-`ImageCanvasView`, and interaction is **modal on selection**:
+`ImageCanvasView`, and **the photo behaves exactly as it does under every other category** — pan,
+pinch-zoom and double-tap-to-zoom all work, always, with no mode to leave first.
 
-**Deselected** — the overlay is inert. Only the text's own rotated bounds (inflated to a 44 pt
-minimum touch target) accept touches; every other touch reaches the photo, which pans, zooms and
-double-tap-zooms exactly as it does today.
+Arbitration is on **first touch**:
 
-**Selected** — the overlay owns the canvas.
+| Gesture | First touch on the text | First touch elsewhere |
+|---|---|---|
+| Single tap | Selects (idempotent — never deselects) | Deselects |
+| Double tap | Reopens the keyboard | Zooms the photo, as today |
+| One-finger drag | Moves the text | Pans the photo, as today |
+| Pinch | Scales the text | Zooms the photo, as today |
+| Rotate | Rotates the text, with haptic detents near 0°, ±90° and 180° | — |
 
-| Gesture | Effect |
-|---|---|
-| Single tap on the text | Selects. Idempotent: never deselects. |
-| Single tap outside the text | Deselects and returns the canvas to the photo. |
-| Double tap on the text | Opens the style editor and keyboard. |
-| One- or two-finger drag | Moves the text. |
-| Pinch | Resizes the text. |
-| Rotate | Rotates the text, with haptic detents near 0°, ±90° and 180°. |
+The routing decision is made once, on the first touch of a sequence, and **held until every touch
+lifts** (§8.3). That is what makes a two-finger pinch with one finger on the text and one finger
+off it unambiguous — it scales the text, because that is where the gesture started.
 
-While selected, the photo's pan, pinch and double-tap recognizers are disabled, and the
-`ZoomFrameOverlay` minimap is hidden — it reports a framing that is momentarily frozen and is
-visual noise behind a selection ring. A light selection outline shows only while the overlay is
-selected; it never enters the GIF.
+Selection is a visual state, not a mode. It draws a light outline that never enters the GIF and
+widens the touch region a little, but it does not change what any gesture does — an unselected
+overlay can be dragged, pinched and rotated directly. The text always presents at least a 44 pt
+touch target, selected or not, so small text is never hard to grab.
 
-Deliberate consequence, documented rather than engineered around: double-tapping the *photo* to
-zoom requires deselecting the text first. In the selected state an outside double-tap deselects on
-the first tap and does nothing on the second. That is the correct behaviour for a modal design.
-
-RESET clears the overlay, and the style editor offers an explicit Delete.
+RESET clears the overlay, and the settings panel offers an explicit delete.
 
 ### Regeneration behavior
 
 Typing and direct manipulation update the local preview immediately but do not regenerate a GIF on
 every event. Regenerate only on meaningful commit points:
 
-- Done from the style editor;
+- confirming the settings panel;
 - **gesture session end** — the point at which the last of a simultaneous drag/pinch/rotate ends,
   not the end of each individual recognizer;
 - animation preset selection;
@@ -207,13 +215,19 @@ All curves consume normalized moving-frame progress `p` from `0...1`. Define a s
 window `q = min(1, p / 0.70)` so every preset is complete before the final 30% of motion and
 before all pause frames.
 
-| Preset | Behavior | Granularity | Default curve | Why it belongs in V1 |
-|---|---|---|---|---|
-| **POP** | Fade from 0, scale 0.55 → 1.08 → 1 | whole | spring-like overshoot | The expressive default; complements zoom without duplicating it |
-| **RISE** | Move upward ~48 output pixels while fading in | whole | cubic ease-out | Familiar, legible, and works for multiline text |
-| **TYPE** | Reveal by shaping-safe unit with a blinking block cursor | unit | stepped reveal | Direct Instagram inspiration and a strong fit for the pixel font |
-| **WORD DROP** | Reveal linguistic word tokens in sequence with a short downward settle | word | staggered ease-out | More energetic than TYPE while still readable |
-| **FLICKER** | Resolve from 2–3 deterministic opacity pulses and a ±0.02 scale twitch | whole | damped deterministic pulses | Matches Enhance's glitch/pixel personality |
+| Preset | Behavior | Granularity | Default curve | Panel control | Why it belongs in V1 |
+|---|---|---|---|---|---|
+| **POP** | Fade from 0, scale 0.55 → 1.08 → 1 | whole | spring-like overshoot | **BOUNCE** — overshoot amount | The expressive default; complements zoom without duplicating it |
+| **RISE** | Move upward ~48 output pixels while fading in | whole | cubic ease-out | **DISTANCE** — travel | Familiar, legible, and works for multiline text |
+| **TYPE** | Reveal by shaping-safe unit with a blinking block cursor | unit | stepped reveal | **SPEED** — units per unit time | Direct Instagram inspiration and a strong fit for the pixel font |
+| **WORD DROP** | Reveal linguistic word tokens in sequence with a short downward settle | word | staggered ease-out | **STAGGER** — inter-word delay | More energetic than TYPE while still readable |
+| **FLICKER** | Resolve from 2–3 deterministic opacity pulses and a ±0.02 scale twitch | whole | damped deterministic pulses | **INTENSITY** — pulse depth | Matches Enhance's glitch/pixel personality |
+
+Each preset declares exactly one tunable parameter, occupying the panel's third row (§10). The
+label changes per preset; the storage is the existing `parameterValues` dictionary keyed by
+`EffectParameter.key(_:for:)`, so nothing new is needed to persist or snapshot it. Whatever the
+parameter is set to, the entrance window `q` still closes by 70% — the control shapes the curve
+inside that window, it does not extend it.
 
 The effects are entrance-only. Do not add a looping wiggle or pulse in V1: motion during the pause
 makes the message harder to read, increases GIF entropy and file size, and complicates the promise
@@ -268,7 +282,7 @@ it in `currentSnapshot`, `restore`, `resetEffects`, `hasNonDefaultSettings`, the
 generate/regenerate calls, and `hasEffectsWithoutZoom`. An empty or whitespace-only string is not
 an active overlay.
 
-Use a draft copy while the style sheet is open. Cancel restores the entry snapshot; Done records
+Use a draft copy while the editor is open. Cancel restores the entry snapshot; Done records
 one undo entry for the entire visit. Direct manipulation uses gesture sessions (§8.6), which
 record one entry per session regardless of how many recognizers participated.
 
@@ -352,6 +366,19 @@ property and it is one assertion.
 
 It also disposes of a complication: with non-overlapping cuts, alpha-0/1 tiles *are* a clip mask,
 so TYPE needs no second code path.
+
+**Rasterize through a coverage mask, even though V1 does not need to.** The planned follow-ons —
+animated gradients, static gradients, sparkle (§16) — are all *fills* that vary per frame while the
+glyph geometry stays fixed. If `TextRasterizer` produces the master as a glyph **coverage mask**
+and then applies the fill, a per-frame fill later means drawing a different fill through the same
+static mask, with the tiles and every transform unchanged. If instead the colour is fused into the
+rasterizer's only output, that extension has to re-cut tiles per frame and the invariant in §12.2
+stops holding.
+
+V1 still bakes its solid colour into the master and blits opaque tiles, because that is the fast
+path and colour changes are commit points rather than per-frame events. The requirement is only
+that the mask survives as a distinct step inside `prepare`, so the seam is in the right place. This
+is cheap now and expensive to retrofit.
 
 **Memory.** `CGImage.cropping(to:)` returns a view sharing the parent's backing store, so 120
 tiles cost approximately nothing beyond the master. A 600² RGBA master is 1.44 MB; the preview
@@ -585,9 +612,10 @@ CanvasContainerView (UIViewRepresentable) → UIView (root, 325×325)
    └── TextOverlayHostView   (added only when an overlay exists)
 ```
 
-One representable rather than two, because the recognizer graph and the modal enable/disable both
-need a single owner holding references to both recognizer sets, and two sibling representables have
-no defined `makeUIView` ordering within a SwiftUI update pass.
+One representable rather than two, because **routing needs a common ancestor that sees the touch
+before either sibling does** (§8.3), and because two sibling representables have no defined
+`makeUIView` ordering within a SwiftUI update pass. The container is not decorative — it is where
+the arbitration lives.
 
 **The scroll view's setup moves verbatim.** `configureContentSize` stays in the make path only, and
 `updateUIView` still touches nothing but `imageView.image` and the face boxes. LEARNINGS 2026-03-13
@@ -599,44 +627,55 @@ while the photo pans beneath it, which is the product intent; and the 325 pt ↔
 single uniform scale with no aspect handling, because both are square and both are the *output*
 frame. That is why parity is cheap here.
 
-### 8.3 Modal hit region
+### 8.3 First-touch routing, held for the sequence
+
+The photo's recognizers are **never disabled**. Routing happens in the container's `hitTest`, which
+picks a destination on the first touch of a sequence and holds it until every touch lifts:
 
 ```swift
-override func point(inside p: CGPoint, with e: UIEvent?) -> Bool {
-    isSelected ? bounds.contains(p) : textHitRegion.contains(p)
+private enum Route { case text, photo }
+private var activeRoute: Route?
+
+override func hitTest(_ p: CGPoint, with event: UIEvent?) -> UIView? {
+    if activeRoute == nil {
+        activeRoute = textHost.hitRegion.contains(p) ? .text : .photo
+    }
+    return activeRoute == .text ? textHost : scrollView
 }
+// activeRoute = nil once no touch in `event.allTouches` is still in
+// .began/.moved/.stationary — i.e. the sequence is fully over.
 ```
 
-Deselected, the host is transparent to touches except over the rotated text rect. Selected, it owns
-the whole canvas and nothing reaches the scroll view. That *is* the modality.
+**Holding the route is the whole point.** Without it, UIKit hit-tests each touch independently, so
+a two-finger pinch with one finger on the text and one finger off it would deliver one touch to the
+host and one to the scroll view. Neither recognizer would ever see two touches, and the pinch would
+silently do nothing — a bug that only reproduces when a finger straddles an invisible boundary, and
+which would be miserable to diagnose from a bug report. Locking the route on first touch makes the
+straddling case behave the way the user's hand intends: the gesture started on the text, so it
+scales the text.
 
-### 8.4 Suspending the photo
+The mirror case is covered by the same rule. A gesture that starts on the photo keeps the photo for
+its whole life, so a second finger landing on the text joins the photo's pinch rather than
+splitting the gesture in half.
 
-| Approach | Verdict |
-|---|---|
-| `minimumZoomScale = maximumZoomScale` | **Never.** Mutates `zoomScale` and destroys the user's framing. |
-| `isUserInteractionEnabled = false` | No. Kills touches to `FaceBoxView` subviews and can cancel in-flight tracking. Unnecessary — the host is on top and already consumes. |
-| `isScrollEnabled = false` | Works, but is a blunt property with `contentInset` and delegate side effects, and `centerContent` writes `contentInset` on every zoom. |
-| **Disable the three recognizers individually** | **Do this.** |
+`hitRegion` is the text's rotated bounds inverse-transformed into canvas space, inflated to a 44 pt
+minimum on each axis, and widened slightly while selected. It does not depend on selection for
+*routing* — an unselected overlay is draggable directly, which is what makes selection a visual
+state rather than a mode.
 
-```swift
-// The inequality guard is load-bearing, not hygiene.
-private func setPhotoGesturesEnabled(_ on: Bool, _ sv: UIScrollView) {
-    if sv.panGestureRecognizer.isEnabled != on { sv.panGestureRecognizer.isEnabled = on }
-    if let pinch = sv.pinchGestureRecognizer, pinch.isEnabled != on { pinch.isEnabled = on }
-    if photoDoubleTap.isEnabled != on { photoDoubleTap.isEnabled = on }
-}
-```
+### 8.4 What this removes
 
-`syncBindings` writes `parent.visibleRect` on every scroll delegate callback, which re-evaluates the
-SwiftUI body, which runs `updateUIView` — continuously, during a photo pan. Disabling a recognizer
-mid-recognition transitions it to `.cancelled`, so an unconditional write is a latent "the pan
-randomly stops" bug that presents as jank rather than as a gesture bug. This is the same discipline
-as "updateUIView must not reset scroll state," applied to recognizers instead of geometry.
+An earlier revision suspended the scroll view's recognizers while text was selected, and needed a
+guarded setter to do it safely: `syncBindings` writes `parent.visibleRect` on every scroll delegate
+callback, which re-evaluates the SwiftUI body, which runs `updateUIView` — continuously, during a
+pan. Disabling a recognizer mid-recognition transitions it to `.cancelled`, so an unconditional
+write there was a latent "the pan randomly stops" bug presenting as jank.
 
-One benign consequence, accepted deliberately: selecting text while the photo is coasting cancels
-the pan, so `scrollViewDidEndDragging` fires and `commitZoomCardFraming()` runs. The framing has in
-fact settled, so no special-casing.
+Routing deletes that machinery entirely. **Never** reach for `minimumZoomScale = maximumZoomScale`
+(it mutates `zoomScale` and destroys the user's framing), `isUserInteractionEnabled` (it kills
+`FaceBoxView` touches), or `isScrollEnabled` (blunt, with `contentInset` and delegate side effects,
+and `centerContent` already writes `contentInset` on every zoom). The scroll view is configured once
+and left alone, which is also what LEARNINGS 2026-03-13 asks of `updateUIView`.
 
 ### 8.5 The recognizer graph
 
@@ -644,38 +683,36 @@ fact settled, so no special-casing.
 |---|---|---|
 | SV-PAN / SV-PINCH / SV-DT | pan, pinch, double-tap-to-zoom | `UIScrollView` |
 | TX-ST | single tap — select / deselect | `TextOverlayHostView` |
-| TX-DT | double tap — open editor | `TextOverlayHostView` |
-| TX-PAN / TX-PINCH / TX-ROT | move / resize / rotate | `TextOverlayHostView` |
+| TX-DT | double tap — reopen the keyboard | `TextOverlayHostView` |
+| TX-PAN / TX-PINCH / TX-ROT | move / scale / rotate | `TextOverlayHostView` |
 
-UIKit delivers a touch to recognizers on the hit-test view **and its ancestors**. The host and the
-scroll view are *siblings* under the container, and nothing is attached to the container.
-Therefore **SV-DT never sees a tap that lands on the text**, in either state, with no
-`require(toFail:)` needed. That is a second reason to make the overlay a sibling.
+UIKit delivers a touch to recognizers on the hit-test view **and its ancestors**. Because routing
+returns one sibling or the other and nothing is attached to the container, the two sets never see
+each other's touches. In particular **SV-DT never sees a double tap that lands on the text**, and
+TX-DT never sees one that lands on the photo — so double-tap-to-zoom and double-tap-to-edit
+coexist with no `require(toFail:)` between them.
 
-**Deselected** — touches outside the text go to the scroll view exactly as today; touches on the
-text go to the host only.
-
-**Selected** — SV-PAN/SV-PINCH/SV-DT disabled. TX-PAN, TX-PINCH and TX-ROT are pairwise
-`shouldRecognizeSimultaneouslyWith`. `TX-PAN.maximumNumberOfTouches = 2`, so a two-finger drag
-translates while scaling — the sticker idiom users already know.
+TX-PAN, TX-PINCH and TX-ROT are pairwise `shouldRecognizeSimultaneouslyWith`.
+`TX-PAN.maximumNumberOfTouches = 2`, so a two-finger drag translates while scaling — the sticker
+idiom users already know.
 
 **Do not add `TX-ST.require(toFail: TX-DT)`.** It costs ~350 ms of dead time on every selection,
 which would be the most-felt latency in the feature. Instead define TX-ST on the text as
 **idempotent select**:
 
 - TX-ST on the text: select if not selected; no-op if already selected. **Never deselects.**
-- TX-ST outside the text (reachable only when selected): deselect and re-enable the photo.
-- TX-DT on the text: open the style editor.
+- TX-ST on the photo: deselect.
+- TX-DT on the text: reopen the keyboard.
 
-A double-tap on an unselected overlay then fires TX-ST on tap 1 — the ring appears, which reads as
-feedback — and TX-DT on tap 2. The editor wants a selected overlay anyway, so tap 1's effect is not
-merely harmless, it is required state. There is no wrong state to recover from, so there is nothing
-to serialize, so there is no reason to pay the delay. The non-deselecting rule is what makes this
-safe: without it, tap 1 on an already-selected overlay would deselect and tap 2 would re-select,
-producing a visible flicker. It also prevents accidental deselection while nudging.
+A double-tap on an unselected overlay then fires TX-ST on tap 1 — the outline appears, which reads
+as feedback — and TX-DT on tap 2. The editor wants a selected overlay anyway, so tap 1's effect is
+not merely harmless, it is required state. There is no wrong state to recover from, so there is
+nothing to serialize, so there is no reason to pay the delay. The non-deselecting rule is what makes
+this safe: without it, tap 1 on an already-selected overlay would deselect and tap 2 would
+re-select, producing a visible flicker. It also prevents accidental deselection while nudging.
 
-Residual latency: **zero on selection**, ~350 ms on opening the editor — unavoidable and universal
-to double-tap, and acceptable because opening an editor is a deliberate act.
+Residual latency: **zero on selection**, ~350 ms on reopening the keyboard — unavoidable and
+universal to double-tap, and acceptable because it is a deliberate act.
 
 ### 8.6 Gesture sessions and undo
 
@@ -739,7 +776,7 @@ before and after — LEARNINGS 2026-08-07 on confirming a baseline before changi
 ### 8.8 Live preview loop
 
 A `CADisplayLink` inside the host view drives `tileStates(at:)` onto the tile layers. Paused when
-TEXT is not the active category, while the style sheet is open, and under Reduce Motion, which
+TEXT is not the active category, while the keyboard phase is up, and under Reduce Motion, which
 shows the settled state.
 
 Two CALayer hazards to write into the code as comments:
@@ -820,8 +857,25 @@ the haptic machine-gunning on the boundary.
   The exception belongs in **both** `canvasSection` branches: `.existingGif`, which already has a
   `.faceFilters` case, and `.newImage`, which has none today. Text cannot be positioned against a
   `GIFPreviewView`.
-- **The style sheet uses the existing edit-session semantics** — `beginEditing` on open,
-  `cancelEditing` on dismiss, `commitEditing` on Done — for exactly one undo entry per visit.
+- **The settings panel is the existing `EffectDetailPanel` with three rows**, and
+  `editingRowCount` gains a `.text` case returning 3, alongside zoom's hardcoded 3:
+
+  | Row | Control | Notes |
+  |---|---|---|
+  | **COLOR** | swatch row | Reuses the existing `EffectParameter.Kind.tintColor` machinery. White, black, mint, pink, yellow, blue. |
+  | **STYLE** | `SegmentedBar` | NONE / SHADOW / BLOCK / OUTLINE. Same component the zoom category uses for MOTION. |
+  | *per-preset* | slider | BOUNCE / DISTANCE / SPEED / STAGGER / INTENSITY (§5). Label varies, storage is `parameterValues`. |
+
+  **Font choice does not ship in V1.** The overlay defaults to Silkscreen Bold — the app is
+  entirely Silkscreen, so one font is a coherent V1 rather than a gap. `TextFont` still carries all
+  five cases and the renderer resolves them, so adding the picker later is a UI-only change.
+  Alignment defaults to centred; with one freely positioned block it only matters for multiline.
+- **Size, angle and position have no panel rows.** They are direct manipulation, and their
+  accessible equivalent is an `accessibilityAdjustableAction` on the selected text with a rotor to
+  switch axis — which is the better VoiceOver design regardless, and costs no panel height.
+- **The edit session spans both phases.** `beginEditing` on preset selection, keyboard, DONE,
+  settings, then `commitEditing` — one undo entry per visit. `cancelEditing` on a newly created
+  overlay removes it, because the preset tap and the edit are the same session.
 - **`hasEffectsWithoutZoom` and `regenerateGIF`'s `canRegenerate` are loosened in the same edit.**
   LEARNINGS 2026-03-13 records exactly this divergence shipping as a silent regression for
   effects-only existing GIFs.
@@ -879,13 +933,14 @@ pause frames; pass overlay state through `generateGIF` and `regenerateGIF`.
 
 ### Stage F — gestures and editor UX
 
-The container restructure (no behaviour change, suite green), then `TextOverlayHostView` and
-`TextGestureSession`, then the TEXT category, icon, carousel, style sheet, canvas exception, Reduce
-Motion and VoiceOver.
+The container restructure with first-touch routing (no behaviour change to the photo, suite green),
+then `TextOverlayHostView` and `TextGestureSession`, then the TEXT category, icon, preset carousel,
+two-phase editor, three-row settings panel, canvas exception, Reduce Motion and VoiceOver.
 
 **Gate:** a user can add, edit, move, scale, rotate, preview, undo, delete, reset, generate, save
-and share text without losing existing zoom or effect settings; the photo never moves while text is
-selected; one undo entry per gesture session.
+and share text without losing existing zoom or effect settings; the photo's pan, zoom and
+double-tap-zoom are unchanged from every other category; a straddling two-finger pinch follows the
+finger it started under; one undo entry per gesture session.
 
 ### Stage G — hardening and release
 
@@ -966,7 +1021,23 @@ fraction of the two masters matches within 1%. Since preview and export differ *
 `pixelSize` and share the layout and the transform, this test is the parity guarantee, and it fails
 loudly if anyone reintroduces a resolution-dependent constant.
 
-### 12.6 Gesture session
+### 12.6 Touch routing
+
+Extract the decision from the view into a pure function — `route(firstTouch:hitRegion:) -> Route`
+plus the lock/release rule — so it is testable without a touch harness.
+
+- `route_isDecidedByTheFirstTouchOnly` — a sequence starting on the text stays `.text` even when a
+  later touch lands outside, and vice versa. This is the straddling-pinch case, and it is the one
+  bug in this feature that would only reproduce near an invisible boundary.
+- `route_isReleasedOnlyWhenEveryTouchLifts` — with two touches down, lifting one must not re-arm
+  the decision.
+- `hitRegion_honoursRotationAndTheMinimumTouchTarget` — a 30° rotated overlay hit-tests against its
+  rotated bounds, and a small overlay still presents at least 44 pt on each axis.
+- `hitRegion_doesNotDependOnSelection` for routing purposes — an unselected overlay is draggable.
+
+The UI-level counterpart is in §12.10; this is the part that can fail silently.
+
+### 12.7 Gesture session
 
 - `simultaneousPinchAndRotate_produceExactlyOneUndoEntry`.
 - `cancelledGestureWithNoChange_pushesNothing`.
@@ -976,7 +1047,7 @@ LEARNINGS 2026-08-08 warns that "pushes exactly one entry" tested through the mo
 second push wired up in the view. `TextGestureSession` is deliberately a pure reference type with
 injected closures so the counting logic is on the tested path.
 
-### 12.7 Geometry
+### 12.8 Geometry
 
 - `settledCentre_isAlwaysInsideTheRestInset`.
 - `trackingCentre_rubberBands_monotonicallyAndBounded` — never past `centreHardInset`.
@@ -986,7 +1057,7 @@ injected closures so the counting logic is on the tested path.
   asserts "the haptic fires once" without mocking `HapticService`.
 - `normalizedGeometry_at325_and600_agree`.
 
-### 12.8 Pipeline and view model
+### 12.9 Pipeline and view model
 
 - `nilOverlay_producesByteIdenticalGIF` against the pre-change generator on a fixed fixture.
 - `addingText_changesNeitherFrameCountNorDelays`.
@@ -996,15 +1067,28 @@ injected closures so the counting logic is on the tested path.
   is not an active overlay.
 - A queued regeneration during an in-flight one is applied (§8.7).
 
-### 12.9 UI tests
+### 12.10 UI tests
 
-Add text → select preset → drag, pinch, rotate → generate → save/share; canceling an edit restores
-prior text and style; Done creates one undo step and one undo removes a newly added overlay; delete
-and RESET remove the live and generated overlay; the keyboard on a short device leaves the field and
-Done visible; manipulating text never moves the photo, while gestures outside it still do; switching
-categories keeps the overlay and stops its display link.
+The happy path, end to end: TEXT tab → tap a preset → keyboard appears → type → DONE → settings
+panel → pick a colour → confirm → drag, pinch and rotate the text → generate → save and share.
 
-### 12.10 Human visual review
+Then the edges:
+
+- **The two-phase session is one undo step.** Confirm creates exactly one entry; one undo removes a
+  newly created overlay entirely. Cancelling from the settings phase removes a newly created
+  overlay, and restores prior text and style when editing an existing one.
+- **Double-tapping the text returns to the keyboard**, prefilled, and DONE returns to the settings
+  phase rather than closing the session.
+- **The photo is unchanged.** Pan, pinch-zoom and double-tap-zoom starting anywhere off the text
+  behave exactly as under the visual-effects category — the direct comparison, not an assertion in
+  isolation.
+- **The straddling pinch** — one finger on the text, one off — scales the text, and the mirror case
+  starting off the text zooms the photo.
+- Delete and RESET remove both the live and the generated overlay.
+- The keyboard on a short device leaves the field and DONE visible.
+- Switching categories keeps the overlay, deselects it, and stops its display link.
+
+### 12.11 Human visual review
 
 Structural tests cannot catch what LEARNINGS 2026-08-07 calls the "verify by looking" class. Per
 preset, dump PNGs at p = 0, .2, .35, .5, .7 and 1 over a real photo, at 0°/15°/90° and min/mid/max
@@ -1019,9 +1103,13 @@ supported device.
 - Respect Reduce Motion in the editor preview by showing the completed text state. The exported GIF
   may retain the chosen effect because it is authored media, but the choice should be explicit and
   previewable as a still.
-- **SIZE and ANGLE controls are not optional.** Pinch and rotate cannot be performed under
-  VoiceOver, so the sliders are the equivalent path, not a convenience. Position needs the same
-  treatment: accessibility adjustable actions or explicit nudge controls.
+- **Direct manipulation needs a non-gestural equivalent, and it is not optional.** Drag, pinch and
+  rotate cannot be performed under VoiceOver. The selected text exposes an
+  `accessibilityAdjustableAction` with a rotor to choose the axis — position, size, angle — and
+  increment/decrement stepping each. This is deliberately not three panel rows: the panel holds
+  three rows total (§10), and spending two of them mirroring gestures would leave no room for style
+  or animation. The rotor is also the better VoiceOver design, since it scales to future axes
+  without competing for panel height.
 - Give animation cards descriptive VoiceOver labels such as "Rise, text fades in while moving
   upward," not only their names.
 - Enforce a contrast floor for BLOCK and OUTLINE. NONE and SHADOW may warn, but should not silently
@@ -1034,8 +1122,10 @@ supported device.
 
 1. A user can create one text overlay, style it, and place, scale and rotate it directly on the
    canvas, choosing one of five entrance effects.
-2. While the text is selected the photo does not move; while it is deselected the photo pans, zooms
-   and double-tap-zooms exactly as before.
+2. The photo pans, pinch-zooms and double-tap-zooms exactly as it does under every other category,
+   whether or not text is selected. A gesture starting on the text moves the text; a gesture
+   starting anywhere else moves the photo; a two-finger gesture straddling the boundary follows
+   whichever it started on.
 3. A simultaneous drag, pinch and rotate produces exactly one undo entry and one regeneration.
 4. The live preview and exported GIF agree on placement, wrapping, size, angle, colour, decoration
    and animation timing.
@@ -1058,24 +1148,47 @@ supported device.
   animation, and a title over a motionless photo is not the product. If ROADMAP's "Zoom is always
   on" is ever reversed, note that `activeAnimator` returns a bare `StaticAnimator()` and silently
   discards the modifier.
-- **Whether the style sheet should also expose position.** SIZE and ANGLE are settled; a position
-  control is required for VoiceOver but its form (nudge buttons versus an adjustable action) is
-  open until Stage F.
+- **Which parameter each preset exposes, and its range.** §5 names one per preset, but the ranges
+  and defaults come out of the Stage C prototype rather than being guessed here.
+- **Whether STYLE stays a segmented bar once fills arrive.** Four decorations fit a segmented bar;
+  adding gradient and sparkle fills (§16) will likely push COLOR and STYLE together into one FILL
+  row with its own detail step. Not a V1 problem, but do not paint the row layout into a corner.
 
 ---
 
-## 16. Deliberately deferred
+## 16. Follow-on work, and what V1 leaves room for
+
+### Fill effects — the intended next step
+
+Animated gradients, static gradients and sparkle are all **fills over fixed glyph geometry**, which
+is why §7.1 insists the coverage mask survives as a distinct step inside `prepare`. Given that, each
+is a contained addition rather than a re-architecture:
+
+| Effect | What changes | What does not |
+|---|---|---|
+| **Static gradient** | The fill drawn through the mask, once, at prepare time | Nothing else — it is a different `master`, same tiles, same transforms |
+| **Animated gradient** | The fill becomes a function of `progress`, applied at composite time through the static mask | Layout, units, tiles, seams, transforms, the entrance presets |
+| **Sparkle** | Per-frame deterministic particles clipped to the mask, seeded from `frameIndex` as the existing effects are | Same |
+
+The natural home is a fourth panel row or a FILL segment replacing COLOR once there is more than a
+swatch to choose. Note the interaction with GIF palette size: animated fills raise inter-frame
+entropy, which is exactly what the Stage C byte-size budget exists to measure — extend that budget
+rather than assuming the V1 numbers hold.
+
+Fonts belong in the same wave: `TextFont` already carries five cases, so it is a picker plus a row.
+
+### Deliberately deferred
 
 - multiple independently timed text layers;
 - per-word fonts or colours, mentions, hashtags, and rich text spans;
 - custom keyframes, motion paths, separate In/Out/Loop animations, or a timeline;
 - text that tracks a face or source-image feature through the zoom;
-- curved, 3D, particle, or generative text effects;
+- curved or 3D text;
 - chromatic or per-channel text effects — the CIImage stage already owns that look;
 - reconstructing editable text/effect recipes after a saved GIF is reopened.
 
-The clean follow-on after V1 is **multiple layers plus a layer list**, not more presets. That is the
-point at which independent timing and ordering become necessary; adding those concepts to a
-single-layer release would make the first interaction much heavier without validating demand. The
-tile architecture is already shaped for it — a second overlay is a second `RasterizedText`
+The clean follow-on after fills is **multiple layers plus a layer list**, not more entrance presets.
+That is the point at which independent timing and ordering become necessary; adding those concepts
+to a single-layer release would make the first interaction much heavier without validating demand.
+The tile architecture is already shaped for it — a second overlay is a second `RasterizedText`
 composited in order — but the editor cost is where the work actually is.
