@@ -1105,13 +1105,20 @@ Stages A–G in the plan; the gate for each is in §11.
       `textOverlay == nil` must stay byte-identical.
 - [ ] **Stage E** — repair `regenerateIfNeeded`'s dropped-edit P1 first, on its own commit. Direct
       manipulation makes it fire constantly instead of occasionally.
-- [ ] **Stage F** — modal gesture layer: drag, pinch and rotate own the canvas while text is
-      selected; the photo's recognizers are suspended. One undo entry per gesture session.
+- [ ] **Stage F** — first-touch gesture routing and the two-phase editor. The photo pans and zooms
+      exactly as under every other category; a gesture starting on the text moves, scales or
+      rotates it. Preset carousel → keyboard → DONE → three-row settings panel, as one undo entry.
 - [ ] **Stage G** — hardening. Prove emoji, composed-character, ligature, multiline and RTL
       correctness, and profile on the oldest supported device.
 
 Cross-cutting: include text in undo/redo, reset, regeneration, save, and share; keep the live
 canvas (not the baked GIF) while the TEXT category is active.
+
+Deliberately left for the wave after V1, and shaped for in §16: **fill effects** — static and
+animated gradients, sparkle — plus font choice. These are all fills over fixed glyph geometry, so
+V1's rasterizer keeps the glyph coverage mask as a distinct step to leave the seam in the right
+place. Font is already modelled (`TextFont` carries five cases); V1 simply ships Silkscreen Bold
+and no picker.
 
 ### Phase 20: Onboarding & NUX
 
