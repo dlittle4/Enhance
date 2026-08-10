@@ -980,6 +980,9 @@ this is a pass over that table, not an investigation from scratch.
 
 ### Phase 18: Settings & Social
 
+> The dead `themesSection` scaffolding in `SettingsView` is claimed by
+> [FEATURE-THEMES.md](FEATURE-THEMES.md) Stage 5 — don't repurpose it here.
+
 - [ ] Add "RATE THE APP" row in settings with 5 star icons (opens SKStoreReviewController or App Store URL)
 - [ ] Add "SHARE WITH FRIENDS" row in settings (presents UIActivityViewController with App Store URL)
 
@@ -1046,8 +1049,15 @@ stacking model before designing the copy format, or the format will need reworki
 
 ### Phase 21: Customization & Themes
 
+> Themes are fully planned in **[FEATURE-THEMES.md](FEATURE-THEMES.md)** — the slot contract, the
+> staged migration, and the boundaries of what must *not* follow a theme. Read it before starting:
+> the headline finding is that this is a **migration, not a feature**. There is no design system to
+> extend (one token, ~340 colour literals across ~22 files), so the first stage is reconciling
+> duplicate values while the app is still dark-only.
+
 - [ ] Custom app icons (pick a GIF from gallery, set thumbnail as app icon)
-- [ ] Custom app themes (fonts and colors)
+- [ ] **Custom app themes** — appearance (light/dark/system) × user-authored colour schemes.
+      Colours only; font-token cleanup is separate, non-blocking work
 - [ ] Create custom pixel-art icons for remaining UI elements
 
 ### Phase 22: Future Features
