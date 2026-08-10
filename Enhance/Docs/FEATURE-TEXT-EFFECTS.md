@@ -1,6 +1,12 @@
 # Animated text overlays — product and implementation plan
 
-> Status: proposed. No production code written.
+> Status: **approved, implementation deferred.** No production code written.
+>
+> Implementation is deliberately not started. It needs a macOS toolchain — the whole feature is
+> CoreText, Core Graphics, UIKit gesture recognizers and CALayer, none of which can be compiled or
+> tested off a Mac, and the repo has no CI to catch it either. Stage A's gate is that the tile
+> partition invariant is *proven* before anything is built on it (§12.2), and that gate cannot be
+> met by inspection. §17 is the file manifest to work through once Xcode is available.
 >
 > **Revision 2 (2026-08-10).** Revision 1 deferred rotation and pinch-to-resize; both are now V1,
 > which reopens the gesture-conflict question the first revision answered with a size slider. That
@@ -1192,3 +1198,63 @@ That is the point at which independent timing and ordering become necessary; add
 to a single-layer release would make the first interaction much heavier without validating demand.
 The tile architecture is already shaped for it — a second overlay is a second `RasterizedText`
 composited in order — but the editor cost is where the work actually is.
+
+---
+
+## 17. File manifest
+
+The order is the stage order (§11), and it is deliberate: everything in Stages A–D is headless and
+fully testable, so the gesture and editor work in Stage F lands on a renderer that is already
+proven. Do not reorder Stage E — the regeneration repair is a prerequisite, not a neighbour (§8.7).
+
+The project uses a `PBXFileSystemSynchronizedRootGroup`, so **new files need no `.pbxproj` edits**
+(LEARNINGS 2026-03-08). Note that `Enhance/Fonts/` is excluded from the two test targets via
+`membershipExceptions`, so any test that resolves Silkscreen runs in the *hosted* test target and
+reads it from `Bundle.main` — which is `Enhance.app`, as EFFECTS.md notes.
+
+### New
+
+| Stage | Path | Contents |
+|---|---|---|
+| A | `Enhance/Models/Text/TextOverlay.swift` | `TextOverlay`, `TextFont`, `TextColorChoice`, `TextDecoration`, `TextAlign`. Colour is a semantic enum with UIKit + SwiftUI projections, never a stored `SwiftUI.Color` (§6). |
+| A | `Enhance/Models/Text/TextLayoutLimits.swift` | Clamp, rubber-band and detent maths (§9). Pure value functions, no UIKit — the easiest file to test and the one to write first. |
+| A | `Enhance/Services/Text/TextLayoutEngine.swift` | One `CTFramesetter` pass → `PreparedTextLayout`, `TextUnit`, `TextLine`. The shaping-safe unit merge (§7.2) and seam computation (§7.3) live here. |
+| A | `Enhance/Services/Text/TextRasterizer.swift` | `RasterizedText`, `TextTile`. One decorated master raster through a coverage mask (§7.1), cut into non-overlapping tiles. |
+| B | `Enhance/Services/Text/TextTileCompositor.swift` | `TextComposer.transform` — the single source of truth for placement (§7.6) — plus the export `CGContext` compositor. |
+| C | `Enhance/Models/Text/TextAnimationType.swift` | The five presets, `granularity`, `peakScale`, `tileStates(at:layout:)` (§5, §7.6). |
+| A–C | `EnhanceTests/TextLayoutTests.swift` | §12.2 partition invariant, §12.3 language correctness. **Write §12.2 and `arabicJoining_survivesTiling` first** — they are what the whole architecture rests on. |
+| B–C | `EnhanceTests/TextAnimationTests.swift` | §12.4 endpoints and transform algebra, §12.5 resolution independence. |
+| A, C | `EnhanceTests/TextGeometryTests.swift` | §12.8 clamping, sizing, detent hysteresis. |
+| F | `Enhance/Components/TextGestureSession.swift` | §8.6. No UIKit import, so the undo-counting logic is directly testable (§12.7). |
+| F | `Enhance/Components/TextOverlayHostView.swift` | `UIView` subclass: CALayer tile stack, `hitRegion`, the five recognizers, `CADisplayLink` (§8.8). |
+| F | `Enhance/Assets.xcassets/icon-text.imageset/` | Template SVG — `template-rendering-intent: template`, no baked `fill-opacity` (LEARNINGS 2026-03-12/13). |
+| F | `EnhanceTests/TextRoutingTests.swift` | §12.6. Extract `route(firstTouch:hitRegion:)` as a pure function so it needs no touch harness. |
+
+### Modified
+
+| Stage | Path | Change |
+|---|---|---|
+| D | `Enhance/Services/GIFGenerating.swift` | Add `textOverlay: TextOverlay?`. |
+| D | `Enhance/Services/GIFGenerator.swift` | One `TextRasterizer.prepare` before both loops; composite after `applyVisualEffects` in `addAnimatedFrames` and `addPauseFrames` (§7.7). |
+| D | `EnhanceTests/EditorViewModelTests.swift` | `StubGIFGenerator` — a compile-time witness for the protocol; update in the same commit. |
+| D | `EnhanceTests/SaveGIFTests.swift` | `SaveStubGenerator` — the second witness. |
+| E | `Enhance/Features/Editor/EditorViewModel.swift` | `regeneratePending` (§8.7), **on its own commit, suite green before and after**. |
+| F | `Enhance/Components/ImageCanvasView.swift` | Representable root becomes a container `UIView` with the scroll view and text host as siblings; first-touch routing in `hitTest` (§8.2, §8.3). Move the scroll config verbatim — do not refactor `updateUIView` while in there. |
+| F | `Enhance/Features/Editor/EditorViewModel.swift` | `textOverlay` in `EditorSnapshot`, `currentSnapshot`, `restore`, `resetEffects`, `hasNonDefaultSettings`, `hasEffectsWithoutZoom` **and** `regenerateGIF`'s `canRegenerate`; `beginTextGesture`/`endTextGesture`; `editingRowCount` gains `.text` → 3. |
+| F | `Enhance/Features/Editor/EditorView.swift` | Fourth category tab with derived spacing; preset carousel; two-phase editor; three-row settings panel; the live-canvas exception in **both** `canvasSection` branches (§10). |
+| F | `Enhance/Models/EffectCategory.swift` | Fourth case, `text`. |
+
+### Reuse, do not rebuild
+
+`EffectCarousel`, `EffectCardView` (including its still-thumbnail initializer for preset previews),
+`EffectDetailPanel`, `SegmentedBar`, `ParameterSliderRow`, `EffectParameter` storage via
+`parameterValues`, `HapticService`, `LaserColor` as the shape to copy for `TextColorChoice`,
+`AppConstants.Layout.parameterRowHeight(forPanelHeight:rowCount:)`, `FontRegistration`, `Typography`.
+
+### Verification once a Mac is available
+
+There is no CI in this repo, so the suite is the only gate. Confirm it is **green on the untouched
+baseline first** (LEARNINGS 2026-08-07 — a permanently red suite is worse than no suite), then work
+the stages in order, keeping `main` fast-forwarded at each green stage as the project already does.
+Stage C and Stage G both need a device: the preset review and the Silkscreen crispness checks in
+§12.11 cannot be done from test output.

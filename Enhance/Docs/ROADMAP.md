@@ -1084,7 +1084,13 @@ other reasons — and each has one specific catch worth deciding knowingly.
 **They compose.** Once a stack exists, the copyable payload is the stack — so settle the
 stacking model before designing the copy format, or the format will need reworking.
 
-### Phase 19c: Animated text overlays (planned)
+### Phase 19c: Animated text overlays (planned — approved, awaiting a Mac)
+
+**Status: plan approved, implementation deliberately not started.** The feature is CoreText, Core
+Graphics, UIKit gesture recognizers and CALayer end to end, so none of it compiles or tests off a
+macOS toolchain, and there is no CI to catch what inspection misses. Stage A's gate is that the
+tile partition invariant is *proven*, which cannot be met by reading code. The file manifest to
+work through is §17 of the plan.
 
 Full product, rendering, gesture, UX, accessibility, and test plan:
 **[FEATURE-TEXT-EFFECTS.md](FEATURE-TEXT-EFFECTS.md)** — **revision 2 (2026-08-10)**, which moves
