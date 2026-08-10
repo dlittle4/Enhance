@@ -2,18 +2,26 @@
 
 > Status: proposed. No production code written.
 >
-> Scope: let a user add one text overlay to a photo, position and style it, and animate its
-> entrance in sync with the existing zoom animation when the GIF is generated.
+> **Revision 2 (2026-08-10).** Revision 1 deferred rotation and pinch-to-resize; both are now V1,
+> which reopens the gesture-conflict question the first revision answered with a size slider. That
+> change cascaded further than expected — into the renderer, the undo contract, and the canvas
+> lifecycle — so this is a rewrite rather than an amendment. §2 lists every substantive change and
+> the reason for it, including three defects in revision 1 that were found while re-checking it
+> against the source.
+>
+> Scope: let a user add one text overlay to a photo; position, scale and rotate it directly on the
+> canvas; style it; and animate its entrance in sync with the existing zoom animation when the GIF
+> is generated.
 
 ---
 
 ## 1. Executive recommendation
 
 Ship a deliberately small first version: **one text layer, five entrance presets, direct
-drag-to-position, and a compact style editor**. Text should be anchored to the 600×600 output
-frame rather than to source-image pixels, so it remains readable while the photo moves beneath
-it. Every preset consumes the same normalized `progress` value as the zoom animator, settles by
-roughly 70% of the moving portion, and remains fully visible during the pause.
+manipulation (drag, pinch, rotate), and a compact style editor**. Text is anchored to the 600×600
+output frame rather than to source-image pixels, so it remains readable while the photo moves
+beneath it. Every preset consumes the same normalized `progress` value as the zoom animator,
+settles by roughly 70% of the moving portion, and remains fully visible during the pause.
 
 Treat text as its own overlay pass, not as a `VisualEffect`. The current generator has a useful
 three-stage order:
@@ -24,13 +32,26 @@ three-stage order:
 
 Animated text becomes stage 4. This gives it predictable coordinates, keeps it crisp, prevents
 image filters from degrading the lettering, and avoids changing any existing effect protocol.
+`applyVisualEffects` already returns a `CGImage` at both splice points, so stage 4 is a
+`CGImage → CGImage` insertion that touches neither the `VisualEffect` protocol nor its eighteen
+implementations.
 
-The first release should optimize for the quick, preset-led interaction used by social creation
-apps rather than expose keyframes or a timeline. Instagram's implementation is especially
-relevant: it pairs text styles with decorated variants and includes word- and character-level
-reveals, while explicitly accounting for emoji, ligatures, and right-to-left languages. Canva,
-Adobe Express, and CapCut similarly lead with named animation presets and offer style controls
-after selection.
+Two decisions carry most of the risk, and both are settled here rather than left to
+implementation:
+
+- **One CoreText layout, one master raster, non-overlapping tiles.** Preview and export share a
+  resolution-independent layout and one transform function, and each rasterizes at its own native
+  resolution. Parity becomes a property of the structure rather than a list of invariants two
+  drawing paths are asked to honour (§7).
+- **Modal gesture arbitration.** While TEXT is the active category and the overlay is selected,
+  the text owns pinch, rotate and drag, and the photo's own recognizers are suspended. This
+  dissolves the conflict with the `UIScrollView` canvas instead of negotiating with it (§8).
+
+The first release optimizes for the quick, preset-led interaction used by social creation apps
+rather than exposing keyframes or a timeline. Instagram's implementation is especially relevant:
+it pairs text styles with decorated variants and includes word- and character-level reveals, while
+explicitly accounting for emoji, ligatures, and right-to-left languages. Canva, Adobe Express, and
+CapCut similarly lead with named animation presets and offer style controls after selection.
 
 Sources:
 
@@ -41,167 +62,450 @@ Sources:
 
 ---
 
-## 2. Product principles
+## 2. What changed in revision 2, and why
 
-- **Preset first.** A user should be able to type, position, choose an effect, and generate in
-  under 20 seconds.
+### Scope
+
+| Change | Reason |
+|---|---|
+| **Pinch-to-resize and free rotation are in V1.** Revision 1 deferred both and used a size slider. | Product decision. The slider's stated justification — "this avoids gesture conflict with the already pinchable photo canvas" — was a real constraint, not a preference, so §8 answers it directly instead of working around it. |
+| **Gesture arbitration is modal.** Tap the text to select; while TEXT is active and the overlay is selected, pinch/rotate/drag drive the text and the photo's pan/zoom is suspended; double-tap opens the style editor; tap outside deselects. | The canvas is a `UIScrollView` that owns pinch, pan and double-tap-to-zoom. Hit-test-based arbitration leaves two-finger gestures straddling the text boundary genuinely ambiguous; modality has no ambiguous case. |
+| **Rotation is a static resting orientation** with haptic snap detents near 0°, ±90° and 180°. Presets animate on top of it. | Keeps the animation contract at one composition step. Users almost never land exactly level, and near-level crooked text reads as a bug in an exported GIF. |
+| **Still exactly one text layer.** | Unchanged from revision 1. Pinch and rotate are gesture fidelity, not scope: they add two model fields and a gesture layer, with no layer list, z-ordering, per-layer timing or selection management. |
+| **SIZE and ANGLE controls in the style editor.** | Pinch and rotate are two more affordances VoiceOver cannot perform. The controls are the accessible path and double as precise input for everyone. |
+
+### Defects found in revision 1
+
+| # | Defect | Resolution |
+|---|---|---|
+| 1 | **§7 required snapshot/reference-image tests** at four progress values for every preset. The repo has 232 tests and no snapshot infrastructure, and `FEATURE-THEMES.md` §9 explicitly declines to build one. This was the plan's largest unstated cost. | Removed. §12 uses the house idiom instead: pixel *measurement* on structured fixtures (the `LensDistortionTests` pattern) plus assertions on layout and state data. The master raster is computed in-process and *is* the reference, so there is nothing to check in. |
+| 2 | **"A text-only edit can generate at 1× zoom"** appeared in §5 and the acceptance criteria. ROADMAP records "Zoom is always on… **Consequence: effects-only GIFs at 1× are impossible**" as *deliberately unreachable, not removed*; `selectedAnimatorType` is never `nil` in the shipped UI. | The plumbing is wired for consistency with the dormant `nil`-animator path — in `hasEffectsWithoutZoom` **and** in `regenerateGIF`'s `canRegenerate`, in the same edit — but the claim is dropped from the acceptance criteria and recorded as an open decision in §15. |
+| 3 | **No answer for the post-ENHANCE canvas.** Once a GIF exists, `EditorView.canvasSection` swaps `ImageCanvasView` for `GIFPreviewView`. Revision 1 listed "drag end" as a regeneration commit point while also saying not to stack a live overlay on the baked GIF — which left the overlay uneditable exactly when a user would want to adjust it. | The TEXT category keeps the live canvas, following the existing face-filters precedent. The exception is needed in **both** `canvasSection` branches: `.existingGif` already has a `.faceFilters` case, `.newImage` has none. |
+
+### Architecture
+
+| Change | Reason |
+|---|---|
+| **Preview and export no longer share rendered bitmaps** — they share a resolution-independent `PreparedTextLayout` and one transform function, and each rasterizes at its own native resolution. | Rasterizing at 600 px and displaying at 325 pt is a 0.5417× non-integer downscale. Silkscreen is a pixel font; that downscale is the single most visible thing in the feature. Sharing the *layout* keeps parity structural and gains crisp text on both sides. |
+| **Reveal units are shaping-safe**, merged so no unit ever splits a glyph. | Per-cluster tiling forces isolated Arabic/Persian forms (`س ل ا م` instead of `سلام`) and splits Latin ligatures. The failure is silent, and every structural test passes while it happens — exactly the class LEARNINGS 2026-08-07 warns about. |
+| **Tiles are non-overlapping cuts of one master raster**, never independent renderings. | Makes decoration continuous by construction, removes double-composite seams, and yields one decisive test: compositing every tile at rest must be byte-identical to the master. |
+| **FLICKER loses its chromatic offset**, keeping deterministic opacity pulses and a small scale twitch. | A per-channel offset is not expressible as alpha + affine; supporting it would add a field to the state type and colour-matrix compositing to both paths, for one preset. The CIImage effects (LENS, CHROMA SHIFT) already own that look, one pipeline stage earlier. |
+| **`TextAnimationType.state(at:)` becomes `tileStates(at:layout:)`** returning one state per tile. | A single state cannot express TYPE or WORD DROP. |
+| **The `regenerateIfNeeded` P1 is a prerequisite, not a neighbour.** | `guard !isRegenerating else { return }` silently drops edits. Today that bites on an occasional slider commit; with direct manipulation it will bite whenever a user adjusts twice inside ~800 ms, and it reads as "the app ignored me". §8.7 fixes it first, on its own commit. |
+
+---
+
+## 3. Product principles
+
+- **Preset first.** A user should be able to type, place, choose an effect, and generate in under
+  20 seconds.
+- **Direct manipulation.** Position, size and angle are set by touching the text, not by hunting
+  for sliders. The sliders exist, but as the precise and accessible path rather than the primary
+  one.
 - **The text and zoom feel choreographed.** They share time, but text is not scaled by the image
   transform. The image can rush toward the viewer while the title independently pops, rises, or
   types into place.
-- **The final message is readable.** All entrance motion finishes before the pause frames, and
-  the pause always contains the complete text.
-- **Preview and export use one animation definition.** SwiftUI may present the live overlay, but
-  both preview and GIF rendering must read the same pure `state(at:)` evaluator.
+- **The final message is readable.** All entrance motion finishes before the pause frames, and the
+  pause always contains the complete text.
+- **Preview and export cannot disagree.** Not because they are carefully kept in step, but because
+  they consume the same layout and the same transform function and differ only in raster size.
 - **Language correctness is part of V1.** Never split a Swift `String` by UTF-16 offsets or plain
-  spaces. Emoji, composed characters, ligatures, multiline text, and right-to-left layout must
-  remain intact.
-- **No hidden timeline.** Duration is derived from the GIF's moving portion. Expose an
-  `ENTRANCE` timing control only after the presets feel good at their defaults.
+  spaces, and never re-shape a substring in isolation. Emoji, composed characters, ligatures,
+  multiline text, and right-to-left layout must remain intact.
+- **No hidden timeline.** Duration is derived from the GIF's moving portion. Expose an `ENTRANCE`
+  timing control only after the presets feel good at their defaults.
 
 ---
 
-## 3. V1 user experience
+## 4. V1 user experience
 
 ### Entry point
 
-Add a fourth editor category, **TEXT**, beside Zoom, Face, and Image. Use a simple bundled `T`
-icon that matches the existing monochrome category icons.
+Add a fourth editor category, **TEXT**, beside Zoom, Face, and Image, with a bundled template `T`
+icon matching the existing monochrome category icons. The tab row is currently a hardcoded
+`HStack(spacing: 48)` of three icons; derive the spacing from measured width rather than adding a
+fourth 48 — the SE 3 layout budget is the recurring theme of this project's layout bugs.
 
-When TEXT is opened with no overlay, the carousel begins with an **ADD TEXT** card followed by
-the five animation presets. Tapping ADD TEXT opens a focused text editor and keyboard. Tapping a
-preset with no text should open the same editor with that preset already selected; this removes
-an unnecessary dead end.
+When TEXT is opened with no overlay, the carousel begins with an **ADD TEXT** card followed by the
+five animation presets. Tapping ADD TEXT opens the style editor and keyboard. Tapping a preset
+with no text opens the same editor with that preset already selected; this removes an unnecessary
+dead end.
 
 ### Text editing
 
-Use a keyboard-safe sheet or dedicated editor state rather than squeezing a text field into the
-existing effect detail panel. It contains:
+A keyboard-safe sheet, not the effect detail panel. The panel's budget is five rows with no
+scroll, and the text editor needs eight — text field, FONT, COLOR, DECORATION, ALIGN, SIZE, ANGLE,
+DELETE. `BottomSheet` is the house component, but its `[.medium]` detent will not clear a
+keyboard, so this needs a content-sized detent verified on a 4.7" screen.
 
-- a multiline text field, limited to 120 extended grapheme clusters and three rendered lines;
+Contents:
+
+- a multiline text field, limited to 120 extended grapheme clusters (three rendered lines is a
+  field-sizing guideline, not a renderer constraint);
 - font choices: Silkscreen Regular, Silkscreen Bold, System Rounded, System Serif, and System
-  Condensed (all local/system fonts; no licensing or download dependency);
+  Condensed — all local or system fonts, no licensing or download dependency;
 - a small high-contrast colour palette: white, black, mint, pink, yellow, and blue;
 - decoration: **NONE**, **SHADOW**, **BLOCK**, and **OUTLINE**;
-- size and alignment controls;
-- Cancel and Done, using the same edit-session semantics as the existing effect panel.
+- SIZE and ANGLE controls, which mirror pinch and rotation exactly and are the VoiceOver path;
+- alignment;
+- Delete, plus Cancel and Done using the same edit-session semantics as the existing effect panel.
 
-Keep animation selection in the horizontal card carousel. This separates “what it says and how
-it looks” from “how it enters,” and prevents a single cramped panel from mixing both concepts.
+Animation selection stays in the horizontal card carousel. This separates "what it says and how it
+looks" from "how it enters," and prevents a single cramped panel from mixing both concepts.
 
 ### Canvas interaction
 
-While the TEXT category is active and an overlay exists:
+While the TEXT category is active and an overlay exists, the text renders directly over
+`ImageCanvasView`, and interaction is **modal on selection**:
 
-- render the text directly over `ImageCanvasView`;
-- tapping the text selects it and reopens the style editor;
-- dragging the text moves it; dragging elsewhere continues to pan the photo;
-- store the text centre in normalized output coordinates (`0...1`) and clamp its measured bounds
-  to a 24-point safe margin;
-- show a light selection outline only while editing; it never enters the GIF;
-- provide a delete action in the text editor and make RESET clear the overlay too.
+**Deselected** — the overlay is inert. Only the text's own rotated bounds (inflated to a 44 pt
+minimum touch target) accept touches; every other touch reaches the photo, which pans, zooms and
+double-tap-zooms exactly as it does today.
 
-V1 deliberately omits rotation, pinch-to-resize, multiple layers, per-word styling, custom
-motion paths, and independent in/out timing. Size is a slider; this avoids gesture conflict with
-the already pinchable photo canvas.
+**Selected** — the overlay owns the canvas.
+
+| Gesture | Effect |
+|---|---|
+| Single tap on the text | Selects. Idempotent: never deselects. |
+| Single tap outside the text | Deselects and returns the canvas to the photo. |
+| Double tap on the text | Opens the style editor and keyboard. |
+| One- or two-finger drag | Moves the text. |
+| Pinch | Resizes the text. |
+| Rotate | Rotates the text, with haptic detents near 0°, ±90° and 180°. |
+
+While selected, the photo's pan, pinch and double-tap recognizers are disabled, and the
+`ZoomFrameOverlay` minimap is hidden — it reports a framing that is momentarily frozen and is
+visual noise behind a selection ring. A light selection outline shows only while the overlay is
+selected; it never enters the GIF.
+
+Deliberate consequence, documented rather than engineered around: double-tapping the *photo* to
+zoom requires deselecting the text first. In the selected state an outside double-tap deselects on
+the first tap and does nothing on the second. That is the correct behaviour for a modal design.
+
+RESET clears the overlay, and the style editor offers an explicit Delete.
 
 ### Regeneration behavior
 
-Typing and dragging update the local preview immediately but do not regenerate a GIF on every
-event. Regenerate only on meaningful commit points:
+Typing and direct manipulation update the local preview immediately but do not regenerate a GIF on
+every event. Regenerate only on meaningful commit points:
 
-- Done from the text/style editor;
-- drag end;
+- Done from the style editor;
+- **gesture session end** — the point at which the last of a simultaneous drag/pinch/rotate ends,
+  not the end of each individual recognizer;
 - animation preset selection;
 - undo, redo, reset, or delete.
 
-For an already-generated or existing GIF, use the current regeneration guard and show the
-existing regenerating overlay. For a new image before ENHANCE, no background GIF work is needed.
+For an already-generated or existing GIF, use the current regeneration guard — as repaired in
+§8.7 — and show the existing regenerating overlay. For a new image before ENHANCE, no background
+GIF work is needed.
 
 ---
 
-## 4. Entrance preset set
+## 5. Entrance preset set
 
 All curves consume normalized moving-frame progress `p` from `0...1`. Define a shared entrance
-window `q = clamp(p / 0.70, 0, 1)` so every preset is complete before the final 30% of motion and
-before all pause frames. Use a pure value type such as `TextAnimationState` containing opacity,
-scale, translation, rotation, and reveal progress.
+window `q = min(1, p / 0.70)` so every preset is complete before the final 30% of motion and
+before all pause frames.
 
-| Preset | Behavior | Default curve | Why it belongs in V1 |
-|---|---|---|---|
-| **POP** | Fade from 0, scale 0.55 → 1.08 → 1 | spring-like overshoot | The expressive default; complements zoom without duplicating it |
-| **RISE** | Move upward ~48 output pixels while fading in | cubic ease-out | Familiar, legible, and works for multiline text |
-| **TYPE** | Reveal by extended grapheme cluster with a blinking block cursor | stepped reveal | Direct Instagram inspiration and a strong fit for the pixel font |
-| **WORD DROP** | Reveal linguistic word tokens in sequence with a short downward settle | staggered ease-out | More energetic than Type while still readable |
-| **FLICKER** | Resolve from 2–3 deterministic opacity/chromatic-offset flashes to stable text | damped deterministic pulses | Matches Enhance's glitch/pixel personality |
+| Preset | Behavior | Granularity | Default curve | Why it belongs in V1 |
+|---|---|---|---|---|
+| **POP** | Fade from 0, scale 0.55 → 1.08 → 1 | whole | spring-like overshoot | The expressive default; complements zoom without duplicating it |
+| **RISE** | Move upward ~48 output pixels while fading in | whole | cubic ease-out | Familiar, legible, and works for multiline text |
+| **TYPE** | Reveal by shaping-safe unit with a blinking block cursor | unit | stepped reveal | Direct Instagram inspiration and a strong fit for the pixel font |
+| **WORD DROP** | Reveal linguistic word tokens in sequence with a short downward settle | word | staggered ease-out | More energetic than TYPE while still readable |
+| **FLICKER** | Resolve from 2–3 deterministic opacity pulses and a ±0.02 scale twitch | whole | damped deterministic pulses | Matches Enhance's glitch/pixel personality |
 
-The effects are entrance-only. Do not add a looping wiggle or pulse in V1: motion during the
-pause makes the message harder to read, increases GIF entropy/file size, and complicates the
-promise that the final state is stable.
+The effects are entrance-only. Do not add a looping wiggle or pulse in V1: motion during the pause
+makes the message harder to read, increases GIF entropy and file size, and complicates the promise
+that the final state is stable.
 
-Use deterministic functions of `progress` and a stable overlay seed. Never call random APIs in
-the frame loop, or preview and export will disagree and repeated generations will differ.
+Use deterministic functions of `progress` and a stable overlay seed. Never call random APIs in the
+frame loop, or preview and export will disagree and repeated generations will differ.
 
 ---
 
-## 5. Data model
+## 6. Data model
 
-Add models under `Enhance/Models/Text/`:
+Under `Enhance/Models/Text/`:
 
 ```swift
-struct TextOverlay: Equatable {
+struct TextOverlay: Equatable, Sendable {
     var text: String
-    var center: CGPoint             // normalized output-frame coordinates
-    var width: CGFloat              // normalized maximum layout width
+    var center: CGPoint          // normalized 0…1 of the output frame, (0,0) top-left
+    var fontSize: CGFloat        // normalized against output height
+    var angle: CGFloat           // radians, resting orientation, (−π, π]
     var font: TextFont
-    var fontSize: CGFloat           // normalized against the 600px output
-    var color: TextColor
-    var alignment: TextAlignment
+    var color: TextColorChoice
+    var alignment: TextAlign
     var decoration: TextDecoration
     var animation: TextAnimationType
+    var seed: UInt64             // stable per overlay; FLICKER determinism
 }
 
-enum TextAnimationType: String, CaseIterable, Identifiable {
+enum TextAnimationType: String, CaseIterable, Identifiable, Sendable {
     case pop, rise, type, wordDrop, flicker
 
-    func state(at progress: CGFloat, layout: PreparedTextLayout) -> TextAnimationState
+    var granularity: TextTileGranularity   // .whole | .unit | .word
+    var peakScale: CGFloat                 // greatest scale the preset reaches; POP = 1.08
+    func tileStates(at progress: CGFloat, layout: PreparedTextLayout) -> [TextTileState]
 }
 ```
 
-Keep colours as a small semantic enum in V1, with UIKit and SwiftUI projections, as
-`LaserColor` does today. Avoid storing `SwiftUI.Color` in snapshots; the project already records
-the equality and persistence problems that creates for `GradientStops`.
+Colours are a small semantic enum with UIKit and SwiftUI projections, as `LaserColor` does today.
+Never store a `SwiftUI.Color` in a snapshot; LEARNINGS 2026-08-07 records the equality and
+persistence problems that creates for `GradientStops`, and the workarounds it forced.
 
-Add `textOverlay: TextOverlay?` to `EditorSnapshot` and `EditorViewModel`. Include it in
-`currentSnapshot`, `restore`, `resetEffects`, `hasNonDefaultSettings`, the generate/regenerate
-calls, and the rule that allows effects-only generation at 1× zoom. A non-empty text overlay is
-itself sufficient reason to generate.
+`fontSize` is normalized and **does not appear in the composition matrix** — it is consumed at
+layout time as `resolvedPointSize = fontSize × outputSide`, so changing size re-lays-out and
+re-wraps. This is why a live pinch needs the transient handling in §7.5 rather than being a pure
+transform forever.
 
-Use a draft copy while the text sheet is open. Cancel restores the entry snapshot; Done records
-one undo entry for the entire visit. During a drag, capture one pre-drag snapshot and commit one
-history entry at drag end.
+Wrap width is a constant fraction of the frame, not a model field. Pinch changes `fontSize`, and
+more lines falling out of a larger size is the natural behaviour.
+
+Add `textOverlay: TextOverlay?` to `EditorSnapshot` (a 13th field) and `EditorViewModel`. Include
+it in `currentSnapshot`, `restore`, `resetEffects`, `hasNonDefaultSettings`, the
+generate/regenerate calls, and `hasEffectsWithoutZoom`. An empty or whitespace-only string is not
+an active overlay.
+
+Use a draft copy while the style sheet is open. Cancel restores the entry snapshot; Done records
+one undo entry for the entire visit. Direct manipulation uses gesture sessions (§8.6), which
+record one entry per session regardless of how many recognizers participated.
 
 V1 retains the app's current baked-GIF behavior: after leaving the editor and reopening a saved
 GIF, the original editable recipe is not reconstructed. The first frame of every entrance must
-therefore contain no visible text, which also prevents the baked title from being duplicated
-when that frame is later used as the source image. Full recipe persistence should be designed
-for all effect families together, not added as a text-only metadata format.
+therefore contain no visible text, which also prevents a baked title from being duplicated when
+that frame is later used as the source image. §12 turns this from a prose commitment into a
+compiled assertion. Full recipe persistence should be designed for all effect families together,
+not added as a text-only metadata format.
 
 ---
 
-## 6. Rendering architecture
+## 7. Rendering architecture
 
-### Protocol boundary
+### 7.1 One layout, one master raster, non-overlapping tiles
 
-Extend `GIFGenerating.generateGIF` with `textOverlay: TextOverlay?`. Update both test stubs in
-the same change; they are intentionally compile-time witnesses for this boundary.
+Three stages, one invariant.
 
-In `GIFGenerator`, prepare text once before either frame loop:
+> **Tiles are never rendered independently. One CoreText layout produces one fully decorated
+> master raster, and tiles are non-overlapping *cuts* of that raster.**
+
+That single rule is what makes shaping, ligatures, decoration continuity and seam-free
+compositing correct simultaneously, and it collapses into one decisive test (§12.2).
+
+**Stage 1 — layout.** `TextLayoutEngine.layout(overlay:outputSize:)` runs exactly one
+`CTFramesetter` pass and returns a resolution-independent value type:
 
 ```swift
-let textPass = textRenderer.prepare(overlay: textOverlay, outputSize: context.outputSize)
+struct PreparedTextLayout: Equatable, Sendable {
+    let units: [TextUnit]          // reveal units, in logical (typing) order
+    let lines: [TextLine]
+    let inkBounds: CGRect          // tight, local space, origin at the text's centre, y down
+    let resolvedPointSize: CGFloat
+    let baseDirection: TextBaseDirection
+    let lineCount: Int
+}
+
+struct TextUnit: Equatable, Sendable {
+    let order: Int                 // ascending == typing order, in both LTR and RTL
+    let stringRange: Range<Int>    // UTF-16; diagnostics and accessibility only
+    let glyphIDs: [Int]            // used to prove disjointness
+    let inkRect: CGRect            // local space
+    let advanceEnd: CGPoint        // direction-aware trailing edge; where the cursor sits
+    let lineIndex: Int
+    let isWhitespace: Bool
+}
 ```
 
-Then change each path from:
+It holds no CF objects, so it is `Sendable` and crosses to the generator's background queue
+freely.
+
+**Stage 2 — one master raster.** `TextRasterizer.prepare(overlay:pixelSize:)` draws the whole
+decorated text once into an explicit `CGContext` — not `UIGraphicsBeginImageContextWithOptions`,
+because this runs off the main queue and an explicit colour space is worth having. Decoration
+order inside that one pass: BLOCK fill → SHADOW → glyph fill → OUTLINE stroke. All continuous, all
+correct, once.
+
+**Stage 3 — cutting.**
+
+```swift
+struct RasterizedText: Sendable {
+    let layout: PreparedTextLayout
+    let master: CGImage            // kept alive; every tile is a view onto it
+    let tiles: [TextTile]          // non-overlapping
+    let pixelSize: CGSize
+    let granularity: TextTileGranularity
+}
+
+struct TextTile: Sendable {
+    let unitOrder: Int             // index into layout.units; −1 for synthetic
+    let image: CGImage             // master.cropping(to:) — shares the parent's backing store
+    let pixelRect: CGRect
+    let localCentre: CGPoint       // this tile's own rotation/scale pivot
+    let origin: TileOrigin         // .cut | .synthetic
+}
+```
+
+Because cuts are non-overlapping and every tile's resting state is (alpha 1, identity),
+**compositing all tiles at rest reproduces `master` byte for byte**. That is the whole safety
+property and it is one assertion.
+
+It also disposes of a complication: with non-overlapping cuts, alpha-0/1 tiles *are* a clip mask,
+so TYPE needs no second code path.
+
+**Memory.** `CGImage.cropping(to:)` returns a view sharing the parent's backing store, so 120
+tiles cost approximately nothing beyond the master. A 600² RGBA master is 1.44 MB; the preview
+master at 975² is 3.8 MB. The real cost is CALayers in the preview and small blits per exported
+frame, both microsecond-scale. No pooling or tile budget is needed. The 120-cluster cap exists for
+layout sanity, not memory.
+
+### 7.2 Shaping-safe units
+
+Units start from extended grapheme cluster boundaries and then **merge any clusters that fall
+under a single glyph**. After `CTFramesetterCreateFrame`, walk `CTFrameGetLines` →
+`CTLineGetGlyphRuns` → `CTRunGetStringIndices` (one string index per *glyph*) and
+`CTRunGetPositions`; a glyph whose next-glyph string index skips more than one cluster covers all
+the clusters in between.
+
+Results:
+
+- Latin `ffi` → one unit, so it types in whole rather than as half a ligature.
+- Arabic `سلام` → four units, one per *shaped* glyph, each in its correct initial/medial/final form.
+- `لا` (lam-alef) → one unit: two clusters, one glyph.
+- ZWJ family emoji, regional-indicator flags, `e` + U+0301, skin-tone modifiers → one unit each.
+
+Positions come from `CTLineGetOffsetForStringIndex` and `CTRunGetPositions`, which map *logical*
+indices to *visual* positions — so TYPE reveals in typing order and RTL works with no
+special-casing. WORD DROP tokenizes with `NLTokenizer(unit: .word)`, never
+`split(separator: " ")`.
+
+This follows the failure modes documented by Meta's Instagram team: character offsets and space
+splitting break ligatures, emoji, and right-to-left text. The subtler trap is that laying out a
+substring *in isolation* also breaks joining, silently, while every structural test still passes.
+
+### 7.3 Seams
+
+The seam between units *i* and *i+1* is the vertical line at the **midpoint between unit *i*'s ink
+right edge and unit *i+1*'s ink left edge** — mirrored for RTL, computed per line. Not the advance
+boundary: the ink midpoint, so any outline or shadow bleed crossing it was genuinely ambiguous.
+Line boundaries cut horizontally at the midpoint of the interline gap.
+
+Two cases are not cuts:
+
+- **BLOCK** is a continuous plate behind the whole text. Sliced across word tiles under staggered
+  alpha it becomes a ladder of abutting rectangles. It is its own tile, animating as a unit.
+- **The TYPE cursor** is the one synthetic tile, rasterized separately and positioned at
+  `units[revealed − 1].advanceEnd` — direction-aware, so in RTL it sits to the *left* of the last
+  revealed glyph. Its position is baked in at prepare time and its state is a pure alpha blink, so
+  no per-quantity exception leaks into the animation contract. Excluded from the partition test
+  via `origin == .synthetic`.
+
+### 7.4 Two rasters, one layout
+
+Preview and export **must not share rendered bitmaps**. Export needs 600×600 at scale 1, matching
+`UIGraphicsBeginImageContextWithOptions(outputSize, false, 1.0)`. The preview needs
+325 pt × screen scale — 650 or 975 px. Rasterizing at 600 and displaying at 325 pt is a 0.5417×
+non-integer downscale of a pixel font, and Silkscreen turns to mush.
+
+So the shared artifacts are one level up: **the resolution-independent `PreparedTextLayout`, the
+`tileStates(at:)` evaluator, and one `TextComposer.transform` function**. Each side rasterizes at
+its own native resolution. Parity is then guaranteed by the layout being resolution-independent
+and by a resolution-independence test (§12.5) — cheaper, more precise and less brittle than any
+snapshot suite, and it fails loudly if anyone reintroduces a resolution-dependent constant such as
+a hardcoded shadow offset in pixels.
+
+Neither compositor may compute its own matrix. The preview converts the shared
+`CGAffineTransform` with `CATransform3DMakeAffineTransform`.
+
+### 7.5 Rasterization scale and the live pinch
+
+**Scale.** The master is rasterized at `resolvedPointSize × animation.peakScale`, so POP's 1.08
+overshoot frame is 1:1 and never an upscale. `peakScale` is declared on the preset, so a future
+preset that overshoots further widens the raster automatically. The resting transform therefore
+carries a compensating `1/peakScale` term (§7.6) — the raster is deliberately oversized and scaled
+*down* at rest, which is the safe direction.
+
+**During a live pinch**, do not re-rasterize per gesture frame. Re-running CoreText at 60 Hz is
+exactly the per-frame work that LEARNINGS 2026-03-13 records as having killed the old SwiftUI
+canvas. Three rules:
+
+1. **Per gesture frame, transform only.** One extra uniform term `S(fontSizeLive /
+   fontSizeCommitted)` about the text centre, on the layer stack. No CPU cost.
+2. **`layer.magnificationFilter = .nearest` whenever the resolved font is Silkscreen.** A pixel
+   font magnified with nearest-neighbour stays *blocky*, which is its correct look, so the
+   transient reads as intentional rather than soft. This is what makes rule 1 acceptable; the
+   default bilinear filter would make the transient mushy and the snap-back jarring.
+3. **Coalesced re-raster on a 100 ms trailing timer during the gesture, and unconditionally on
+   session end.** One layout plus one 600² raster is on the order of a millisecond, so the preview
+   catches up within a tenth of a second and the committed size is exact.
+
+The export path never uses rules 1–2: `fontSizeLive == fontSizeCommitted` always, so the extra
+term is exactly identity in the GIF. §12.4 asserts it.
+
+### 7.6 Composition order
+
+Resting state is the user's `center` (normalized), `fontSize` (normalized) and `angle`. The preset
+composes on top, with **translation in output space and scale/rotation in the text's local space**
+— a 90°-rotated title that RISEs should still move up the *screen*, because gravity is a screen
+metaphor, but should scale about *itself*, because scale is a typographic property.
+
+```swift
+struct TextTileState: Equatable, Sendable {
+    var alpha: CGFloat
+    var scaleDelta: CGFloat        // local, about the tile's own centre
+    var rotationDelta: CGFloat     // local, about the tile's own centre
+    var translationDelta: CGPoint  // output/screen space, applied last
+}
+```
+
+Per-tile deltas pivot on **the tile's own centre**, not the text's. A per-word scale about the text
+centre would also translate the words outward, turning WORD DROP's settle into an explosion. For
+`.whole` granularity the single tile's centre *is* the text centre, so one rule covers both cases
+with no branch.
+
+Coordinates: output space, top-left origin, y down, side `S` (600 for export, 325 × screen scale
+for preview). Local space: origin at the text's ink-bounds centre, y down. Given tile `t`, state
+`st`, and the raster's oversize factor `k = animation.peakScale`:
+
+```swift
+var m = CGAffineTransform(translationX: -t.localCentre.x, y: -t.localCentre.y)
+m = m.concatenating(CGAffineTransform(scaleX: st.scaleDelta, y: st.scaleDelta))
+m = m.concatenating(CGAffineTransform(rotationAngle: st.rotationDelta))
+m = m.concatenating(CGAffineTransform(translationX: t.localCentre.x, y: t.localCentre.y))
+m = m.concatenating(CGAffineTransform(scaleX: liveScale / k, y: liveScale / k))
+m = m.concatenating(CGAffineTransform(rotationAngle: overlay.angle))
+m = m.concatenating(CGAffineTransform(translationX: overlay.center.x * S,
+                                      y: overlay.center.y * S))
+m = m.concatenating(CGAffineTransform(translationX: st.translationDelta.x,
+                                      y: st.translationDelta.y))
+```
+
+`CGAffineTransform` is row-vector, so `a.concatenating(b)` means "apply a, then b" and the code
+reads top to bottom in application order. `liveScale` defaults to 1.0 and the GIF path never
+passes it.
+
+Properties that fall out, each of which becomes a test:
+
+- At θ = π/2 with RISE at p = 0.5, translation is applied after `R(θ)`, so the text moves up the
+  screen regardless of its rotation.
+- At POP's peak, `scaleDelta` pivots on `t.localCentre`, which for `.whole` is the text centre, so
+  the box grows 8% about itself and does not drift, at any θ.
+- At p = 1 with all deltas identity, `m` reduces to `S(1/k) · R(θ) · T(center · S)`, so the
+  composite of all tiles is the master raster placed at rest — for every preset.
+
+### 7.7 Pipeline splice
+
+Extend `GIFGenerating.generateGIF` with `textOverlay: TextOverlay?`. Update both test stubs in the
+same change — `EnhanceTests/EditorViewModelTests.swift` and `EnhanceTests/SaveGIFTests.swift` —
+they are intentionally compile-time witnesses for this boundary.
+
+In `GIFGenerator`, prepare once before either frame loop:
+
+```swift
+let textRaster = TextRasterizer.prepare(overlay: textOverlay, pixelSize: context.outputSize)
+```
+
+Then each path changes from:
 
 ```text
 source → face effects → zoom/crop → visual effects → GIF frame
@@ -213,212 +517,565 @@ to:
 source → face effects → zoom/crop → visual effects → text overlay → GIF frame
 ```
 
-Pause frames use `progress = 1`, so the renderer receives the complete, stable text state.
+At both splice points — in `addAnimatedFrames` after `applyVisualEffects`, and the same in
+`addPauseFrames`:
 
-### `TextOverlayRenderer`
+```swift
+let outputImage = applyVisualEffects(…)
+let framed = textRaster.map {
+    TextTileCompositor.composite($0, overlay: overlay, progress: frameProgress, over: outputImage)
+} ?? outputImage
+CGImageDestinationAddImage(destination, framed, frameProperties as CFDictionary)
+```
 
-Create `Enhance/Services/Text/TextOverlayRenderer.swift` with two responsibilities:
+`addPauseFrames` already renders one image and appends it `pauseFrameCount` times, so compositing
+once at `progress = 1.0` gives pause stability for free: the text is at its final state and byte
+identical across every pause frame, so it cannot shimmer and costs nothing.
 
-1. **Prepare:** resolve font, attributed string, paragraph direction/alignment, line wrapping,
-   glyph/token ranges, decoration geometry, tight bounds, and any reusable bitmaps.
-2. **Composite:** draw the already-prepared layout over one 600×600 base frame using the
-   animation state's alpha/transform/reveal mask.
+Do not rebuild attributed strings, tokenize words, or measure lines inside the frame loop. The
+prepared pass is immutable and safe to use from the generator's background queue.
 
-Do not rebuild attributed strings, tokenize words, or measure lines inside the GIF frame loop.
-The prepared pass should be immutable and safe to use from the generator's background queue.
-
-Render text after the Core Image visual-effect pass using a `UIGraphicsImageRenderer` or Core
-Graphics context at an explicit scale of 1 for the 600×600 pixel target. Pre-render glyphs at
-the maximum scale required by POP's overshoot so its sharpest frame is not upscaling a smaller
-bitmap. Draw decoration behind glyphs in the same prepared coordinate space.
-
-### Correct text segmentation
-
-- TYPE advances over extended grapheme clusters, not UTF-16 code units.
-- WORD DROP uses Apple's `NaturalLanguage` word tokenizer, not `split(separator: " ")`.
-- Keep one stable full-string layout so partial reveals do not reflow lines between frames.
-- Use the resolved paragraph base direction and alignment for RTL strings.
-- Test emoji sequences, combining marks, Arabic/Persian shaping, and mixed RTL/LTR text.
-
-This follows the failure modes documented by Meta's Instagram team: simple character offsets
-and space splitting break ligatures, emoji, and right-to-left text.
-
-### Coordinate contract
+### 7.8 Coordinate contract
 
 The text renderer works only in output-frame coordinates:
 
-- `center`, `width`, and `fontSize` are normalized and resolved against `outputSize`;
-- `(0, 0)` is top-left in the editor and renderer;
+- `center`, `fontSize` and the wrap width are normalized and resolved against the raster size;
+- `(0, 0)` is top-left in the editor, the renderer and the layer stack;
 - text is composited after the zoom transform, so it never uses `visibleRect`, `drawRect`, or
   `FrameGeometry`;
-- the live SwiftUI overlay uses the same normalized values against the 325-point canvas.
+- the live overlay uses the same normalized values against the 325-point canvas.
 
-Add unit tests for the 325→600 conversion and for clamping measured text bounds to the safe
-area. This contract is what prevents preview/export drift.
+There is **no CIImage in the text pass, and therefore no Y-flip**. LEARNINGS records two separate
+Y-flip bugs (2026-03-10, 2026-08-07); state this in the file header so nobody "fixes" it.
 
----
-
-## 7. Preview architecture
-
-Create a lightweight `TextOverlayView` over `ImageCanvasView`. It should accept the model,
-canvas size, selection state, and normalized animation progress.
-
-For the pre-generation canvas, a short `TimelineView(.animation)` can loop only the selected
-text entrance while the TEXT category is active. Pause when the category is left, Reduce Motion
-is enabled, or the keyboard/style editor is open. Once a GIF exists, the existing
-`GIFPreviewView` remains authoritative; do not stack a second live overlay over the baked GIF.
-
-The SwiftUI view and Core Graphics renderer may use different drawing APIs, but they must share:
-
-- font identifiers and normalized sizing;
-- line width, line limit, alignment, colour, and decoration metrics;
-- `TextAnimationType.state(at:)`;
-- normalized coordinate conversion.
-
-Add snapshot/reference-image tests at progress `0`, `0.35`, `0.70`, and `1` for every preset.
-The goal is semantic and geometric parity; small antialiasing differences between SwiftUI and
-Core Graphics are acceptable.
+Everything the LENS and DITHER entries warn about — preview and export applying effects in
+different spaces, image-anchored quantities looking wrong under zoom — is structurally inapplicable
+here *because* the text is frame-anchored rather than image-anchored. That is only true because
+the overlay is a sibling of the scroll view rather than a subview of the zooming image view (§8.2).
+The rendering decision and the view-hierarchy decision are the same decision.
 
 ---
 
-## 8. Implementation stages
+## 8. Gesture architecture
 
-### Stage A — animation spike and visual sign-off
+### 8.1 UIKit, not SwiftUI
 
-- Build the five `state(at:)` evaluators and a temporary in-app/prototype grid using one short
-  phrase over the same zooming photo.
-- Review each preset at slow/default/fast zoom and with 0/1/5-second pauses.
-- Confirm the selected defaults settle by 70% and the first frame has zero visible text.
-- Measure representative GIF sizes against the same image without text. Set the performance
-  budget from this evidence before production integration.
+Four independent reasons, any one of which decides it:
 
-**Exit:** approved preset curves and names, deterministic output, and no preset that fights the
-photo zoom.
+1. **LEARNINGS 2026-03-13** — SwiftUI gesture-driven transforms re-evaluate the whole view body
+   per frame. `EditorView`'s body holds the canvas, the animated `AngularGradient` border, the
+   carousel and the panel. Driving drag/pinch/rotate through `@State` re-evaluates all of it at
+   60 Hz, which is the exact regression the `UIScrollView` rewrite existed to remove.
+2. **LEARNINGS 2026-03-08** — `.scaleEffect` expands the gesture hit-test area. Our overlay is
+   scaled *and* rotated. A `UIView` overriding `point(inside:)` with an inverse-transform test
+   gives exact rotated-rect hit testing and a guaranteed 44 pt minimum target.
+3. **LEARNINGS 2026-03-09** — a `MagnificationGesture` over a scroll view never fires without
+   `.simultaneousGesture`, and `.simultaneousGesture` is the wrong tool here: the deselected state
+   needs *exclusion*, not coexistence.
+4. `require(toFail:)` and `shouldRecognizeSimultaneouslyWith` have no SwiftUI equivalent across a
+   representable boundary.
 
-### Stage B — model and renderer foundation
+### 8.2 Structure: one representable, two siblings
 
-- Add `TextOverlay`, style enums, animation state/evaluators, and prepared-layout types.
-- Implement normalization, safe-area clamping, line wrapping, decoration drawing, and Core
-  Graphics compositing in isolation.
-- Add language, coordinate, curve-boundary, and pixel-output tests.
+Restructure `ImageCanvasView`'s representable so its root is a plain container `UIView`:
 
-**Exit:** a static base image plus any overlay can be rendered correctly at arbitrary progress
-without the editor or GIF generator.
+```text
+CanvasContainerView (UIViewRepresentable) → UIView (root, 325×325)
+   ├── UIScrollView          (existing configuration, moved verbatim)
+   └── TextOverlayHostView   (added only when an overlay exists)
+```
 
-### Stage C — GIF pipeline integration
+One representable rather than two, because the recognizer graph and the modal enable/disable both
+need a single owner holding references to both recognizer sets, and two sibling representables have
+no defined `makeUIView` ordering within a SwiftUI update pass.
 
-- Extend `GIFGenerating` and its stubs.
-- Prepare one text pass per generation and composite it after visual effects in animated and
-  pause frames.
-- Pass overlay state through `EditorViewModel.generateGIF` and `regenerateGIF`.
-- Include text in `hasNonDefaultSettings`, effects-only generation validation, reset, undo/redo,
-  and regeneration commit points.
+**The scroll view's setup moves verbatim.** `configureContentSize` stays in the make path only, and
+`updateUIView` still touches nothing but `imageView.image` and the face boxes. LEARNINGS 2026-03-13
+("image swap must not reset scroll state") lives in that method; do not refactor it while in there.
 
-**Exit:** generated GIFs show every preset, hold the full text during the pause, and generate
-unchanged output when `textOverlay == nil`.
+`TextOverlayHostView` is a **sibling, not a subview of the zooming `UIImageView`**. Face boxes are
+subviews of the image view so they track the photo; text must not. Two consequences: text stays put
+while the photo pans beneath it, which is the product intent; and the 325 pt ↔ 600 px mapping is a
+single uniform scale with no aspect handling, because both are square and both are the *output*
+frame. That is why parity is cheap here.
 
-### Stage D — editor UX
+### 8.3 Modal hit region
 
-- Add the TEXT category, icon, animation carousel, style editor, and delete action.
-- Add live canvas rendering, hit testing, drag-to-position, safe-area clamping, and selection
-  chrome.
-- Apply keyboard-safe layout and Reduce Motion behavior.
-- Add accessibility labels, values, and non-drag position controls for VoiceOver.
+```swift
+override func point(inside p: CGPoint, with e: UIEvent?) -> Bool {
+    isSelected ? bounds.contains(p) : textHitRegion.contains(p)
+}
+```
 
-**Exit:** a user can add, edit, move, preview, undo, delete, reset, generate, save, and share
-text without losing existing zoom/effect settings.
+Deselected, the host is transparent to touches except over the rotated text rect. Selected, it owns
+the whole canvas and nothing reaches the scroll view. That *is* the modality.
 
-### Stage E — hardening and release gate
+### 8.4 Suspending the photo
 
-- Run the complete existing suite plus the new text tests.
-- Test 1×/maximum zoom, every animator and modifier, visual/face effects, and each pause speed.
-- Test short/long/multiline text, emoji, combining marks, Arabic/Persian, mixed direction, and
-  Dynamic Type/large keyboard settings.
-- Profile generation time, peak memory, and GIF byte size on the oldest supported device class.
-- Verify text is crisp at POP's overshoot and identical across repeated generations.
+| Approach | Verdict |
+|---|---|
+| `minimumZoomScale = maximumZoomScale` | **Never.** Mutates `zoomScale` and destroys the user's framing. |
+| `isUserInteractionEnabled = false` | No. Kills touches to `FaceBoxView` subviews and can cancel in-flight tracking. Unnecessary — the host is on top and already consumes. |
+| `isScrollEnabled = false` | Works, but is a blunt property with `contentInset` and delegate side effects, and `centerContent` writes `contentInset` on every zoom. |
+| **Disable the three recognizers individually** | **Do this.** |
 
-**Exit:** acceptance criteria below pass and no regression occurs when no text is selected.
+```swift
+// The inequality guard is load-bearing, not hygiene.
+private func setPhotoGesturesEnabled(_ on: Bool, _ sv: UIScrollView) {
+    if sv.panGestureRecognizer.isEnabled != on { sv.panGestureRecognizer.isEnabled = on }
+    if let pinch = sv.pinchGestureRecognizer, pinch.isEnabled != on { pinch.isEnabled = on }
+    if photoDoubleTap.isEnabled != on { photoDoubleTap.isEnabled = on }
+}
+```
+
+`syncBindings` writes `parent.visibleRect` on every scroll delegate callback, which re-evaluates the
+SwiftUI body, which runs `updateUIView` — continuously, during a photo pan. Disabling a recognizer
+mid-recognition transitions it to `.cancelled`, so an unconditional write is a latent "the pan
+randomly stops" bug that presents as jank rather than as a gesture bug. This is the same discipline
+as "updateUIView must not reset scroll state," applied to recognizers instead of geometry.
+
+One benign consequence, accepted deliberately: selecting text while the photo is coasting cancels
+the pan, so `scrollViewDidEndDragging` fires and `commitZoomCardFraming()` runs. The framing has in
+fact settled, so no special-casing.
+
+### 8.5 The recognizer graph
+
+| Tag | Recognizer | Attached to |
+|---|---|---|
+| SV-PAN / SV-PINCH / SV-DT | pan, pinch, double-tap-to-zoom | `UIScrollView` |
+| TX-ST | single tap — select / deselect | `TextOverlayHostView` |
+| TX-DT | double tap — open editor | `TextOverlayHostView` |
+| TX-PAN / TX-PINCH / TX-ROT | move / resize / rotate | `TextOverlayHostView` |
+
+UIKit delivers a touch to recognizers on the hit-test view **and its ancestors**. The host and the
+scroll view are *siblings* under the container, and nothing is attached to the container.
+Therefore **SV-DT never sees a tap that lands on the text**, in either state, with no
+`require(toFail:)` needed. That is a second reason to make the overlay a sibling.
+
+**Deselected** — touches outside the text go to the scroll view exactly as today; touches on the
+text go to the host only.
+
+**Selected** — SV-PAN/SV-PINCH/SV-DT disabled. TX-PAN, TX-PINCH and TX-ROT are pairwise
+`shouldRecognizeSimultaneouslyWith`. `TX-PAN.maximumNumberOfTouches = 2`, so a two-finger drag
+translates while scaling — the sticker idiom users already know.
+
+**Do not add `TX-ST.require(toFail: TX-DT)`.** It costs ~350 ms of dead time on every selection,
+which would be the most-felt latency in the feature. Instead define TX-ST on the text as
+**idempotent select**:
+
+- TX-ST on the text: select if not selected; no-op if already selected. **Never deselects.**
+- TX-ST outside the text (reachable only when selected): deselect and re-enable the photo.
+- TX-DT on the text: open the style editor.
+
+A double-tap on an unselected overlay then fires TX-ST on tap 1 — the ring appears, which reads as
+feedback — and TX-DT on tap 2. The editor wants a selected overlay anyway, so tap 1's effect is not
+merely harmless, it is required state. There is no wrong state to recover from, so there is nothing
+to serialize, so there is no reason to pay the delay. The non-deselecting rule is what makes this
+safe: without it, tap 1 on an already-selected overlay would deselect and tap 2 would re-select,
+producing a visible flicker. It also prevents accidental deselection while nudging.
+
+Residual latency: **zero on selection**, ~350 ms on opening the editor — unavoidable and universal
+to double-tap, and acceptable because opening an editor is a deliberate act.
+
+### 8.6 Gesture sessions and undo
+
+A **counter**, not a boolean, because pinch and rotate begin and end independently and in either
+order.
+
+```swift
+// Enhance/Components/TextGestureSession.swift — no UIKit import, so it is directly testable
+final class TextGestureSession {
+    /// Called from every recognizer's `.began`. Only the 0→1 transition captures.
+    func begin(current: TextOverlay, capture: (TextOverlay) -> Void)
+
+    /// Called from `.ended` / `.cancelled` / `.failed`. Only the →0 transition commits,
+    /// and commits nothing if the overlay is unchanged — a cancelled or no-op gesture
+    /// must not litter the undo stack or trigger a regeneration.
+    func end(final: TextOverlay, commit: (_ preGesture: TextOverlay) -> Void)
+
+    /// Force-drain. Idempotent. For backgrounding and view teardown.
+    func abort(final: TextOverlay, commit: (_ preGesture: TextOverlay) -> Void)
+}
+```
+
+`capture` calls `viewModel.beginTextGesture()`, which stores an `EditorSnapshot` exactly as
+`beginEditing()` does. `commit` calls `viewModel.endTextGesture()`, which pushes that snapshot —
+pre-change discipline, matching `commitEditing` — and then requests regeneration.
+
+**The view model owns the history; the view owns only the counter.** LEARNINGS 2026-08-08 records
+that a child pushing its own undo inside a container with a history contract produces double
+entries and an undo that steps the user *forward*. So no individual pan, pinch or rotate handler
+may call `pushUndo()`. That is a grep-able invariant, not a convention.
+
+Global undo and redo are disabled while a session is active, mirroring `isEditingEffect`.
+
+`.cancelled` decrements like `.ended`; the unchanged-overlay check distinguishes "nothing happened"
+from "the user did something and a system event cancelled it," and one rule handles both. UIKit
+cancels recognizers on resign-active so the counter drains naturally; belt and braces, observe
+`UIApplication.willResignActiveNotification` and call `abort`, which is idempotent so the two paths
+cannot double-push. Same call from `willMove(toSuperview: nil)` for a category switch mid-gesture.
+
+### 8.7 Prerequisite: repair the regeneration guard
+
+`regenerateIfNeeded()`'s `guard !isRegenerating else { return }` silently drops edits — an open P1.
+Today it bites on the occasional slider commit. With direct manipulation it will bite whenever a
+user adjusts twice inside ~800 ms, and the second position is silently absent from the GIF, which
+reads as the app ignoring them.
+
+```swift
+private var regeneratePending = false
+
+func regenerateIfNeeded() {
+    guard !isRegenerating else { regeneratePending = true; return }
+    …
+}
+// at every completion path of regenerateGIF — success and both error paths:
+if regeneratePending { regeneratePending = false; regenerateIfNeeded() }
+```
+
+Small and contained, it retires an open P1, and it lands on its own commit with the suite green
+before and after — LEARNINGS 2026-08-07 on confirming a baseline before changing it.
+
+### 8.8 Live preview loop
+
+A `CADisplayLink` inside the host view drives `tileStates(at:)` onto the tile layers. Paused when
+TEXT is not the active category, while the style sheet is open, and under Reduce Motion, which
+shows the settled state.
+
+Two CALayer hazards to write into the code as comments:
+
+- Set `anchorPoint = .zero`, `position = .zero`, `bounds = CGRect(origin: .zero, size:
+  tile.pixelRect.size)`. The default `anchorPoint` of (0.5, 0.5) silently relocates every rotation
+  pivot — invisible at θ = 0, obvious at θ = 90°.
+- Wrap every per-frame write in `CATransaction.begin()` / `setDisableActions(true)` /
+  `commit()`. Implicit CALayer animations default to 0.25 s and will smear a 60 Hz explicit
+  animation into mush. That failure *looks* like an easing bug in `tileStates(at:)` and will eat an
+  afternoon.
 
 ---
 
-## 9. Test plan
+## 9. Geometry limits
 
-### Unit tests
+Clamping measured bounds to a fixed margin — revision 1's rule — does not survive free rotation:
+the axis-aligned bounding box grows as the text rotates, up to √2× for a wide block at 45°, so
+legally placed text gets shoved sideways *while the user is rotating it*. That is the worst possible
+moment to move something under a finger.
 
-- every preset returns finite values and exact stable endpoints at progress 0 and 1;
-- values outside `0...1` clamp safely;
-- FLICKER is deterministic for the same overlay seed;
-- TYPE never splits an extended grapheme cluster;
-- WORD DROP preserves linguistic word tokens and full layout geometry;
-- normalized position and size map identically at 325 and 600 points;
-- clamping keeps measured bounds inside the safe area;
-- snapshots, undo/redo, reset, and non-default detection include text;
-- empty/whitespace-only drafts do not count as active overlays;
-- a text-only edit can generate at 1× zoom.
+Instead: **hard clamp always, rubber-band while tracking, settle on release.** This is the
+`UIScrollView` bounce idiom the canvas already uses (`bounces`, `bouncesZoom`), so it feels native
+beside the photo. It never fights mid-gesture, and it always ends legible.
 
-### Renderer and GIF tests
+```swift
+// Enhance/Models/Text/TextLayoutLimits.swift — pure value maths, no UIKit
+enum TextLayoutLimits {
+    static let centreRestInset: CGFloat     = 0.10   // where it settles
+    static let centreHardInset: CGFloat     = 0.05   // absolute floor, even mid-gesture
+    static let rubberBandRange: CGFloat     = 0.15
 
-- `textOverlay == nil` remains byte-stable against the prior generator for a fixed fixture;
-- progress 0 has no text pixels and progress 1 contains the full overlay;
-- pause frames are visually identical to the final moving frame;
-- text remains above each visual effect and is not colour-shifted or blurred by it;
-- line wrapping and alignment are stable throughout partial reveals;
-- generated frame count and delays are unchanged by adding text;
-- repeated generation with the same inputs produces the same rendered frames.
+    static let minFontSize: CGFloat         = 0.035  // Silkscreen legibility floor
+    static let maxFontSizeAbsolute: CGFloat = 0.30
+    static let lineHeightMultiple: CGFloat  = 1.25
+    static let verticalBudget: CGFloat      = 0.92
+    static let pinchOvershoot: CGFloat      = 1.15
 
-### UI tests
+    static let layoutWidth: CGFloat         = 0.86   // local space, so rotation never reflows
 
-- add text → select preset → drag → generate → save/share;
-- canceling an edit restores prior text and style;
-- Done creates one undo step; one undo removes a newly added overlay;
-- delete and RESET remove the live and generated overlay;
-- opening the keyboard on a short device leaves the text field and Done visible;
-- dragging text does not pan the photo, while dragging elsewhere still does;
-- switching categories keeps the overlay and stops its local preview loop.
+    static let snapEnter: CGFloat           = 0.0698 // 4°
+    static let snapRelease: CGFloat         = 0.1396 // 8° — hysteresis band
 
----
+    /// Derived, not a constant: three lines at 0.30 would need 1.125 of the frame.
+    static func maxFontSize(lineCount: Int) -> CGFloat {
+        min(maxFontSizeAbsolute,
+            verticalBudget / (CGFloat(max(1, lineCount)) * lineHeightMultiple))
+    }
 
-## 10. Accessibility and safety
+    static func clampCentre(_ c: CGPoint, phase: GesturePhase) -> CGPoint
+    static func clampFontSize(_ f: CGFloat, lineCount: Int, phase: GesturePhase) -> CGFloat
+    static func snapAngle(_ radians: CGFloat, current: Int?) -> (angle: CGFloat, detent: Int?)
+}
+```
 
-- Respect Reduce Motion in the editor preview by showing the completed text state. The exported
-  GIF may retain the chosen effect because it is authored media, but the choice should be
-  explicit and previewable as a still.
-- Give animation cards descriptive VoiceOver labels such as “Rise, text fades in while moving
-  upward,” not only their names.
-- Provide position buttons or an accessibility adjustable action so placement does not require
-  drag gestures.
-- Enforce a contrast floor for BLOCK and OUTLINE styles. NONE and SHADOW may warn, but should not
-  silently change the user's selected colour.
-- Keep the text editor local and offline; the feature needs no permissions or network service.
+Rubber band, standard form, applied per axis beyond `centreRestInset` and then hard-clamped at
+`centreHardInset`: `band(x, range) = (1 − 1/(x/range + 1)) × range`. Tracking uses the rest inset
+plus the band; settling clamps into `[centreRestInset, 1 − centreRestInset]`, animated with the
+app's existing spring.
 
----
+The rotated bounding box is deliberately allowed to bleed off-frame — running oversized text off the
+edge is a legitimate design, and a centre inside the safe rect is the guarantee that actually
+matters.
 
-## 11. Acceptance criteria
-
-- A user can create one 1–3 line text overlay, style it, drag it anywhere inside the safe area,
-  and choose one of five entrance effects.
-- The live preview and exported GIF agree on placement, wrapping, size, colour, decoration, and
-  animation timing.
-- Text entrance is synchronized to the zoom's moving frames, complete by 70%, and fully visible
-  in every pause frame.
-- Emoji, composed characters, multiline alignment, and tested RTL strings render without broken
-  glyphs or mid-animation reflow.
-- Undo/redo, Cancel/Done, RESET, regeneration, save, and share all include text state.
-- With no text overlay, rendering behavior and output remain unchanged.
-- Generation stays within the performance and file-size budgets established in Stage A.
+Detents sit at 0, ±π/2 and π with the angle normalized to (−π, π]. Track the **raw** accumulated
+angle separately from the committed snapped angle, so continuing to rotate past a detent escapes
+cleanly instead of sticking. `snapAngle` takes the currently latched detent and returns the new one;
+the caller fires `HapticService.light()` only when it changes. The 4°/8° hysteresis is what stops
+the haptic machine-gunning on the boundary.
 
 ---
 
-## 12. Deliberately deferred
+## 10. Editor and state integration
+
+- **Fourth `EffectCategory` case**, `text`, with a bundled template icon
+  (`template-rendering-intent: template`, no baked `fill-opacity` — LEARNINGS 2026-03-12/13).
+- **The TEXT category keeps the live canvas after ENHANCE**, following the face-filters precedent.
+  The exception belongs in **both** `canvasSection` branches: `.existingGif`, which already has a
+  `.faceFilters` case, and `.newImage`, which has none today. Text cannot be positioned against a
+  `GIFPreviewView`.
+- **The style sheet uses the existing edit-session semantics** — `beginEditing` on open,
+  `cancelEditing` on dismiss, `commitEditing` on Done — for exactly one undo entry per visit.
+- **`hasEffectsWithoutZoom` and `regenerateGIF`'s `canRegenerate` are loosened in the same edit.**
+  LEARNINGS 2026-03-13 records exactly this divergence shipping as a silent regression for
+  effects-only existing GIFs.
+- Text renders in the GIF regardless of which category is active, and shows at rest on the canvas
+  under other categories — inert, deselected, display link paused.
+- Animation preset cards can render their own preview by compositing the shared tiles at a fixed
+  mid-animation progress, reusing `EffectCardView`'s still-thumbnail initializer.
+
+---
+
+## 11. Implementation stages
+
+Six, not five: the gesture layer earns its own gate, and the regeneration repair is sequenced
+before it. Steps 1–4 are the risky half and are all headless and fully testable, so the gesture work
+sits on a renderer that is already proven.
+
+### Stage A — layout and raster foundation
+
+`TextLayoutEngine`, `TextRasterizer`, the partition invariant, and the language tests. Nothing else
+can be trusted until the invariant holds — no editor, no GIF, no gestures.
+
+**Gate:** tiles partition the master for every granularity and decoration; Arabic joining, Latin
+ligatures, and grapheme clusters all verified; layout is resolution-independent.
+
+### Stage B — composition
+
+`TextComposer.transform`, `TextTileCompositor`, endpoint and transform-algebra tests. Still
+headless.
+
+**Gate:** a static base image plus any overlay renders correctly at arbitrary progress, angle and
+size, with no editor and no generator.
+
+### Stage C — animation presets
+
+The five `tileStates` evaluators, reviewed on a prototype grid using one short phrase over the same
+zooming photo, at slow/default/fast zoom and 0/1/5-second pauses. Measure representative GIF sizes
+against the same image without text and set the performance budget from that evidence.
+
+**Gate:** approved preset curves and names; deterministic output; first frame has zero text; no
+preset fights the photo zoom.
+
+### Stage D — GIF pipeline
+
+Extend `GIFGenerating` and both stubs; prepare one raster per generation; composite in animated and
+pause frames; pass overlay state through `generateGIF` and `regenerateGIF`.
+
+**Gate:** every preset renders in a real GIF, the full text holds through the pause, and
+`textOverlay == nil` is byte-identical to the pre-change generator.
+
+### Stage E — regeneration repair
+
+§8.7, alone, with the suite green before and after.
+
+**Gate:** a queued edit during regeneration is applied rather than dropped; the open P1 is closed.
+
+### Stage F — gestures and editor UX
+
+The container restructure (no behaviour change, suite green), then `TextOverlayHostView` and
+`TextGestureSession`, then the TEXT category, icon, carousel, style sheet, canvas exception, Reduce
+Motion and VoiceOver.
+
+**Gate:** a user can add, edit, move, scale, rotate, preview, undo, delete, reset, generate, save
+and share text without losing existing zoom or effect settings; the photo never moves while text is
+selected; one undo entry per gesture session.
+
+### Stage G — hardening and release
+
+Full suite; 1×/maximum zoom; every animator, modifier, visual and face effect; every pause speed;
+short/long/multiline text, emoji, combining marks, Arabic/Persian, mixed direction, Dynamic Type
+and large keyboard settings; generation time, peak memory and GIF byte size on the oldest supported
+device class.
+
+**Gate:** the acceptance criteria pass and nothing regresses when no text is selected.
+
+---
+
+## 12. Test plan
+
+Swift Testing, pixel *measurement* on structured fixtures in the `LensDistortionTests` idiom. **No
+reference images on disk.** What makes that work for text is that the master raster is computed in
+process and *is* the reference, so "does the composite match" is a real assertion with nothing
+checked in.
+
+### 12.1 Why not snapshot tests
+
+Revision 1 asked for snapshot tests at four progress values for every preset. The repo has no
+snapshot infrastructure, `FEATURE-THEMES.md` §9 declines to add one, and the project's own
+verification idiom is measurement plus a manual PNG dump harness. The architecture in §7 makes the
+infrastructure unnecessary: parity is a property of sharing one layout and one transform function,
+and that property is directly testable.
+
+### 12.2 The load-bearing test
+
+`tiles_partitionTheMasterRaster_withoutOverlapOrLoss` — for each granularity crossed with
+{LTR multiline, RTL, emoji, OUTLINE, BLOCK}:
+
+1. no two `pixelRect`s of `.cut` tiles intersect;
+2. compositing every tile at alpha 1 and identity is **byte-identical** to `master`;
+3. the union of `glyphIDs` is the full glyph set and every pairwise intersection is empty.
+
+This one test kills overlap double-composite, dropped ink at seams, mis-derived seam positions,
+local/pixel coordinate errors, and any future "optimization" that inflates tiles for decoration
+bleed.
+
+### 12.3 Language correctness
+
+- `arabicJoining_survivesTiling` — lay out `"سلام"` as one string, and separately lay out each
+  grapheme cluster in isolation; assert the **total ink pixel counts differ**. Isolated forms are
+  geometrically different from joined ones, so equal counts would prove we re-shaped per cluster.
+  This is the test that catches the fatal version of this design, and it needs no Arabic reading
+  ability to interpret.
+- `lamAlef_isASingleUnit` — `"لا"` is two clusters and one glyph, so exactly one unit. Pins the
+  merge rule.
+- `latinLigature_isNotSplit` — `"ffi"` in a ligating font yields one unit.
+- `rtl_typesInLogicalOrderAtVisualPositions` — the first-typed unit is the rightmost while its
+  `order` is lowest.
+- `graphemeClusters_areNeverSplit` — ZWJ family emoji, regional-indicator flag, `e` + U+0301,
+  skin-tone modifier: one unit each.
+- `wordDrop_usesLinguisticTokens` — `"don't stop"` is two word tiles, not three.
+
+### 12.4 Animation and transform algebra
+
+Iterate `allCases`, never a hand-listed set — LEARNINGS 2026-08-07 and 2026-08-08 both record bugs
+that per-effect tests missed and a cross-effect test caught.
+
+- `everyPreset_atZeroProgress_rendersNoTextPixels` — composite over a known solid base and count
+  differing pixels; zero. This also protects the product property that a saved GIF's first frame
+  carries no text, so reopening it cannot duplicate the title.
+- `everyPreset_atFullProgress_isBytewiseTheRestingRaster`.
+- `tileStates` are finite across a 0…1 sweep, and clamp safely outside it.
+- `flicker_withTheSameSeed_isIdentical`, and differs across seeds.
+- `screenSpaceTranslation_survivesUserRotation` — θ = π/2 with RISE keeps the motion up-screen.
+- `localScale_doesNotMoveTheTileCentre` — POP at peak.
+- `restingTransform_isRotationThenPlacement` — p = 1 reduces to `S(1/k) · R(θ) · T(center · S)`.
+- `exportPath_neverAppliesLiveScale`.
+
+### 12.5 Resolution independence — the parity guarantee
+
+`layoutIsResolutionIndependent` — prepare the same overlay at 600 and at 1200; assert every
+`unit.inkRect / S` matches within 1e-6, unit counts and orders are identical, and the ink coverage
+fraction of the two masters matches within 1%. Since preview and export differ *only* by
+`pixelSize` and share the layout and the transform, this test is the parity guarantee, and it fails
+loudly if anyone reintroduces a resolution-dependent constant.
+
+### 12.6 Gesture session
+
+- `simultaneousPinchAndRotate_produceExactlyOneUndoEntry`.
+- `cancelledGestureWithNoChange_pushesNothing`.
+- `abortMidGesture_commitsExactlyOnce_andIsIdempotent`.
+
+LEARNINGS 2026-08-08 warns that "pushes exactly one entry" tested through the model API cannot see a
+second push wired up in the view. `TextGestureSession` is deliberately a pure reference type with
+injected closures so the counting logic is on the tested path.
+
+### 12.7 Geometry
+
+- `settledCentre_isAlwaysInsideTheRestInset`.
+- `trackingCentre_rubberBands_monotonicallyAndBounded` — never past `centreHardInset`.
+- `maxFontSize_keepsThreeLinesInsideTheVerticalBudget`.
+- `angleSnap_hasHysteresis` — sweep 0 → 0.12 rad → 0 and assert the detent sequence contains
+  exactly one transition in and one out. The detent sequence *is* the haptic schedule, so this
+  asserts "the haptic fires once" without mocking `HapticService`.
+- `normalizedGeometry_at325_and600_agree`.
+
+### 12.8 Pipeline and view model
+
+- `nilOverlay_producesByteIdenticalGIF` against the pre-change generator on a fixed fixture.
+- `addingText_changesNeitherFrameCountNorDelays`.
+- `pauseFrames_areByteIdentical`, and identical to the final moving frame.
+- `repeatedGeneration_isDeterministic`.
+- Snapshots, undo/redo, reset and non-default detection include the overlay; whitespace-only text
+  is not an active overlay.
+- A queued regeneration during an in-flight one is applied (§8.7).
+
+### 12.9 UI tests
+
+Add text → select preset → drag, pinch, rotate → generate → save/share; canceling an edit restores
+prior text and style; Done creates one undo step and one undo removes a newly added overlay; delete
+and RESET remove the live and generated overlay; the keyboard on a short device leaves the field and
+Done visible; manipulating text never moves the photo, while gestures outside it still do; switching
+categories keeps the overlay and stops its display link.
+
+### 12.10 Human visual review
+
+Structural tests cannot catch what LEARNINGS 2026-08-07 calls the "verify by looking" class. Per
+preset, dump PNGs at p = 0, .2, .35, .5, .7 and 1 over a real photo, at 0°/15°/90° and min/mid/max
+size. Check Silkscreen crispness at POP's overshoot and at 45°, and the nearest-neighbour transient
+during a live pinch. Measure GIF byte size and generation time with and without text on the oldest
+supported device.
+
+---
+
+## 13. Accessibility and safety
+
+- Respect Reduce Motion in the editor preview by showing the completed text state. The exported GIF
+  may retain the chosen effect because it is authored media, but the choice should be explicit and
+  previewable as a still.
+- **SIZE and ANGLE controls are not optional.** Pinch and rotate cannot be performed under
+  VoiceOver, so the sliders are the equivalent path, not a convenience. Position needs the same
+  treatment: accessibility adjustable actions or explicit nudge controls.
+- Give animation cards descriptive VoiceOver labels such as "Rise, text fades in while moving
+  upward," not only their names.
+- Enforce a contrast floor for BLOCK and OUTLINE. NONE and SHADOW may warn, but should not silently
+  change the user's selected colour.
+- Keep the editor local and offline; the feature needs no permissions or network service.
+
+---
+
+## 14. Acceptance criteria
+
+1. A user can create one text overlay, style it, and place, scale and rotate it directly on the
+   canvas, choosing one of five entrance effects.
+2. While the text is selected the photo does not move; while it is deselected the photo pans, zooms
+   and double-tap-zooms exactly as before.
+3. A simultaneous drag, pinch and rotate produces exactly one undo entry and one regeneration.
+4. The live preview and exported GIF agree on placement, wrapping, size, angle, colour, decoration
+   and animation timing.
+5. Text entrance is synchronized to the zoom's moving frames, complete by 70%, and fully visible in
+   every pause frame; the first frame contains no text.
+6. Emoji, composed characters, Latin ligatures, multiline alignment and tested Arabic/Persian
+   strings render with correct joining and no mid-animation reflow.
+7. Undo/redo, Cancel/Done, RESET, regeneration, save and share all include text state.
+8. An edit made during an in-flight regeneration is applied rather than dropped.
+9. With no text overlay, rendering behavior and output are byte-identical to today.
+10. Generation stays within the performance and file-size budgets established in Stage C.
+
+---
+
+## 15. Open decisions
+
+- **Generation at 1× zoom.** The plumbing treats a text overlay as sufficient reason to generate,
+  matching the dormant `nil`-animator path, but the shipped UI always has a zoom type selected, so
+  the case is unreachable. Resolved for V1 as: wire it, do not claim it. Text rides the zoom
+  animation, and a title over a motionless photo is not the product. If ROADMAP's "Zoom is always
+  on" is ever reversed, note that `activeAnimator` returns a bare `StaticAnimator()` and silently
+  discards the modifier.
+- **Whether the style sheet should also expose position.** SIZE and ANGLE are settled; a position
+  control is required for VoiceOver but its form (nudge buttons versus an adjustable action) is
+  open until Stage F.
+
+---
+
+## 16. Deliberately deferred
 
 - multiple independently timed text layers;
-- rotation and pinch-resize gestures;
 - per-word fonts or colours, mentions, hashtags, and rich text spans;
 - custom keyframes, motion paths, separate In/Out/Loop animations, or a timeline;
 - text that tracks a face or source-image feature through the zoom;
 - curved, 3D, particle, or generative text effects;
+- chromatic or per-channel text effects — the CIImage stage already owns that look;
 - reconstructing editable text/effect recipes after a saved GIF is reopened.
 
-The clean follow-on after V1 is **multiple layers plus a layer list**, not more presets. That is
-the point at which independent timing and ordering become necessary; adding those concepts to a
-single-layer release would make the first interaction much heavier without validating demand.
+The clean follow-on after V1 is **multiple layers plus a layer list**, not more presets. That is the
+point at which independent timing and ordering become necessary; adding those concepts to a
+single-layer release would make the first interaction much heavier without validating demand. The
+tile architecture is already shaped for it — a second overlay is a second `RasterizedText`
+composited in order — but the editor cost is where the work actually is.
