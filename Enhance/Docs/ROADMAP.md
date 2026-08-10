@@ -18,9 +18,9 @@ Each step should feel fast, tactile, and visually satisfying.
 
 ## Pick up here
 
-**State:** branch `claude/codebase-review-bugs-5a9c50`, **174 tests, 0 failing.** The
-session's pattern was to commit on the branch and fast-forward `main` at each green stage, so
-Xcode always saw a working build.
+**State:** `main` at `12f07aa`, pushed to `origin/main`. **200 tests, 0 failing.** The session's
+pattern was to commit on the branch and fast-forward `main` at each green stage, so Xcode always
+saw a working build.
 
 ### What shipped
 
@@ -45,41 +45,84 @@ Xcode always saw a working build.
 8. **The ZOOM tab joined the drill-down pattern**, which is what fixed its iPhone SE 3
    overflow. SPEED and PAUSE became continuous over the generator's actual clamps
    (0.25–4×, 0–5s) instead of discrete cycle buttons that never reached the full range.
+9. **Zoom cards show a framing, not a flat fill**, from a snapshot that only moves when a
+   gesture settles; carousel edges dissolve instead of slicing a card; and an arrival hint tells
+   the user to pinch before ENHANCE has to tell them off for not.
+10. **Two feature plans written and reviewed** — [FEATURE-LENS-DISTORTION.md](FEATURE-LENS-DISTORTION.md)
+    (evidence-based port of a Figma shader) and [FEATURE-SCRAMBLER.md](FEATURE-SCRAMBLER.md)
+    (face-region rearrangement). Both are specified; neither is started.
 
-### Do this first
+---
 
-- [ ] **Device-verify the continuous speed range on real hardware.** `4×` and `0.25×` were
-      unreachable before, so exposing them exposes an untested path — see "Needs device
-      verification" for the specific failure to look for.
-- [ ] **Device-verify DITHER.** The only user-reported bug still unconfirmed. The fix has been
-      on `main` for two sessions and the phase *mechanism* is proven by
-      `dither_phaseIsPeriodicInCellSize`, but the *result* has never been watched in a real
-      GIF. If it still crawls, the prime suspect is named in the section below. This is the one
-      item that needs your eyes rather than mine.
+### Next up — in this order
 
-### Then, in rough value order
+The order matters more than usual right now, because one bug gates two features and one
+assumption turned out to be false. Rationale in "Why this order" below.
 
-- [x] ~~**Stage 8 of the effect-UI plan — cleanup.**~~ Done. The effect system is fully
-      migrated; no shims remain.
-- [x] ~~**RESET on an existing GIF leaves the preview stale.**~~ Fixed — RESET routes through
-      `regenerateIfNeeded()` like every other control.
-- [x] ~~**ZOOM tab overflows on iPhone SE 3.**~~ Fixed by moving the tab to the drill-down
-      pattern; verified on device.
-- [ ] **`saveGIFToLibrary` can save the wrong file** — the remaining cheap P1. If regeneration
-      failed on an existing GIF, "SAVE NEW COPY" silently duplicates the unmodified original.
-- [ ] **Gallery Stage B** — close the failure mode, not just the trigger.
-- [ ] **Face-effect GIF generation does ~25 full-resolution GPU renders** — the largest
-      remaining performance win, self-contained in `GIFGenerator`.
+**0 — Yours, not mine. Blocks nothing, so do it whenever.**
 
-### Bigger, needs design
+- [ ] **Device-verify `4×` and `0.25×` playback.** Newly reachable, never exercised. The specific
+      hazard is in "Needs device verification".
+- [ ] **Device-verify DITHER.** The only user-reported bug still unconfirmed, two sessions on
+      `main`. Mechanism proven by `dither_phaseIsPeriodicInCellSize`; the *result* has never been
+      watched in a real GIF.
 
-- **Phase 17e** — CIKernel infrastructure and Riso Print. Fully specified in EFFECTS.md, with
-  the real WGSL now in `Docs/reference/`. Highest-risk change remaining: the build-rule hazard
-  would break the animated canvas border *at runtime*. Do the de-risking gate first.
-- **Phase 17f** — expose the parameters the new UI can now carry. Candidates already identified
-  with file and value.
-- **Phase 19b** — copy effects between photos, and stacking. Stacking reverses a documented
-  decision; read that entry before committing to it.
+**1 — Unblock the face-effect render path. This is now a prerequisite, not an optimization.**
+
+- [ ] **`faceEffectedSource` renders the full-resolution source once per frame** (P2 below). It
+      was filed as "the largest remaining performance win"; it is now the thing standing in front
+      of the next two features. **Both** planned effects land on this path — Scrambler is a face
+      effect by definition, and LENS reaches it through `FaceVisualEffect`. Measuring either one
+      before this is fixed measures this instead.
+- [ ] **`HeatHazeEffect` constructs a `CIContext` per frame** (P2 below). Same class of bug, same
+      amplification, one-line fix — do it in the same pass.
+
+**2 — Finish the cheap correctness work.**
+
+- [ ] **`saveGIFToLibrary` can save the wrong file** — the last cheap P1. If regeneration failed
+      on an existing GIF, "SAVE NEW COPY" silently duplicates the unmodified original.
+
+**3 — LENS (Phase 17h). The cheapest new effect available.**
+
+- [ ] Two sliders, ~8 stock Core Image nodes, no new infrastructure, and both carousels for one
+      effect class via the existing adapter. Fully specified in
+      [FEATURE-LENS-DISTORTION.md](FEATURE-LENS-DISTORTION.md).
+
+**4 — Feature Scrambler (Phase 17i), re-scoped to THIRD EYE only.**
+
+- [ ] Ship the plan's Stage D as V1 and treat its Stage E as a separate feature. See Phase 17i
+      for why the original four-layout V1 does not fit.
+
+**5 — Then, in rough value order.**
+
+- [ ] **Phase 17f** — control audit. Candidates already identified with file and value.
+- [ ] **Gallery Stage B** — close the failure *mode*, not just the trigger.
+- [ ] **Phase 19b** — copy effects between photos, and stacking. Stacking reverses a documented
+      decision; read that entry first.
+- [ ] **Phase 17e** — CIKernel infrastructure and Riso Print. **Deliberately last now** (see
+      below). Still the highest-risk change in the project.
+
+### Why this order
+
+**The face-effect render cost stopped being a nice-to-have.** It was measured at "~25
+full-resolution renders" when the frame count was effectively fixed. Continuous speed shipped
+this session, and `frameCount = max(12, Int(1/speed/0.04))` means **0.25× playback now produces
+100 frames** — so the same bug is roughly 4× worse than when it was filed, and it sits directly
+under both planned features. The Scrambler plan already says to fix it before interpreting
+benchmarks, but files it under "performance budget" rather than as a gate. It is a gate.
+
+**Phase 17e is no longer the gateway to new effects.** The roadmap implicitly assumed that
+porting Figma *shader* effects would need `CIKernel` infrastructure — which is why 17e sat in
+front of the interesting work despite being the riskiest change in the project (the `-fcikernel`
+build rule would break the animated canvas border *at runtime*). The LENS analysis disproves the
+assumption: a Figma shader effect reconstructs to about eight stock Core Image nodes. So 17e can
+move behind both new effects, and the roadmap gets materially less risky for free.
+
+**Scrambler is bigger than it looks and LENS is smaller.** LENS needs no new
+`EffectParameter.Kind`, no `EditorSnapshot` field, no landmark-model change, and no new panel
+component. Scrambler as originally scoped needs all four, plus a 4-row panel that does not fit a
+4.7" screen. Doing LENS first also exercises the "one `VisualEffect`, both carousels" path while
+the adapter is fresh.
 
 ---
 
@@ -210,13 +253,19 @@ Each entry names the file and line where the defect lives.
 
 ### P2 — Performance
 
-- [ ] **Face-effect GIF generation does ~25 full-resolution GPU renders.** `faceEffectedSource`
-      (`GIFGenerator.swift:157`) builds a CIImage from the full-size source, applies the effect, and
-      calls `createCGImage` once per animation frame plus the pause frame — for a 600×600 output.
-      The preview path already downscales to 650px; the GIF path never got the same treatment.
+- [ ] **Face-effect GIF generation renders the full-resolution source once per frame.**
+      `faceEffectedSource` (`GIFGenerator.swift:157`) builds a CIImage from the full-size source,
+      applies the effect, and calls `createCGImage` once per animation frame plus the pause frame —
+      for a 600×600 output. The preview path already downscales to 650px; the GIF path never got
+      the same treatment.
+      **Now roughly 4× worse than when this was filed, and promoted to a prerequisite.** Continuous
+      speed shipped 2026-08-08, and `frameCount = max(12, Int(1/speed/0.04))` means 0.25× playback
+      produces **100 frames**, not the ~25 this entry was written against. Both planned effects
+      (Phase 17h, 17i) sit on this path, so benchmarking either one before this is fixed measures
+      this instead. See "Next up" step 1.
 - [ ] **`HeatHazeEffect` creates a `CIContext` on every frame.** `CIContext()` is constructed
       inline inside `apply` (`HeatHazeEffect.swift`, in the `createCGImage` guard), so a 25-frame
-      GIF builds 25 contexts. LEARNINGS 2026-03-08 states the rule explicitly: create one
+      GIF builds 25 contexts — and **up to 100 at 0.25× playback** since continuous speed shipped. LEARNINGS 2026-03-08 states the rule explicitly: create one
       `CIContext` and reuse it, never per frame or per effect. Every other effect either avoids
       `CIContext` entirely or uses the shared one. Found while auditing effect parameters.
 - [x] **The disk thumbnail cache is destroyed on every refresh.** *(fixed 2026-08-07)*
@@ -812,10 +861,88 @@ two-slider ceiling and no room to grow.
       `StaticAnimator()` and silently discards the modifier** — that path was already broken
       before it became unreachable.
 
-### Phase 17e: New Image Effects — Phase 2 (not started)
+### Phase 17h: LENS — radial chromatic dispersion (not started)
+
+> Full analysis, evidence and parameter table in
+> **[FEATURE-LENS-DISTORTION.md](FEATURE-LENS-DISTORTION.md)**. This section tracks status only.
+
+Ported from a Figma shader effect via the Figma MCP. **The shader source is not obtainable** —
+the capture harness states it outright — so the algorithm is a reconstruction from measured
+renders, not the Figma implementation. Five properties were identified by numeric measurement
+(radial chroma profiles, disc extent, pairwise pixel diffs), and one of them turned out to be
+**inert across its entire range**.
+
+Despite the name, the effect is not geometric distortion: it is radial prismatic dispersion.
+
+- [ ] `LensDistortionEffect: VisualEffect` — three `CIZoomBlur` passes, one per colour channel at
+      different amounts, recombined additively, masked by a `CIRadialGradient` for reach.
+- [ ] Two sliders only: **AMOUNT** (geometric mapping) and **REACH** (linear). Reuses the existing
+      `intensityID` / `sizeID` constants.
+- [ ] `VisualEffectType.lensDistortion` + `FaceFilterType.lensDistortion`, the latter one line
+      through `FaceVisualEffect`.
+- [ ] **No `FrameGeometry`, deliberately.** A lens aberration is anchored to the lens, not the
+      subject, so staying locked to the output frame under zoom is correct rather than the
+      crawling bug DITHER had. This must be stated in the doc comment or someone will "fix" it.
+- [ ] `.cropped(to: image.extent)` is mandatory — `CIZoomBlur` grows its extent, the exact
+      failure that produced a black band for FISHEYE, SWIRL and PIXELATE.
+
+**Why this is cheap:** no new `EffectParameter.Kind`, no picker, no `EditorSnapshot` field, no
+`CIKernel`, no pbxproj edit. Two rows sits inside the measured three-row panel ceiling.
+
+**Open product questions** (in the feature doc): whether it overlaps CHROMA SHIFT too much — that
+also ships in both carousels and is linear rather than radial — and whether "LENS" or "PRISM"
+describes it more honestly than "LENS DISTORTION".
+
+### Phase 17i: Feature Scrambler — face-region rearrangement (not started, re-scope first)
+
+> Full specification in **[FEATURE-SCRAMBLER.md](FEATURE-SCRAMBLER.md)**. This section records
+> the review outcome and the required re-scope.
+
+Copies eyes and mouth to deliberately wrong positions. The engineering design is sound — Core
+Image compositing rather than a kernel, a reusable region compositor as the strategic payload,
+and a Stage A prototype rendered *through GIF encoding* before any real work, which is exactly
+the lesson EDGES and the black band taught.
+
+**Ship the plan's Stage D as V1 — THIRD EYE only, no layout picker.** Two blocking problems
+found on review, both resolved by that re-scope:
+
+- [ ] **Four rows do not fit.** `params.count <= 5` is a *declaration* assertion, not a layout
+      guarantee. Measured on SE 3, the panel has ~190–200pt; four rows clamp at the 34pt floor and
+      need ~234pt, **overflowing ~40pt**. That re-enables the `ScrollView`, and
+      `DragGesture(minimumDistance: 0)` then loses to it — so dragging SIZE or FEATHER would
+      scroll the panel instead of adjusting it. Dropping FEATHER (which the plan itself says to
+      tune from rendered output, making it a constant rather than a knob) leaves LAYOUT + SIZE +
+      INTENSITY at three rows, which fits.
+- [ ] **`layout` cannot live where the plan puts it.** `parameterValues` is `[String: Double]`; an
+      enum has no home there, and encoding it as a case index makes reordering `ScrambleLayout`
+      silently reinterpret saved values. The codebase already solved this: every non-Double
+      parameter (`tintColor`, `gradientStops`, `laserColor`) is a dedicated typed property on the
+      view model *and* a field on `EditorSnapshot`. Follow that, rather than the plan's proposed
+      "shared typed option container".
+
+Smaller corrections carried forward:
+
+- [ ] A new `Kind` breaks `faceFilter_onlyLazerEyesDeclaresAPicker` — expected, but unlisted.
+- [ ] Per-layout availability messaging (`NEEDS A CLEAR VIEW OF THE MOUTH`) is **new component
+      work** — `EffectDetailPanel` and `ParameterPickerRow` have no disabled state and no
+      explanatory-text affordance — and it competes for the same panel height.
+- [ ] Two requirements are already free: pause frames render one image and append it N times, so
+      "byte-stable" needs nothing from the effect; and a `scaled()` enumeration test must know
+      that `normalizedBoundingBox` is *deliberately* unscaled or it is an instant false positive.
+- [ ] The performance budget is stated against the wrong baseline — see "Next up" step 1.
+
+### Phase 17e: New Image Effects — Phase 2 (not started, deliberately deferred)
 
 > Full specifications live in **[EFFECTS.md](EFFECTS.md)** — build mechanics, per-effect
 > algorithms, and the list of candidates deliberately rejected. This section tracks status only.
+
+**Moved behind Phases 17h and 17i on 2026-08-09.** This phase used to sit in front of the
+interesting effect work on the assumption that porting Figma *shader* effects would require
+`CIKernel` infrastructure. The LENS analysis (Phase 17h) disproves that: a Figma shader effect
+reconstructed to about eight stock Core Image nodes with no kernel at all. Since this phase
+carries the project's highest runtime risk, deferring it behind two shippable effects is a
+straight de-risking with no cost. Do it when an effect genuinely cannot be built without it —
+Riso Print is still the strongest such candidate.
 
 - [ ] **CIKernel infrastructure.** Build rule scoped to `*.ci.metal`, so `-fcikernel` does not
       reach `Pixellate.metal`. Target-scope flags would break the animated canvas border **at
