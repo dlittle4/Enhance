@@ -1086,15 +1086,32 @@ stacking model before designing the copy format, or the format will need reworki
 
 ### Phase 19c: Animated text overlays (planned)
 
-Full product, rendering, UX, accessibility, and test plan:
-**[FEATURE-TEXT-EFFECTS.md](FEATURE-TEXT-EFFECTS.md)**.
+Full product, rendering, gesture, UX, accessibility, and test plan:
+**[FEATURE-TEXT-EFFECTS.md](FEATURE-TEXT-EFFECTS.md)** — **revision 2 (2026-08-10)**, which moves
+pinch-to-resize and free rotation into V1 and rewrites the renderer and gesture sections around
+them. Revision 2 §2 also records three defects found in revision 1: it assumed snapshot-test
+infrastructure this repo does not have, it claimed 1× effects-only generation that "Zoom is always
+on" makes unreachable, and it left the overlay uneditable after ENHANCE because the canvas swaps to
+`GIFPreviewView`.
 
-- [ ] Ship one frame-anchored text layer with direct drag-to-position.
-- [ ] Add five zoom-synchronized entrance presets: POP, RISE, TYPE, WORD DROP, and FLICKER.
-- [ ] Composite prepared text after the existing face → zoom → visual-effect pipeline.
-- [ ] Include text in undo/redo, reset, effects-only generation, regeneration, save, and share.
-- [ ] Prove emoji, composed-character, multiline, and RTL correctness before release.
-- [ ] Establish generation-time, memory, and GIF-size budgets from the Stage A prototype.
+Stages A–G in the plan; the gate for each is in §11.
+
+- [ ] **Stage A** — one CoreText layout, one master raster, non-overlapping tiles. Prove the
+      partition invariant and Arabic joining before anything else is built on it.
+- [ ] **Stage B** — the shared transform and the export compositor, still headless.
+- [ ] **Stage C** — five zoom-synchronized entrance presets: POP, RISE, TYPE, WORD DROP, FLICKER.
+      Establish generation-time, memory, and GIF-size budgets from this prototype.
+- [ ] **Stage D** — composite text after the existing face → zoom → visual-effect pipeline;
+      `textOverlay == nil` must stay byte-identical.
+- [ ] **Stage E** — repair `regenerateIfNeeded`'s dropped-edit P1 first, on its own commit. Direct
+      manipulation makes it fire constantly instead of occasionally.
+- [ ] **Stage F** — modal gesture layer: drag, pinch and rotate own the canvas while text is
+      selected; the photo's recognizers are suspended. One undo entry per gesture session.
+- [ ] **Stage G** — hardening. Prove emoji, composed-character, ligature, multiline and RTL
+      correctness, and profile on the oldest supported device.
+
+Cross-cutting: include text in undo/redo, reset, regeneration, save, and share; keep the live
+canvas (not the baked GIF) while the TEXT category is active.
 
 ### Phase 20: Onboarding & NUX
 
