@@ -1,6 +1,6 @@
 # Enhance (ZoomGif) — Roadmap
 
-> Last updated: 2026-08-08 (session 14)
+> Last updated: 2026-08-10 (session 15)
 
 ## Vision
 
@@ -18,9 +18,14 @@ Each step should feel fast, tactile, and visually satisfying.
 
 ## Pick up here
 
-**State:** `main` at `12f07aa`, pushed to `origin/main`. **200 tests, 0 failing.** The session's
-pattern was to commit on the branch and fast-forward `main` at each green stage, so Xcode always
-saw a working build.
+**State:** `main` has LENS (Phase 17h) and **Feature Scrambler V1 — THIRD EYE (Phase 17i)**,
+pushed to `origin/main`. Unit suite green. The session's pattern is to commit on the branch and
+fast-forward `main` at each green stage, so Xcode always sees a working build.
+
+**Next:** step 5 below — Phase 17f (control audit) is the smallest, then Gallery Stage B. THIRD
+EYE's on-device matrix (Stage D2) is still open under "Needs device verification". Its Stage E
+layout pack (MOUTH EYES / EYE MOUTH / SHUFFLE) is the natural follow-on and its groundwork —
+the `FaceRegion` compositor and `FaceRegions` model — already exists.
 
 ### What shipped
 
@@ -87,10 +92,13 @@ assumption turned out to be false. Rationale in "Why this order" below.
       infrastructure. Rendered on the reference photo and inspected: radial prismatic dispersion,
       centre-clean, REACH confines it to an edge fringe at 0 and fills the frame at 1. 216 tests.
 
-**4 — Feature Scrambler (Phase 17i), re-scoped to THIRD EYE only.**
+**4 — Feature Scrambler (Phase 17i), re-scoped to THIRD EYE only. ✓ Done 2026-08-10.**
 
-- [ ] Ship the plan's Stage D as V1 and treat its Stage E as a separate feature. See Phase 17i
-      for why the original four-layout V1 does not fit.
+- [x] Shipped THIRD EYE as V1 (Stage E layout pack deferred, as planned). Copies one eye to the
+      forehead over the zoom with a `smoothstep` settle, INTENSITY + SIZE (two rows), single-face.
+      Left behind the reusable landmark compositor (`FaceRegion` / `FaceRegionMaskBuilder` /
+      `FaceRegionCompositor`) and the `FaceRegions` + `LandmarkQuality` model. Confirmed on a real
+      photo (eye travels to the forehead and settles). **Device matrix (Stage D2) still pending.**
 
 **5 — Then, in rough value order.**
 
@@ -140,6 +148,12 @@ rendering frames and inspecting them, which cannot catch everything.
       per frame and confirm it moves monotonically with the pan.
 - [ ] **DITHER legibility after GIF palettisation.** Does the stipple survive the 256-colour
       quantisation, or read as noise? If it needs help, the SCALE slider is the first lever.
+- [ ] **THIRD EYE (Feature Scrambler V1)** — the full Stage D2 matrix. Verified only by
+      rendered-frame inspection and one real-photo check that the eye travels to the forehead and
+      settles. Watch for: crop seams / halo where the copied eye meets skin (padding 0.35, feather
+      0.55 are the levers); placement height across face shapes; the reveal reading deliberately at
+      the 12-frame 4× floor for Zoom In, Zoom Out, and Pulse; and the eye fallback on a profile
+      face with one visible eye.
 - [ ] **20-item effects carousel** — scroll feel, and whether entering the IMAGE tab stutters
       while 11 thumbnails render (was 8 before the new effects).
 - [ ] **GRADIENT colour wells** — the three system wells show Apple's spectrum ring; confirmed
@@ -897,18 +911,42 @@ Despite the name, the effect is not geometric distortion: it is radial prismatic
 also ships in both carousels and is linear rather than radial — and whether "LENS" or "PRISM"
 describes it more honestly than "LENS DISTORTION".
 
-### Phase 17i: Feature Scrambler — face-region rearrangement (not started, re-scope first)
+### Phase 17i: Feature Scrambler — THIRD EYE ✓ (V1 shipped 2026-08-10); layout pack (Stage E) deferred
 
 > Full specification in **[FEATURE-SCRAMBLER.md](FEATURE-SCRAMBLER.md)**. This section records
-> the review outcome and the required re-scope.
+> the review outcome, the re-scope, and what V1 actually shipped.
 
 Copies eyes and mouth to deliberately wrong positions. The engineering design is sound — Core
 Image compositing rather than a kernel, a reusable region compositor as the strategic payload,
 and a Stage A prototype rendered *through GIF encoding* before any real work, which is exactly
 the lesson EDGES and the black band taught.
 
-**Ship the plan's Stage D as V1 — THIRD EYE only, no layout picker.** Two blocking problems
-found on review, both resolved by that re-scope:
+**Shipped THIRD EYE as V1 — no layout picker.**
+
+- [x] **Stage B — landmark groundwork.** `FaceRegions` (eye/lip/nose polygons) + `LandmarkQuality`
+      added to `DetectedFace`, defaulted so the many memberwise-init call sites stayed source-
+      compatible. Only the precise Vision path populates them; rectangle, CIDetector, and animal
+      paths stay `.estimated` with empty regions. `scaled(x:y:)` carries them, with a test that
+      enumerates every region point so a future field cannot be forgotten.
+- [x] **Stage C — reusable compositor.** `FaceRegion` (source resolution + eye fallback to pupil
+      /width, mouth unavailable without lips), `FaceRegionMaskBuilder` (lazy soft-alpha elliptical
+      mask), `FaceRegionCompositor` (crop → clamp → mask → transform → composite, extent-preserving,
+      no `CIContext`/`createCGImage`). Colored-fixture tests prove sampled pixels land at the
+      destination. This is the strategic payload the whole feature existed to leave behind.
+- [x] **Stage D — THIRD EYE vertical slice.** `FeatureScramblerEffect` + `FaceFilterType.scramble`,
+      INTENSITY + SIZE via the existing `secondaryID` convention (two rows, fits SE 3),
+      `requiresSingleFace`. Timeline reveal `0.15→0.75` with a single `smoothstep` settle,
+      deterministic (no `frameIndex`, no unseeded randomness). Intensity 0 is an exact no-op; any
+      positive value keeps the tuned opacity floor. Parity table updated. Padding/feather/placement
+      constants locked after visual QA on a real photo.
+- [x] **Stage C2** (face-effect render perf prerequisite) was already done — see "Next up" step 1.
+- [ ] **Stage D2 — device matrix still pending.** 0.25×/0.5×/1×/4×, Zoom In/Out/Pulse, Shake/Spiral,
+      and front/profile/occluded/glasses/small/multi-face/animal photos; inspect in Photos,
+      Messages, and the in-app gallery. Added to "Needs device verification".
+
+**Stage E — layout pack (deferred, unchanged plan).** MOUTH EYES / EYE MOUTH / SHUFFLE behind a
+preset-row picker, typed `scrambleLayout` state on the view model and `EditorSnapshot`, and
+per-layout availability. The two blocking problems below are Stage E's, not V1's:
 
 - [ ] **Four rows do not fit.** `params.count <= 5` is a *declaration* assertion, not a layout
       guarantee. Measured on SE 3, the panel has ~190–200pt; four rows clamp at the 34pt floor and

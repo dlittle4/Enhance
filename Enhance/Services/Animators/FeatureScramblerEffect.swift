@@ -44,6 +44,10 @@ struct FeatureScramblerEffect: FaceEffect {
         // Before the reveal begins the frame is the untouched original.
         guard progress > revealStart else { return image }
 
+        // Zero intensity is "off" — identical to the input. Any positive value keeps the
+        // tuned opacity floor below, so a low-but-nonzero setting stays visible.
+        guard intensity > 0 else { return image }
+
         guard let sourceEye = bestSourceEye(in: face),
               let sourceCenter = sourceEye.sourceCenter(in: face),
               let forehead = foreheadCenter(for: face) else { return image }
