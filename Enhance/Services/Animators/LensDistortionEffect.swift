@@ -15,10 +15,17 @@ import CoreImage
 /// distinct from `ChromaticAberrationEffect` (CHROMA SHIFT), which is a *linear* constant
 /// offset of the whole R and B planes.
 ///
-/// Deliberately frame-anchored (no `FrameGeometry`): a lens aberration is a property of
-/// the lens, so it should stay fixed to the output frame as the zoom pushes in, not track
-/// the subject the way a dither grid must. That is why this only implements the
-/// `viewportCenter` overload and leaves the geometry overload at its default.
+/// Scales its spatial footprint with the frame's zoom (`FrameGeometry.scale`), exactly as
+/// `DitherEffect` scales its cells — and for the same reason. The live preview applies
+/// effects to the *un-zoomed* source and lets the scroll view magnify the result, so an
+/// effect whose look depends on the framing is inescapably image-anchored there. The GIF
+/// pipeline applies effects *after* the zoom, so without scaling, the two disagree the
+/// moment the user zooms: the preview shows only the clean centre of the radial pattern
+/// (the dispersed edges are cropped away by the zoom) while the GIF re-centres the whole
+/// pattern on the zoomed frame and fills it. Multiplying the blur amount and reach radius
+/// by `scale` makes the GIF frame match the magnified preview. An earlier version left this
+/// out on the theory that a lens aberration is "frame-anchored"; that produced a visible
+/// preview/export mismatch and was wrong.
 public struct LensDistortionEffect: VisualEffect {
     /// Peak per-channel zoom-blur amount, before the progress ramp. The red channel gets
     /// the full amount and the others a fraction, so the channels smear by different radii
@@ -43,14 +50,24 @@ public struct LensDistortionEffect: VisualEffect {
     }
 
     public func apply(to image: CIImage, progress: CGFloat, frameIndex: Int) -> CIImage {
-        apply(to: image, progress: progress, frameIndex: frameIndex, viewportCenter: nil)
+        apply(to: image, progress: progress, frameIndex: frameIndex, viewportCenter: nil, geometry: .identity)
     }
 
     public func apply(to image: CIImage, progress: CGFloat, frameIndex: Int, viewportCenter: CGPoint?) -> CIImage {
+        apply(to: image, progress: progress, frameIndex: frameIndex, viewportCenter: viewportCenter, geometry: .identity)
+    }
+
+    public func apply(to image: CIImage, progress: CGFloat, frameIndex: Int, viewportCenter: CGPoint?, geometry: FrameGeometry) -> CIImage {
+        // The blur amount and the reach radius both scale with the frame's zoom, so the
+        // GIF frame (effect applied post-zoom) matches the magnified preview (effect
+        // applied to the un-zoomed source). See the type comment. `scale` is 1 in the
+        // preview and the per-frame zoom in the GIF.
+        let scale = max(1, geometry.scale)
+
         // Quadratic ease-in, matching the other progressive effects: the dispersion
         // reveals as the zoom pushes in and holds at the pause. At progress 0 this is a
         // pass-through, which the identity test pins.
-        let amount = maxAmount * (progress * progress)
+        let amount = maxAmount * scale * (progress * progress)
         guard amount > 0.5 else { return image }
 
         let extent = image.extent
@@ -78,8 +95,9 @@ public struct LensDistortionEffect: VisualEffect {
 
         // REACH mask: original inside `innerR`, full dispersion beyond `outerR`, a smooth
         // ramp between. Higher reach shrinks the clean centre so the effect fills more of
-        // the frame; lower reach pushes it out to the corners only.
-        let maxR = hypot(extent.width, extent.height) / 2
+        // the frame; lower reach pushes it out to the corners only. The radius scales with
+        // the zoom for the same reason the amount does.
+        let maxR = hypot(extent.width, extent.height) / 2 * scale
         let innerR = maxR * (1 - reach) * 0.75
         let outerR = innerR + maxR * 0.25
         let mask = CIFilter(name: "CIRadialGradient", parameters: [

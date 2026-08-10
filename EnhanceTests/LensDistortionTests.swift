@@ -119,6 +119,54 @@ struct LensDistortionTests {
         #expect(changed > (narrow.count / 4) / 20, "reach 0 vs 1 barely differ (\(changed) px) — REACH is inert")
     }
 
+    // MARK: - Preview / export parity under zoom
+
+    /// The bug this whole geometry path exists to prevent. The live preview applies the effect
+    /// to the un-zoomed source and lets the scroll view magnify it (scale stays 1); the GIF
+    /// applies it to the already-zoomed frame with `geometry.scale` = the zoom. Without the
+    /// scale term the two diverge the moment the user zooms — the GIF looked far more intense
+    /// than the preview.
+    ///
+    /// Reproduces both paths on one fixture at 2.5× and asserts the *reach mask covers the
+    /// same fraction of the visible frame*, which is what "they look the same" reduces to.
+    @Test func zoomedFrameMatchesTheMagnifiedPreview() {
+        let side = 200
+        let full = fixture(width: side, height: side)
+        let zoom: CGFloat = 2.5
+        let crop = CGRect(x: CGFloat(side) * (1 - 1/zoom) / 2, y: CGFloat(side) * (1 - 1/zoom) / 2,
+                          width: CGFloat(side) / zoom, height: CGFloat(side) / zoom)
+
+        func zoomTo(_ i: CIImage) -> CIImage {
+            i.cropped(to: crop)
+                .transformed(by: CGAffineTransform(translationX: -crop.origin.x, y: -crop.origin.y))
+                .transformed(by: CGAffineTransform(scaleX: zoom, y: zoom))
+                .cropped(to: CGRect(x: 0, y: 0, width: side, height: side))
+        }
+
+        let effect = LensDistortionEffect(intensity: 0.7, reach: 0.5)
+        // Preview: apply to the whole source (scale 1), then magnify — what the scroll view shows.
+        let preview = measure(zoomTo(effect.apply(to: full, progress: 1.0, frameIndex: 0,
+                                                   viewportCenter: CGPoint(x: side/2, y: side/2)))).bytes
+        // GIF: zoom first, then apply with the frame's scale.
+        let gif = measure(effect.apply(to: zoomTo(full), progress: 1.0, frameIndex: 0,
+                                       viewportCenter: nil,
+                                       geometry: FrameGeometry(scale: zoom, contentOrigin: .zero))).bytes
+
+        func dispersedFraction(_ bytes: [UInt8]) -> Double {
+            var n = 0
+            for p in stride(from: 0, to: bytes.count, by: 4) where Int(max(bytes[p], bytes[p+1], bytes[p+2])) - Int(min(bytes[p], bytes[p+1], bytes[p+2])) > 12 { n += 1 }
+            return Double(n) / Double(bytes.count / 4)
+        }
+        let pv = dispersedFraction(preview), gf = dispersedFraction(gif)
+        #expect(abs(pv - gf) < 0.12, "preview disperses \(pv) of the frame, GIF \(gf) — the paths disagree under zoom")
+
+        // Guards that this test would actually catch a regression: the two paths run through
+        // *different* code (identity geometry + magnify vs. zoomed frame + scale), so deleting
+        // the scale term makes the GIF over-disperse while the preview stays put, and the
+        // assertion above fails. No separate "without scale" test is needed — removing the
+        // multiply breaks this one directly.
+    }
+
     // MARK: - Geometry
 
     /// Extent preservation is asserted generically over every effect; this pins the two

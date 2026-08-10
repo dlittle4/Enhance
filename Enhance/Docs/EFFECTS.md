@@ -37,9 +37,15 @@ chromatic dispersion built from **three `CIZoomBlur` passes**, one per colour ch
 different amounts, additively recombined and masked by a `CIRadialGradient` for the REACH
 control. About eight stock nodes, no kernel. Full analysis: `Docs/FEATURE-LENS-DISTORTION.md`.
 
-Two properties are deliberate and load-bearing, recorded so they are not "fixed" later:
-- **No `FrameGeometry`.** A lens aberration belongs to the lens, so it stays fixed to the output
-  frame under zoom rather than tracking the subject like a dither grid.
+Two properties are load-bearing, recorded so they are not "fixed" later:
+- **Scales its footprint with `FrameGeometry.scale`, like DITHER.** The first version left this
+  out on the theory that a lens aberration is "frame-anchored" — and it produced a visible
+  preview/export mismatch: the preview applies effects to the un-zoomed source and lets the
+  scroll view magnify, so a zoomed preview showed only the clean centre of the radial pattern
+  while the GIF re-centred the whole pattern on the zoomed frame and filled it, looking far more
+  intense. Multiplying the blur amount and reach radius by `scale` makes the GIF frame match the
+  magnified preview. The preview is *inescapably* image-anchored, so any effect whose look
+  depends on the framing must scale with the zoom or the two paths cannot agree.
 - **Chroma is not monotonic in AMOUNT.** Past mid-range the streaks spread so far they dilute —
   max dispersion is a wide low-saturation wash, matching the reference. The test asserts the
   control is *live across its range*, not that saturation rises.

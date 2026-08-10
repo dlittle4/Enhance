@@ -1250,3 +1250,35 @@ The tab asked for its thumbnail in `onAppear`. For a new photo that works, becau
 **This is the second time this exact shape has appeared in `EditorViewModel`.** `generateFaceFilterThumbnails` carries a comment saying it must be called from face detection's completion and never from the category change — same cause, different symptom: fired early it ran with zero faces and cached thirteen unmodified copies of the photo for the session.
 
 **Rule:** `onAppear` fires when a view is *mounted*, which says nothing about whether the data it needs has arrived. Any view-triggered work that reads asynchronously-loaded state needs a second trigger at the point that state lands, and the work itself must be idempotent so both paths can fire freely. When a bug's reproduction step is "go somewhere else and come back", the cause is almost always a one-shot trigger that ran too early — the detour is just re-running it.
+
+## 2026-08-09: The live preview is image-anchored — framing-dependent effects must scale with the zoom
+
+**Problem:** LENS looked far more intense in the exported GIF than in the editor preview while
+adjusting its sliders. Confirmed by rendering both paths on one photo: at no zoom they are
+byte-identical, but at 2.5× the preview was nearly clean while the GIF was full of radial
+dispersion.
+
+**Cause — a structural asymmetry between the two paths, not a bug in the effect:**
+- The **preview** applies effects to the *un-zoomed* source and lets the `UIScrollView` in
+  `ImageCanvasView` magnify the result. So the effect is always computed at image scale, and a
+  zoomed-in view shows a magnified *crop* of that result.
+- The **GIF** applies effects *after* the zoom transform, to the final output frame.
+
+For a radial effect (zoom blur centred on the frame, reach = frame diagonal), this means: when
+zoomed, the preview shows only the clean *centre* of the pattern — the dispersed edges live at
+the source edges, which the zoom crops away — while the GIF re-centres the whole pattern on the
+zoomed frame and fills it. Same effect, opposite framing.
+
+**Fix:** scale the effect's spatial footprint (blur amount and reach radius) by
+`FrameGeometry.scale`. In the GIF that is the per-frame zoom, so the effect grows to match the
+magnified preview; in the preview `scale` is 1 and nothing changes. This is exactly what
+`DitherEffect` already did with its cell size — for the same reason, which I did not connect
+until the mismatch appeared.
+
+**Rule:** the preview is image-anchored by construction. Any effect whose *look* depends on the
+framing — anything radial, any spatial grid, anything measured against the frame's dimensions —
+must scale that spatial quantity by `FrameGeometry.scale`, or the preview and the GIF will
+disagree the moment the user zooms. An effect being "conceptually attached to the lens/frame" is
+not a reason to skip this; the preview cannot render a frame-anchored effect, so image-anchored
+is the only choice that stays consistent. FISHEYE and SWIRL still skip it and have the same
+latent mismatch — acceptable only because their radius is smaller and less dramatic than LENS.

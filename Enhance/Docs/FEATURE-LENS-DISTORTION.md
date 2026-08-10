@@ -249,6 +249,14 @@ no `frameIndex`, no unseeded randomness — so preview, thumbnail and export agr
 
 ---
 
+> **Correction (2026-08-09), after shipping.** §9 originally said LENS should *not* use
+> `FrameGeometry` because a lens aberration is "frame-anchored". That was wrong and caused a
+> visible preview/export mismatch: the preview applies effects to the un-zoomed source and lets
+> the scroll view magnify, so it is inescapably *image*-anchored, and a frame-anchored GIF
+> diverged from it the moment the user zoomed (the GIF looked far more intense). LENS now scales
+> its blur amount and reach radius by `FrameGeometry.scale`, exactly like DITHER, so the two
+> paths agree. Any effect whose appearance depends on the framing must do the same.
+
 ## 11. Required architecture changes
 
 **Almost none — this is the point of the chosen approach.**
@@ -279,7 +287,7 @@ Two sliders is comfortably inside that. **Do not add a third control without re-
 | `Enhance/Models/FaceFilterType.swift` | Add `case lensDistortion`; factory returns `FaceVisualEffect(effect: LensDistortionEffect(...), skipDelay: true)`. |
 | `EnhanceTests/LensDistortionTests.swift` | **New.** §13. |
 | `EnhanceTests/VisualEffectTests.swift` | Picks the new case up automatically via `allCases`. |
-| `Enhance/Docs/EFFECTS.md` | Record the reconstruction and the "no `FrameGeometry` by design" rationale. |
+| `Enhance/Docs/EFFECTS.md` | Record the reconstruction and the `FrameGeometry`-scaling rationale (see the parity correction below). |
 | `Enhance/Docs/ROADMAP.md` | Tick, and note the reference-port fixture is disposable. |
 
 No pbxproj edits — `fileSystemSynchronizedGroups`.
@@ -298,8 +306,10 @@ No pbxproj edits — `fileSystemSynchronizedGroups`.
   `allEffects_preserveInputExtentWithOffsetViewportCentre` covers this once the case is added).
 - Portrait, square and landscape inputs all preserve extent.
 - Face variant: masked result differs from input only inside the face region.
-- **No `FrameGeometry` phase test** — deliberately, since this effect has no spatial grid. Note
-  that in the test so its absence reads as a decision.
+- **Preview/export parity under zoom** — the effect scales its footprint with `FrameGeometry.scale`
+  (see the correction below), and the test pins that a zoomed frame disperses the same fraction as
+  the magnified preview. There is no *phase* test — the effect has no repeating grid — and that
+  absence is deliberate.
 
 **Human visual review (cannot be automated):**
 - Render to PNG against the rich fixture and *look* — structural tests passed while EDGES was
