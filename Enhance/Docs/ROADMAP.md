@@ -1046,6 +1046,18 @@ other reasons — and each has one specific catch worth deciding knowingly.
 **They compose.** Once a stack exists, the copyable payload is the stack — so settle the
 stacking model before designing the copy format, or the format will need reworking.
 
+### Phase 19c: Animated text overlays (planned)
+
+Full product, rendering, UX, accessibility, and test plan:
+**[FEATURE-TEXT-EFFECTS.md](FEATURE-TEXT-EFFECTS.md)**.
+
+- [ ] Ship one frame-anchored text layer with direct drag-to-position.
+- [ ] Add five zoom-synchronized entrance presets: POP, RISE, TYPE, WORD DROP, and FLICKER.
+- [ ] Composite prepared text after the existing face → zoom → visual-effect pipeline.
+- [ ] Include text in undo/redo, reset, effects-only generation, regeneration, save, and share.
+- [ ] Prove emoji, composed-character, multiline, and RTL correctness before release.
+- [ ] Establish generation-time, memory, and GIF-size budgets from the Stage A prototype.
+
 ### Phase 20: Onboarding & NUX
 
 - [ ] Add 5 default onboarding photos to show how the app works (think Tom from MySpace)
@@ -1084,7 +1096,8 @@ stacking model before designing the copy format, or the format will need reworki
 
 **New Animation & Content**
 - [ ] Add Bounce, Dramatic Zoom, Loop Zoom base animation styles
-- [ ] Text overlays with drag-to-position
+- [ ] Animated text overlays — tracked in Phase 19c and
+      [FEATURE-TEXT-EFFECTS.md](FEATURE-TEXT-EFFECTS.md)
 
 **Settings & Preferences**
 - [x] General settings sheet (expandable: auto-play, app icon selection) — completed in Phase 10 (session 10)
