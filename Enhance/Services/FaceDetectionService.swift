@@ -611,13 +611,25 @@ final class FaceDetectionService {
         let rightBrow = convertPoints(landmarks.rightEyebrow, bb: bb, imgW: imageWidth, imgH: imageHeight)
         let contour = convertPoints(landmarks.faceContour, bb: bb, imgW: imageWidth, imgH: imageHeight)
 
+        // Full region outlines for whole-feature effects. Vision returns these already;
+        // the flat fields above only keep a centre or width. Any of these may be nil for
+        // a partially-detected face, so each resolves to an empty array independently.
+        let regions = FaceRegions(
+            leftEye: convertPoints(landmarks.leftEye, bb: bb, imgW: imageWidth, imgH: imageHeight),
+            rightEye: convertPoints(landmarks.rightEye, bb: bb, imgW: imageWidth, imgH: imageHeight),
+            outerLips: convertPoints(landmarks.outerLips, bb: bb, imgW: imageWidth, imgH: imageHeight),
+            innerLips: convertPoints(landmarks.innerLips, bb: bb, imgW: imageWidth, imgH: imageHeight),
+            nose: convertPoints(landmarks.nose, bb: bb, imgW: imageWidth, imgH: imageHeight)
+        )
+
         return DetectedFace(
             boundingBox: boxInImage, faceCenter: center,
             faceWidth: boxInImage.width, faceHeight: boxInImage.height,
             leftPupilCenter: leftPupil, rightPupilCenter: rightPupil,
             leftEyeWidth: leftEyeW, rightEyeWidth: rightEyeW,
             leftEyebrowPoints: leftBrow, rightEyebrowPoints: rightBrow,
-            faceContourPoints: contour, normalizedBoundingBox: bb
+            faceContourPoints: contour, normalizedBoundingBox: bb,
+            regions: regions, landmarkQuality: .precise
         )
     }
 

@@ -12,6 +12,7 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
     // New face-specific effects
     case heartVignette = "HEART VIGNETTE"
     case heartEyes     = "HEART EYES"
+    case scramble      = "SCRAMBLE"
 
     // Visual effects adapted for face
     case fisheye    = "FISHEYE"
@@ -27,7 +28,7 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
 
     /// Effects that only make sense targeting a single face.
     var requiresSingleFace: Bool {
-        self == .rainbow || self == .heartVignette
+        self == .rainbow || self == .heartVignette || self == .scramble
     }
 
     /// Primary slider label.
@@ -65,6 +66,7 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         case .heartEyes:      return "SPEED"
         case .rainbow:        return "SPEED"
         case .lensDistortion: return "REACH"
+        case .scramble:       return "SIZE"
         default:              return nil
         }
     }
@@ -90,6 +92,7 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
 
         case .heartVignette: return HeartVignetteEffect(intensity: clamped, size: clampedSecond)
         case .heartEyes:     return HeartEyesEffect(intensity: clamped, speed: clampedSecond)
+        case .scramble:      return FeatureScramblerEffect(size: clampedSecond, intensity: clamped)
 
         case .fisheye:    return FaceVisualEffect(effect: FisheyeEffect(intensity: clamped, size: clampedSecond), skipDelay: true)
         case .swirl:      return FaceVisualEffect(effect: SwirlEffect(intensity: clamped), skipDelay: true)

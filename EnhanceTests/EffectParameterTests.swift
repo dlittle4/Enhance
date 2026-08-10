@@ -19,6 +19,7 @@ struct EffectParameterTests {
         .handsome:      ("HANDSOMENESS", nil),
         .heartVignette: ("INTENSITY", "SIZE"),
         .heartEyes:     ("SIZE", "SPEED"),
+        .scramble:      ("INTENSITY", "SIZE"),
         .fisheye:       ("INTENSITY", "SIZE"),
         .swirl:         ("INTENSITY", nil),
         .pixelate:      ("INTENSITY", nil),
