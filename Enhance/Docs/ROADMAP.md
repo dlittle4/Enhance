@@ -67,20 +67,19 @@ assumption turned out to be false. Rationale in "Why this order" below.
       `main`. Mechanism proven by `dither_phaseIsPeriodicInCellSize`; the *result* has never been
       watched in a real GIF.
 
-**1 — Unblock the face-effect render path. This is now a prerequisite, not an optimization.**
+**1 — Unblock the face-effect render path. ✓ Done 2026-08-09.**
 
-- [ ] **`faceEffectedSource` renders the full-resolution source once per frame** (P2 below). It
-      was filed as "the largest remaining performance win"; it is now the thing standing in front
-      of the next two features. **Both** planned effects land on this path — Scrambler is a face
-      effect by definition, and LENS reaches it through `FaceVisualEffect`. Measuring either one
-      before this is fixed measures this instead.
-- [ ] **`HeatHazeEffect` constructs a `CIContext` per frame** (P2 below). Same class of bug, same
-      amplification, one-line fix — do it in the same pass.
+- [x] ~~**`faceEffectedSource` renders the full-resolution source once per frame.**~~ Fixed — the
+      source is pre-scaled to the largest size the zoom can reveal (`fillScale × maxZoom`, clamped
+      to 1). **Measured 67.2s → 3.8s, 17.7× faster** on a 12MP source at zoom 1, 13 frames, iPhone
+      17 Pro sim. Both planned effects sit on this path, so it landed before them.
+- [x] ~~**`HeatHazeEffect` constructs a `CIContext` per frame.**~~ Fixed — one shared static
+      context.
 
-**2 — Finish the cheap correctness work.**
+**2 — Finish the cheap correctness work. ✓ Done 2026-08-09.**
 
-- [ ] **`saveGIFToLibrary` can save the wrong file** — the last cheap P1. If regeneration failed
-      on an existing GIF, "SAVE NEW COPY" silently duplicates the unmodified original.
+- [x] ~~**`saveGIFToLibrary` can save the wrong file.**~~ Fixed — SAVE reads `generatedGifURL`
+      directly; the `gifURL` fallback property is deleted so the trap can't return.
 
 **3 — LENS (Phase 17h). The cheapest new effect available.**
 
@@ -225,9 +224,10 @@ Each entry names the file and line where the defect lives.
       `.onChange(of: playbackSpeed)` had been accidentally papering over half of this, and deleting
       that handler in the same session would have made the bug fully visible had it not been fixed
       alongside.
-- [ ] **`saveGIFToLibrary` can save the wrong file.** It reads `gifURL` (`:771`), which falls back to
-      `existingGifURL`. If regeneration failed on an existing GIF, "SAVE NEW COPY" silently duplicates
-      the original, unmodified GIF. `updateOriginalGIF` correctly requires `generatedGifURL`.
+- [x] **`saveGIFToLibrary` can save the wrong file.** *(fixed 2026-08-09.)* It read `gifURL`, which
+      fell back to `existingGifURL`, so a failed regeneration on an existing GIF let "SAVE NEW COPY"
+      duplicate the unmodified original. Now reads `generatedGifURL` directly like `updateOriginalGIF`;
+      the fallback property is deleted so it can't be reintroduced.
 - [x] **A stalled iCloud download can wedge the gallery for the whole session.** *(fixed 2026-08-07 —
       see P0 above.)* The degraded-image early return skips `group.leave()` by design, which is
       correct only if a final delivery always arrives. If it did not, `group.notify` never fired,
@@ -253,7 +253,10 @@ Each entry names the file and line where the defect lives.
 
 ### P2 — Performance
 
-- [ ] **Face-effect GIF generation renders the full-resolution source once per frame.**
+- [x] **Face-effect GIF generation renders the full-resolution source once per frame.** *(fixed
+      2026-08-09 — pre-scaled to `fillScale × maxZoom`; measured 17.7× faster. See
+      `GIFGenerator.faceEffectSourceScale`.)*
+- [ ] ~~(original entry kept for context)~~ **Face-effect GIF generation renders the full-resolution source once per frame.**
       `faceEffectedSource` (`GIFGenerator.swift:157`) builds a CIImage from the full-size source,
       applies the effect, and calls `createCGImage` once per animation frame plus the pause frame —
       for a 600×600 output. The preview path already downscales to 650px; the GIF path never got
@@ -263,7 +266,8 @@ Each entry names the file and line where the defect lives.
       produces **100 frames**, not the ~25 this entry was written against. Both planned effects
       (Phase 17h, 17i) sit on this path, so benchmarking either one before this is fixed measures
       this instead. See "Next up" step 1.
-- [ ] **`HeatHazeEffect` creates a `CIContext` on every frame.** `CIContext()` is constructed
+- [x] **`HeatHazeEffect` creates a `CIContext` on every frame.** *(fixed 2026-08-09 — shared
+      static context.)* Original detail: `CIContext()` is constructed
       inline inside `apply` (`HeatHazeEffect.swift`, in the `createCGImage` guard), so a 25-frame
       GIF builds 25 contexts — and **up to 100 at 0.25× playback** since continuous speed shipped. LEARNINGS 2026-03-08 states the rule explicitly: create one
       `CIContext` and reuse it, never per frame or per effect. Every other effect either avoids
