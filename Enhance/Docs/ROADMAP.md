@@ -1,6 +1,6 @@
 # Enhance (ZoomGif) — Roadmap
 
-> Last updated: 2026-08-10 (session 15)
+> Last updated: 2026-08-10 (session 16 — design-system audit + plan added as Phase 20b)
 
 ## Vision
 
@@ -13,6 +13,7 @@ Each step should feel fast, tactile, and visually satisfying.
 
 > **Docs:** [EFFECTS.md](EFFECTS.md) — how to build an effect, and what is still worth building.
 > [LEARNINGS.md](LEARNINGS.md) — rules discovered the hard way.
+> [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) — design-system audit and phased plan (Phase 20b).
 
 ---
 
@@ -1131,13 +1132,40 @@ and no picker.
 - [ ] Add 5 default onboarding photos to show how the app works (think Tom from MySpace)
 - [ ] Viral unlock: "Give the gift of a GIF" — send a GIF to unlock face effects
 
+### Phase 20b: Design System Foundation
+
+> Fully specified in **[DESIGN_SYSTEM.md](DESIGN_SYSTEM.md)** — audit, phased plan, target
+> taxonomy, and AI contribution rules. This is the prerequisite that Phase 21 (Themes) assumed but
+> did not exist: the audit scores the current system **1.5 / 5** ("emerging / partial") — one real
+> colour token, `16` used as an un-named radius in 21 places, the `0x202020` pill hand-rolled 8+
+> times in feature files, inline `.custom("Silkscreen…")` across the screens, and zero
+> accessibility or lint/CI enforcement.
+>
+> The plan is three phases, and **Phases 1–2 are pure refactors with zero intended visual change**
+> (each token equals the literal it replaces, so the app renders pixel-identical):
+
+- [ ] **Phase 1 — tokens & component standardization.** Extend `Design/Colors`, `Constants`,
+      `Typography`; add `Design/Motion.swift`; route existing components through the tokens via 1:1
+      swaps. Low-risk, additive, mergeable alone.
+- [ ] **Phase 2 — migrate the most-duplicated patterns.** Introduce a `Surface` primitive; move the
+      inline `0x202020` pills (`EditorView`, `GalleryView`) and inline Silkscreen fonts onto tokens.
+      Optionally collapse `AppButton`'s 4 style booleans into a `Style` enum behind a deprecation shim.
+- [ ] **Phase 3 — docs, previews, lint, visual/a11y checks.** Add SwiftLint (ban raw colours/fonts
+      outside `Design/`), first CI workflow, a `ComponentGallery` catalog, snapshot tests, an
+      accessibility baseline, and `AGENTS.md`.
+
+**Sequencing:** land this before, or as the first stage of, Phase 21 — themes is a *migration onto*
+this token layer, not a separate build.
+
 ### Phase 21: Customization & Themes
 
 > Themes are fully planned in **[FEATURE-THEMES.md](FEATURE-THEMES.md)** — the slot contract, the
 > staged migration, and the boundaries of what must *not* follow a theme. Read it before starting:
-> the headline finding is that this is a **migration, not a feature**. There is no design system to
-> extend (one token, ~340 colour literals across ~22 files), so the first stage is reconciling
-> duplicate values while the app is still dark-only.
+> the headline finding is that this is a **migration, not a feature**. The design-system foundation
+> it depends on is now specified separately in **[DESIGN_SYSTEM.md](DESIGN_SYSTEM.md)** (Phase 20b
+> above) — do that first. There is no design system to extend today (one token, ~340 colour
+> literals across ~22 files), so the first stage is reconciling duplicate values while the app is
+> still dark-only.
 
 - [ ] Custom app icons (pick a GIF from gallery, set thumbnail as app icon)
 - [ ] **Custom app themes** — appearance (light/dark/system) × user-authored colour schemes.
