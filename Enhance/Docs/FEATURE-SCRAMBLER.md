@@ -1,6 +1,25 @@
 # Feature Scrambler — Product and Implementation Plan
 
-> Status: proposed
+> ## ⚠️ HISTORICAL — superseded 2026-08-10. Do not implement from this document.
+>
+> This plan was **built in full** — THIRD EYE, then the MOUTH EYES / EYE MOUTH / SHUFFLE layout
+> pack, plus NOSE SWAP and a four-way SHUFFLE — reviewed on device, and then **deliberately cut
+> back to THIRD EYE alone**. `ScrambleLayout`, the LAYOUT preset row, `EffectParameter.Kind.preset`,
+> and every non-THIRD-EYE layout were deleted. The deleted implementations are in git history
+> around `580bf83`…`cab247c`.
+>
+> **Still accurate and worth reading:** the region-compositor design (crop → mask → transform →
+> composite), the landmark model (`FaceRegions` / `LandmarkQuality`), the Snap Face Inset research,
+> and the reasoning about masks, feathering, and GIF palettisation. All of that shipped and survives.
+>
+> **No longer true:** anything about layouts, the layout picker, typed `scrambleLayout` state,
+> `FeatureScramblerEffect`, or `FaceFilterType.scramble`. THIRD EYE is now `ThirdEyeEffect` +
+> `FaceFilterType.thirdEye` with SIZE / INTENSITY / COLOUR, and its light is built from discrete
+> analytic sprites rather than anything described here.
+>
+> Current behaviour lives in **ROADMAP.md → Phase 17i**.
+
+> Original status: proposed
 >
 > Scope: a new face effect for rearranging copied regions of a detected face.
 > This document specifies the first shippable version and the groundwork it should leave behind.

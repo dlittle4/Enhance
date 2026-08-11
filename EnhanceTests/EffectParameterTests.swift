@@ -19,7 +19,7 @@ struct EffectParameterTests {
         .handsome:      ("HANDSOMENESS", nil),
         .heartVignette: ("INTENSITY", "SIZE"),
         .heartEyes:     ("SIZE", "SPEED"),
-        .scramble:      ("SIZE", nil),
+        .thirdEye:      ("SIZE", "INTENSITY"),
         .fisheye:       ("INTENSITY", "SIZE"),
         .swirl:         ("INTENSITY", nil),
         .pixelate:      ("INTENSITY", nil),
@@ -83,29 +83,27 @@ struct EffectParameterTests {
         }
     }
 
-    /// LAZER EYES (tint swatches) and SCRAMBLE (layout presets) are the only filters with a
+    /// LAZER EYES and THIRD EYE (both colour-swatch pickers) are the only filters with a
     /// picker row; this fails loudly if another filter claims one without the panel gaining
     /// a matching row and a height budget for it.
-    @Test func onlyLazerEyesAndScrambleDeclareAPicker() {
-        let expectedPickerOwners: Set<FaceFilterType> = [.lazerEyes, .scramble]
+    @Test func onlyLazerEyesAndThirdEyeDeclareAPicker() {
+        let expectedPickerOwners: Set<FaceFilterType> = [.lazerEyes, .thirdEye]
         for type in FaceFilterType.allCases {
             let hasPicker = type.parameters.contains { $0.kind != .slider }
             #expect(hasPicker == expectedPickerOwners.contains(type), "\(type.rawValue) picker unexpected")
         }
     }
 
-    /// SCRAMBLE's picker is a `.preset` (LAYOUT), distinct from LAZER EYES' `.tintColor`.
-    /// Two rows: a single SIZE slider (in the primary slot) plus LAYOUT — INTENSITY was
-    /// dropped because the effect only reads well at full strength.
-    @Test func scrambleDeclaresAPresetPicker() {
-        let params = FaceFilterType.scramble.parameters
-        let picker = params.first { $0.kind != .slider }
-        #expect(picker?.kind == .preset)
-        #expect(picker?.label == "LAYOUT")
-        // The one slider occupies the primary slot and is labelled SIZE.
+    /// THIRD EYE has three rows — SIZE, INTENSITY (ray count), and a COLOUR swatch picker.
+    @Test func thirdEyeDeclaresSizeIntensityAndColour() {
+        let params = FaceFilterType.thirdEye.parameters
+        #expect(params.count == 3)
         #expect(params.first?.id == EffectParameter.intensityID)
         #expect(params.first?.label == "SIZE")
-        #expect(params.count == 2)
+        #expect(params.contains { $0.id == EffectParameter.secondaryID && $0.label == "INTENSITY" })
+        let picker = params.first { $0.kind != .slider }
+        #expect(picker?.kind == .tintColor)
+        #expect(picker?.label == "COLOUR")
     }
 
     // MARK: - Storage keys
@@ -220,10 +218,10 @@ struct EffectParameterTests {
 
     // MARK: - Panel fit
 
-    /// SCRAMBLE's three rows (INTENSITY + SIZE + LAYOUT) must not floor-and-overflow on the
+    /// THIRD EYE's three rows (SIZE + INTENSITY + COLOUR) must not floor-and-overflow on the
     /// shortest supported panel, which would re-enable the scroll and let it steal slider
     /// drags. The panel on an iPhone SE 3 is ~190–200pt; at the roomy end a 3-row panel is
-    /// not floored, so rows shrink to fit. (True on-device fit is a Stage D2 QA item.)
+    /// not floored, so rows shrink to fit. (True on-device fit is a QA item.)
     @Test func panel_threeRowsFitWithoutScrollingOnShortPanel() {
         typealias L = AppConstants.Layout
         let available: CGFloat = 200

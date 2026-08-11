@@ -877,61 +877,14 @@ struct EditorViewModelTests {
         #expect(vm.hasNonDefaultSettings == true)
     }
 
-    // MARK: - Scrambler layout state
+    // MARK: - Face selection
 
-    /// A precise face with lips (supports all layouts) and a lipless face (THIRD EYE only).
-    private func makeFace(withLips: Bool, x: CGFloat) -> DetectedFace {
-        func poly(_ cx: CGFloat, _ cy: CGFloat) -> [CGPoint] {
-            (0..<8).map { CGPoint(x: cx + 20 * cos(CGFloat($0) / 8 * 2 * .pi),
-                                  y: cy + 12 * sin(CGFloat($0) / 8 * 2 * .pi)) }
-        }
-        let regions = FaceRegions(
-            leftEye: poly(x - 40, 190), rightEye: poly(x + 40, 190),
-            outerLips: withLips ? poly(x, 120) : [], innerLips: [],
-            nose: withLips ? poly(x, 155) : []
-        )
-        return DetectedFace(
-            boundingBox: CGRect(x: x - 80, y: 80, width: 160, height: 160),
-            faceCenter: CGPoint(x: x, y: 160), faceWidth: 160, faceHeight: 160,
-            leftPupilCenter: CGPoint(x: x - 40, y: 190), rightPupilCenter: CGPoint(x: x + 40, y: 190),
-            leftEyeWidth: 40, rightEyeWidth: 40,
-            leftEyebrowPoints: [], rightEyebrowPoints: [], faceContourPoints: [],
-            normalizedBoundingBox: CGRect(x: 0, y: 0, width: 1, height: 1),
-            regions: regions, landmarkQuality: .precise
-        )
-    }
-
-    @Test func availableScrambleLayouts_withoutSingleFace_isThirdEyeOnly() {
+    @Test func toggleFaceSelection_isolatesAndReverts() {
         let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
-        // No detected faces → no single active face.
-        #expect(vm.availableScrambleLayouts == [.thirdEye])
-    }
-
-    @Test func availableScrambleLayouts_preciseSingleFace_offersAll() {
-        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
-        vm.detectedFaces = [makeFace(withLips: true, x: 150)]
-        vm.selectedFaceIndex = 0
-        #expect(Set(vm.availableScrambleLayouts) == Set(ScrambleLayout.allCases))
-    }
-
-    @Test func scrambleLayout_normalizesWhenNewFaceLosesMouth() {
-        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
-        vm.detectedFaces = [makeFace(withLips: true, x: 100), makeFace(withLips: false, x: 260)]
-        vm.selectedFaceIndex = 0
-        vm.scrambleLayout = .mouthEyes
-        #expect(vm.effectiveScrambleLayout == .mouthEyes)
-
-        // Switch to the lipless face — the stored layout must collapse, not hide.
         vm.toggleFaceSelection(1)
-        #expect(vm.scrambleLayout == .thirdEye)
-        #expect(vm.effectiveScrambleLayout == .thirdEye)
-    }
-
-    @Test func resetEffects_restoresThirdEyeLayout() {
-        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
-        vm.scrambleLayout = .shuffle
-        vm.resetEffects()
-        #expect(vm.scrambleLayout == .thirdEye)
+        #expect(vm.selectedFaceIndex == 1)
+        vm.toggleFaceSelection(1)  // tapping the selected one reverts to all-faces
+        #expect(vm.selectedFaceIndex == nil)
     }
 }
 

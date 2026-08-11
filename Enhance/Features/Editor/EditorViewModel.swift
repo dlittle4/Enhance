@@ -21,9 +21,6 @@ struct EditorSnapshot {
     let laserColor: LaserColor
     let tintColor: LaserColor
     let gradientStops: GradientStops
-    /// Scrambler's arrangement. A dedicated typed field rather than a numeric parameter,
-    /// because an enum has no honest home in `parameterValues: [String: Double]`.
-    let scrambleLayout: ScrambleLayout
     /// The text overlay, or `nil`. A whole value type per §6, so undo/redo, cancel and reset
     /// carry the text, its placement, style and animation as one unit.
     let textOverlay: TextOverlay?
@@ -91,7 +88,6 @@ class EditorViewModel {
 
     var tintColor: LaserColor = .red
     var gradientStops: GradientStops = .default
-    var scrambleLayout: ScrambleLayout = .thirdEye
     var previewImage: UIImage? = nil
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
@@ -353,7 +349,6 @@ class EditorViewModel {
             laserColor: laserColor,
             tintColor: tintColor,
             gradientStops: gradientStopsOverride ?? gradientStops,
-            scrambleLayout: scrambleLayout,
             textOverlay: textOverlay
         )
     }
@@ -371,7 +366,6 @@ class EditorViewModel {
         laserColor = snapshot.laserColor
         tintColor = snapshot.tintColor
         gradientStops = snapshot.gradientStops
-        scrambleLayout = snapshot.scrambleLayout
         textOverlay = snapshot.textOverlay
 
         // Navigation is not snapshotted, and a restore can clear the very selection the
@@ -412,8 +406,7 @@ class EditorViewModel {
     }
 
     /// Toggle the target face: tapping the selected one reverts to all-faces, tapping a
-    /// different one isolates it. Normalizes the Scrambler layout afterwards, since which
-    /// layouts are available depends on the chosen face.
+    /// different one isolates it.
     func toggleFaceSelection(_ index: Int) {
         if selectedFaceIndex == index {
             selectedFaceIndex = nil
@@ -421,13 +414,6 @@ class EditorViewModel {
         } else {
             selectedFaceIndex = index
         }
-        normalizeScrambleLayout()
-    }
-
-    /// Collapse an unavailable Scrambler layout to THIRD EYE in stored state, so a face
-    /// change never preserves a hidden invalid layout that would resurface on the next face.
-    func normalizeScrambleLayout() {
-        scrambleLayout = effectiveScrambleLayout
     }
 
     /// Reads the value store directly by well-known id — deliberately *not* via
@@ -438,25 +424,8 @@ class EditorViewModel {
         return filter.effect(
             intensity: value(EffectParameter.intensityID, for: filter),
             secondValue: value(EffectParameter.secondaryID, for: filter),
-            laserColor: laserColor,
-            scrambleLayout: effectiveScrambleLayout
+            laserColor: laserColor
         )
-    }
-
-    /// Scrambler layouts the current target face can actually support. SCRAMBLE is
-    /// single-face, so availability is read from the one active face; with no usable face
-    /// only THIRD EYE is offered.
-    var availableScrambleLayouts: [ScrambleLayout] {
-        guard activeFaces.count == 1, let face = activeFaces.first else { return [.thirdEye] }
-        let available = ScrambleLayout.allCases.filter { $0.isAvailable(for: face) }
-        return available.isEmpty ? [.thirdEye] : available
-    }
-
-    /// The stored layout, normalized to THIRD EYE when it is not available for the current
-    /// face — so a face change that drops the mouth can never render (or show) a stale
-    /// mouth layout. THIRD EYE is always in `availableScrambleLayouts`.
-    var effectiveScrambleLayout: ScrambleLayout {
-        availableScrambleLayouts.contains(scrambleLayout) ? scrambleLayout : .thirdEye
     }
 
     /// Same hot-path rule as `activeFaceEffect`: direct dict reads, never `.parameters`.
@@ -546,7 +515,6 @@ class EditorViewModel {
         laserColor = .red
         tintColor = .red
         gradientStops = .default
-        scrambleLayout = .thirdEye
         textOverlay = nil
         detectedFaces = []
         faceDetectionService.clearCache()
