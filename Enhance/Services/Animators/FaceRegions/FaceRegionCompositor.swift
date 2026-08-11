@@ -29,13 +29,16 @@ struct FaceRegionCompositor {
     ///   - padding: extra source area around the landmark bounds, as a fraction of the
     ///     bounds size, so eyelashes / lip edges survive and the feather has room.
     ///   - feather: mask edge softness in `0...1` (see `FaceRegionMaskBuilder`).
+    ///   - tint: optional colour applied to the sampled feature (a coloured third eye), as a
+    ///     luminance-preserving monochrome so the pupil stays dark and the iris takes the hue.
     func composite(
         _ placement: FaceRegionPlacement,
         source: CIImage,
         over background: CIImage,
         face: DetectedFace,
         padding: CGFloat,
-        feather: CGFloat
+        feather: CGFloat,
+        tint: CIColor? = nil
     ) -> CIImage {
         guard let rawBounds = placement.region.sourceBounds(in: face) else { return background }
 
@@ -51,7 +54,12 @@ struct FaceRegionCompositor {
 
         // Clamp before cropping so a feature near the image edge extends its border pixels
         // instead of sampling transparency — otherwise the copy shows a black or clear seam.
-        let sampled = source.clampedToExtent().cropped(to: padded)
+        var sampled = source.clampedToExtent().cropped(to: padded)
+        if let tint {
+            sampled = sampled.applyingFilter("CIColorMonochrome", parameters: [
+                "inputColor": tint, "inputIntensity": 0.7
+            ])
+        }
 
         // Scale and rotate about the region centre, then move to the destination. Source and
         // mask get the identical matrix so their edges stay locked together.
@@ -134,10 +142,15 @@ struct FaceRegionCompositor {
     /// - Parameters:
     ///   - coreRadius: radius of the bright central glow.
     ///   - rayAmount: `CIZoomBlur` amount — how far the beams reach.
+    ///   - rayDensity: `0…1`, how many beams — finer noise (more beams) at 1, coarser at 0.
+    ///   - rayAngle: rotation of the beam pattern about `center`, in radians, so the rays can
+    ///     spin around the eye across frames.
     func radialLight(
         at center: CGPoint,
         coreRadius: CGFloat,
         rayAmount: CGFloat,
+        rayDensity: CGFloat,
+        rayAngle: CGFloat,
         color: CIColor,
         over background: CIImage
     ) -> CIImage {
@@ -171,13 +184,21 @@ struct FaceRegionCompositor {
             result = screen(core, over: result)
         }
 
-        // 2. Radial beams: coarse contrasty noise, streaked out and faded by a radial falloff.
+        // 2. Radial beams: coarse contrasty noise, rotated about the eye (so the beams can
+        // spin), coarsened by density (finer = more beams), streaked out, and faded by a
+        // radial falloff. Rotating the noise rotates the resulting rays.
+        let density = max(0, min(1, rayDensity))
+        let blockScale = max(3, coreRadius * (0.30 - 0.24 * density))  // more density → finer → more rays
+        let spin = CGAffineTransform(translationX: center.x, y: center.y)
+            .rotated(by: rayAngle)
+            .translatedBy(x: -center.x, y: -center.y)
         let noise = CIFilter(name: "CIRandomGenerator")!.outputImage!
+            .transformed(by: spin)
             .applyingFilter("CIColorControls", parameters: [
                 kCIInputSaturationKey: 0.0, kCIInputContrastKey: 2.6, kCIInputBrightnessKey: -0.28
             ])
             .applyingFilter("CIPixellate", parameters: [
-                "inputCenter": c, "inputScale": max(3, coreRadius * 0.14)
+                "inputCenter": c, "inputScale": blockScale
             ])
             .applyingFilter("CIZoomBlur", parameters: ["inputCenter": c, "inputAmount": max(1, rayAmount)])
 

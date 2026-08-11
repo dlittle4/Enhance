@@ -122,10 +122,6 @@ struct EditorView: View {
             viewModel.updateFaceFilterPreview()
             viewModel.regenerateIfNeeded()
         }
-        .onChange(of: viewModel.scrambleLayout) { _, _ in
-            viewModel.updateFaceFilterPreview()
-            viewModel.regenerateIfNeeded()
-        }
         .onChange(of: viewModel.tintColor) { _, _ in
             viewModel.updatePreviewImage()
             viewModel.regenerateIfNeeded()
@@ -562,43 +558,7 @@ struct EditorView: View {
                 ParameterPickerRow(label: param.label) {
                     gradientStopsContent
                 }
-            case .preset:
-                ParameterPickerRow(label: param.label) {
-                    layoutPresetContent
-                }
             }
-        }
-    }
-
-    /// Scrambler LAYOUT selector — a horizontally scrollable row of pills, one per layout
-    /// the current face supports (mouth-based layouts are absent without precise lips).
-    /// A horizontal scroll is safe here because, unlike a slider row, there is no drag
-    /// gesture for it to steal. Highlights the *effective* layout so a normalized selection
-    /// (an unavailable one collapsed to THIRD EYE) reads honestly.
-    private var layoutPresetContent: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(viewModel.availableScrambleLayouts) { layout in
-                    let isSelected = viewModel.effectiveScrambleLayout == layout
-                    Button {
-                        guard viewModel.scrambleLayout != layout else { return }
-                        viewModel.pushUndo()
-                        HapticService.light()
-                        viewModel.scrambleLayout = layout
-                    } label: {
-                        Text(layout.rawValue)
-                            .font(.silkscreenControl)
-                            .foregroundColor(isSelected ? .black : .white)
-                            .lineLimit(1)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Capsule().fill(isSelected ? mintGreen : Color.white.opacity(0.08)))
-                            .overlay(Capsule().stroke(isSelected ? mintGreen : Color.white.opacity(0.2), lineWidth: 1))
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.vertical, 2)
         }
     }
 
