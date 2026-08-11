@@ -122,14 +122,18 @@ struct FaceRegionCompositor {
             .cropped(to: background.extent)
     }
 
-    /// Screen a burst of light radiating outward from `center` onto the image — a bright warm
-    /// core smeared into radial streaks with `CIZoomBlur`, the same mechanism that gives the
-    /// LENS effect its radial fan. Lazy (radial gradient + zoom blur + screen blend), so no
-    /// `CIContext`. Screen lightens without blowing past white, which reads as emitted light.
+    /// Screen a burst of light radiating outward from `center` onto the image — distinct
+    /// warm beams fanning out from the eye plus a bright core, like an all-seeing eye.
+    ///
+    /// The beams come from streaking *angular variation* radially: a smooth core zoom-blurs
+    /// to a smooth glow (no rays), so this seeds coarse, contrasty noise and smears it with
+    /// `CIZoomBlur` (the LENS effect's mechanism) into rays, shaped by a radial falloff so
+    /// they emanate from the eye and fade out. Deterministic — `CIRandomGenerator` is a fixed
+    /// pattern — and lazy (no `CIContext`). Two screen passes accumulate the light.
     ///
     /// - Parameters:
-    ///   - coreRadius: radius of the bright core before streaking.
-    ///   - rayAmount: `CIZoomBlur` amount — how far the light streaks radiate out.
+    ///   - coreRadius: radius of the bright central glow.
+    ///   - rayAmount: `CIZoomBlur` amount — how far the beams reach.
     func radialLight(
         at center: CGPoint,
         coreRadius: CGFloat,
@@ -137,26 +141,57 @@ struct FaceRegionCompositor {
         color: CIColor,
         over background: CIImage
     ) -> CIImage {
-        guard coreRadius > 1, center.x.isFinite, center.y.isFinite, color.alpha > 0.001,
-              let core = CIFilter(name: "CIRadialGradient", parameters: [
-                "inputCenter": CIVector(x: center.x, y: center.y),
-                "inputRadius0": coreRadius * 0.2,
-                "inputRadius1": coreRadius,
-                "inputColor0": color,
-                "inputColor1": CIColor(red: color.red, green: color.green, blue: color.blue, alpha: 0)
-              ])?.outputImage
-        else { return background }
+        guard coreRadius > 1, center.x.isFinite, center.y.isFinite, color.alpha > 0.001 else { return background }
+        let c = CIVector(x: center.x, y: center.y)
+        let extent = background.extent
 
-        // Smear the core outward into radial rays, then screen it onto the scene.
-        let rays = core.clampedToExtent()
-            .applyingFilter("CIZoomBlur", parameters: [
-                "inputCenter": CIVector(x: center.x, y: center.y),
-                "inputAmount": max(1, rayAmount)
+        // Warm tint at the requested overall strength (folded into every light layer).
+        let a = color.alpha
+        func warm(_ image: CIImage) -> CIImage {
+            image.applyingFilter("CIColorMatrix", parameters: [
+                "inputRVector": CIVector(x: color.red * a, y: 0, z: 0, w: 0),
+                "inputGVector": CIVector(x: 0, y: color.green * a, z: 0, w: 0),
+                "inputBVector": CIVector(x: 0, y: 0, z: color.blue * a, w: 0),
+                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1)
             ])
-            .cropped(to: background.extent)
+        }
+        func screen(_ light: CIImage, over bg: CIImage) -> CIImage {
+            warm(light).cropped(to: extent)
+                .applyingFilter("CIScreenBlendMode", parameters: [kCIInputBackgroundImageKey: bg])
+                .cropped(to: extent)
+        }
 
-        return rays
-            .applyingFilter("CIScreenBlendMode", parameters: [kCIInputBackgroundImageKey: background])
-            .cropped(to: background.extent)
+        // 1. Bright central glow (opaque black → warm centre so screen only lightens).
+        var result = background
+        if let core = CIFilter(name: "CIRadialGradient", parameters: [
+            "inputCenter": c, "inputRadius0": coreRadius * 0.15, "inputRadius1": coreRadius * 1.3,
+            "inputColor0": CIColor.white,
+            "inputColor1": CIColor(red: 0, green: 0, blue: 0, alpha: 1)
+        ])?.outputImage {
+            result = screen(core, over: result)
+        }
+
+        // 2. Radial beams: coarse contrasty noise, streaked out and faded by a radial falloff.
+        let noise = CIFilter(name: "CIRandomGenerator")!.outputImage!
+            .applyingFilter("CIColorControls", parameters: [
+                kCIInputSaturationKey: 0.0, kCIInputContrastKey: 2.6, kCIInputBrightnessKey: -0.28
+            ])
+            .applyingFilter("CIPixellate", parameters: [
+                "inputCenter": c, "inputScale": max(3, coreRadius * 0.14)
+            ])
+            .applyingFilter("CIZoomBlur", parameters: ["inputCenter": c, "inputAmount": max(1, rayAmount)])
+
+        if let falloff = CIFilter(name: "CIRadialGradient", parameters: [
+            "inputCenter": c, "inputRadius0": coreRadius * 0.2, "inputRadius1": coreRadius * 3.2,
+            "inputColor0": CIColor.white,
+            "inputColor1": CIColor(red: 0, green: 0, blue: 0, alpha: 1)
+        ])?.outputImage {
+            let beams = noise.applyingFilter("CIMultiplyBlendMode", parameters: [
+                kCIInputBackgroundImageKey: falloff
+            ])
+            result = screen(beams, over: result)
+        }
+
+        return result
     }
 }

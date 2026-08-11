@@ -102,9 +102,9 @@ struct FeatureScramblerEffect: FaceEffect {
                 let eyeSize = max(eyeBounds.width, eyeBounds.height) * scale
                 result = compositor.radialLight(
                     at: center,
-                    coreRadius: eyeSize * 1.3,
-                    rayAmount: eyeSize * 1.6,
-                    color: CIColor(red: 1.0, green: 0.9, blue: 0.62, alpha: 0.9 * opacity),
+                    coreRadius: eyeSize * 1.1,
+                    rayAmount: eyeSize * 3.0,
+                    color: CIColor(red: 1.0, green: 0.9, blue: 0.62, alpha: opacity),
                     over: result
                 )
             }

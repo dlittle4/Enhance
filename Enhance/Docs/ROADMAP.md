@@ -950,9 +950,10 @@ the lesson EDGES and the black band taught.
 EYE MOUTH, and SHUFFLE behind a preset-row picker.
 
 - [x] **`ScrambleLayout` enum** owns per-layout availability and placement specs. THIRD EYE grows an
-      eye out of the forehead in place (source == destination, scale 0 → full) radiating a warm light
-      burst — a bright core streaked into rays with `CIZoomBlur` (the LENS effect's mechanism) and
-      screen-blended — rather than travelling from the real eye; EYE MOUTH enlarges an eye onto the
+      eye out of the forehead in place (source == destination, scale 0 → full) radiating warm
+      god-ray beams — coarse contrasty `CIRandomGenerator` noise streaked into rays by `CIZoomBlur`
+      (a smooth core alone gives no rays), shaped by a radial falloff and screen-blended, plus a
+      bright central glow — rather than travelling from the real eye; EYE MOUTH enlarges an eye onto the
       mouth; MOUTH EYES copies the mouth onto both eyes; NOSE SWAP swaps nose ↔ mouth; SHUFFLE is a
       four-way cycle (left eye→right, right eye→nose, nose→mouth, mouth→left). Feature-to-feature
       placements fit *within* the destination — the smaller of the width/height ratios, so a tall
