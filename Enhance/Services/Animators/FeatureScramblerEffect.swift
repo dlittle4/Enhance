@@ -31,6 +31,13 @@ struct FeatureScramblerEffect: FaceEffect {
     /// Mask edge softness (fraction of the ellipse radius spent fading out).
     private let feather: CGFloat = 0.55
 
+    /// The skin heal covers the *replaced* feature, so it is larger and firmer than a
+    /// placement — a soft heal lets the old eye/mouth bleed through at the edges. More
+    /// padding reaches past the landmark polygon (eyelashes, lip corners); a low feather
+    /// keeps the core solid.
+    private let healPadding: CGFloat = 0.55
+    private let healFeather: CGFloat = 0.3
+
     /// Reveal window, in normalized progress.
     private let revealStart: CGFloat = 0.15
     private let revealEnd: CGFloat = 0.75
@@ -64,9 +71,22 @@ struct FeatureScramblerEffect: FaceEffect {
         let opacity = finalOpacity * min(1, t / 0.25)
         guard opacity > 0.01 else { return image }
 
+        // Heal the features being replaced: paint sampled skin over them (fading in with the
+        // reveal) so the moved copies read as replacements rather than overlays. THIRD EYE
+        // heals nothing. Done before the placements so each copy lands on clean skin.
+        var result = image
+        let healRegions = layout.healRegions()
+        if !healRegions.isEmpty, let skinFill = skinFill(from: image, face: face) {
+            for region in healRegions {
+                result = compositor.fillRegion(
+                    region, in: face, with: skinFill, over: result,
+                    padding: healPadding, feather: healFeather, opacity: opacity
+                )
+            }
+        }
+
         // Composite each placement onto the running result, but always sample from the
         // original `image` so a swap is a true swap and copies never stack recursively.
-        var result = image
         for spec in specs {
             let center = CGPoint(
                 x: lerp(spec.sourceCenter.x, spec.destination.x, t),
@@ -85,6 +105,33 @@ struct FeatureScramblerEffect: FaceEffect {
             )
         }
         return result
+    }
+
+    // MARK: - Skin sampling
+
+    /// A solid, infinite image of the face's average skin colour, used to cover replaced
+    /// features. Lazy: `CIAreaAverage` yields a 1×1 image and `clampedToExtent` spreads it,
+    /// so no `CIContext` is created here.
+    private func skinFill(from image: CIImage, face: DetectedFace) -> CIImage? {
+        guard let rect = skinSampleRect(for: face, in: image.extent) else { return nil }
+        return image.clampedToExtent()
+            .applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: rect)])
+            .clampedToExtent()
+    }
+
+    /// A forehead patch — between the brow line and the top of the face box — that is
+    /// reliably skin on most faces, clipped to the image so the average is well-defined.
+    private func skinSampleRect(for face: DetectedFace, in extent: CGRect) -> CGRect? {
+        let brows = face.leftEyebrowPoints + face.rightEyebrowPoints
+        let browTopY = brows.map(\.y).max() ?? (face.faceCenter.y + face.faceHeight * 0.18)
+        let faceTopY = face.boundingBox.maxY
+        guard faceTopY > browTopY else { return nil }
+        let cy = browTopY + (faceTopY - browTopY) * 0.5
+        let w = face.faceWidth * 0.28
+        let h = max(4, (faceTopY - browTopY) * 0.5)
+        let rect = CGRect(x: face.faceCenter.x - w / 2, y: cy - h / 2, width: w, height: h)
+            .intersection(extent)
+        return rect.isNull || rect.width < 1 || rect.height < 1 ? nil : rect
     }
 
     // MARK: - Math

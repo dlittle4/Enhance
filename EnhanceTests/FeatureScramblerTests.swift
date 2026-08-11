@@ -325,4 +325,44 @@ struct FeatureScramblerTests {
         #expect(out.extent == input.extent)
         #expect(isCyanish(pixel(out, x: 100, y: 190)), "left eye must be untouched")
     }
+
+    // MARK: - Skin heal
+
+    @Test func healRegions_matchWhatEachLayoutReplaces() {
+        #expect(ScrambleLayout.thirdEye.healRegions().isEmpty)
+        #expect(ScrambleLayout.eyeMouth.healRegions() == [.mouth])
+        #expect(ScrambleLayout.mouthEyes.healRegions().count == 2)
+        #expect(ScrambleLayout.shuffle.healRegions().count == 3)
+    }
+
+    @Test func compositor_fillRegionCoversTheOriginalFeature() {
+        let input = makeFixture()
+        let green = CIImage(color: CIColor(red: 0, green: 1, blue: 0, alpha: 1)).clampedToExtent()
+        let out = FaceRegionCompositor().fillRegion(
+            .leftEye, in: makePreciseFace(), with: green, over: input,
+            padding: 0.55, feather: 0.3, opacity: 1.0
+        )
+        let p = pixel(out, x: 100, y: 190)
+        #expect(p.g > 180 && p.r < 90 && p.b < 90, "left eye should be green-filled")
+        #expect(!isCyanish(p))
+    }
+
+    @Test func compositor_fillRegionZeroOpacityIsNoOp() {
+        let input = makeFixture()
+        let green = CIImage(color: CIColor(red: 0, green: 1, blue: 0, alpha: 1)).clampedToExtent()
+        let out = FaceRegionCompositor().fillRegion(
+            .leftEye, in: makePreciseFace(), with: green, over: input,
+            padding: 0.55, feather: 0.3, opacity: 0.0
+        )
+        #expect(isCyanish(pixel(out, x: 100, y: 190)), "zero-opacity heal leaves the eye")
+    }
+
+    /// THIRD EYE keeps the real eyes — it heals nothing, so the source eye stays put while a
+    /// copy also appears on the forehead.
+    @Test func thirdEye_leavesTheSourceEyeInPlace() {
+        let input = makeFixture()
+        let out = FeatureScramblerEffect(size: 0.5, intensity: 0.9, layout: .thirdEye)
+            .apply(to: input, face: makePreciseFace(), progress: 1.0, frameIndex: 0)
+        #expect(isCyanish(pixel(out, x: 100, y: 190)), "the original left eye must remain")
+    }
 }

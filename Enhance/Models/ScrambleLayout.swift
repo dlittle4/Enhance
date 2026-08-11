@@ -40,6 +40,19 @@ enum ScrambleLayout: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    /// Original feature regions to cover with skin before compositing the moved features, so
+    /// a replaced feature does not show through underneath its copy. THIRD EYE heals nothing
+    /// — it is an addition, not a move, so the real eyes stay. The others cover whatever they
+    /// replace at the destination.
+    func healRegions() -> [FaceRegion] {
+        switch self {
+        case .thirdEye:  return []
+        case .eyeMouth:  return [.mouth]
+        case .mouthEyes: return [.leftEye, .rightEye]
+        case .shuffle:   return [.leftEye, .rightEye, .mouth]
+        }
+    }
+
     /// The placements this layout copies, in composite order. Empty when the layout is
     /// unavailable for the face (the effect then no-ops).
     ///

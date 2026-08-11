@@ -85,4 +85,40 @@ struct FaceRegionCompositor {
 
         return movedSource.cropped(to: background.extent)
     }
+
+    /// Cover a region's *original* feature with a fill (typically sampled skin), feathered
+    /// into the surrounding face. Run before compositing a moved feature onto the same spot
+    /// so the copy reads as a replacement — the old eye/mouth is gone, not showing through.
+    ///
+    /// - Parameters:
+    ///   - fill: an image to paint over the region — pass an infinite (clamped) solid colour
+    ///     for flat skin. Sampled at the region, so a textured fill would follow the feature.
+    ///   - opacity: how strongly to cover, so the heal can fade in with the reveal.
+    func fillRegion(
+        _ region: FaceRegion,
+        in face: DetectedFace,
+        with fill: CIImage,
+        over background: CIImage,
+        padding: CGFloat,
+        feather: CGFloat,
+        opacity: CGFloat
+    ) -> CIImage {
+        guard let rawBounds = region.sourceBounds(in: face) else { return background }
+        let padded = rawBounds.insetBy(dx: -rawBounds.width * padding, dy: -rawBounds.height * padding)
+        let op = max(0, min(1, opacity))
+        guard op > 0.001, padded.hasFiniteComponents, padded.width >= 1, padded.height >= 1,
+              let mask = FaceRegionMaskBuilder.ellipticalMask(bounds: padded, feather: feather)
+        else { return background }
+
+        let effectiveMask = op < 0.999
+            ? mask.applyingFilter("CIColorMatrix", parameters: ["inputAVector": CIVector(x: 0, y: 0, z: 0, w: op)])
+            : mask
+
+        return fill.cropped(to: padded)
+            .applyingFilter("CIBlendWithAlphaMask", parameters: [
+                kCIInputBackgroundImageKey: background,
+                kCIInputMaskImageKey: effectiveMask
+            ])
+            .cropped(to: background.extent)
+    }
 }
