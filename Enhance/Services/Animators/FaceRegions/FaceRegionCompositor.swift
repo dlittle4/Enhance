@@ -130,114 +130,114 @@ struct FaceRegionCompositor {
             .cropped(to: background.extent)
     }
 
-    /// Screen a burst of light radiating outward from `center` onto the image — distinct
-    /// warm beams fanning out from the eye plus a bright core, like an all-seeing eye.
+    /// Composite a burst of light radiating from `center` — a bright core, a soft bloom, and
+    /// distinct shafts fanning outward, like an all-seeing eye.
     ///
-    /// The beams come from streaking *angular variation* radially: a smooth core zoom-blurs
-    /// to a smooth glow (no rays), so this seeds coarse, contrasty noise and smears it with
-    /// `CIZoomBlur` (the LENS effect's mechanism) into rays, shaped by a radial falloff so
-    /// they emanate from the eye and fade out. Deterministic — `CIRandomGenerator` is a fixed
-    /// pattern — and lazy (no `CIContext`). Two screen passes accumulate the light.
+    /// **Built from discrete analytic shapes, deliberately — the same construction as
+    /// `LazerEyesEffect`.** An earlier version streaked `CIRandomGenerator` noise with
+    /// `CIZoomBlur`; smeared noise is inherently mushy, because the blur averages neighbouring
+    /// values into a continuous wash and no amount of contrast fully separates it back into
+    /// shafts. Each beam here is its own radial gradient squashed into a thin shaft and
+    /// rotated into place, so its edges stay clean at any length. Additive compositing (again
+    /// as LAZER EYES does) keeps the light punchy rather than milky.
+    ///
+    /// Lazy — no `CIContext`, no `createCGImage`.
     ///
     /// - Parameters:
     ///   - coreRadius: radius of the bright central glow.
-    ///   - rayAmount: `CIZoomBlur` amount — how far the beams reach.
-    ///   - rayDensity: `0…1`, how many beams — finer noise (more beams) at 1, coarser at 0.
-    ///   - rayAngle: rotation of the beam pattern about `center`, in radians, so the rays can
-    ///     spin around the eye across frames.
+    ///   - rayLength: how far the shafts reach from the centre.
+    ///   - rayDensity: `0…1`, mapped to the number of shafts.
+    ///   - rayAngle: rotation of the whole fan about `center`, in radians, so it can spin.
     func radialLight(
         at center: CGPoint,
         coreRadius: CGFloat,
-        rayAmount: CGFloat,
+        rayLength: CGFloat,
         rayDensity: CGFloat,
         rayAngle: CGFloat,
         color: CIColor,
         over background: CIImage
     ) -> CIImage {
-        guard coreRadius > 1, center.x.isFinite, center.y.isFinite, color.alpha > 0.001 else { return background }
-        let c = CIVector(x: center.x, y: center.y)
+        guard coreRadius > 1, center.x.isFinite, center.y.isFinite, color.alpha > 0.001,
+              rayLength.isFinite, rayLength > 1 else { return background }
         let extent = background.extent
-
-        // Warm tint at the requested overall strength (folded into every light layer).
-        let a = color.alpha
-        func warm(_ image: CIImage) -> CIImage {
-            image.applyingFilter("CIColorMatrix", parameters: [
-                "inputRVector": CIVector(x: color.red * a, y: 0, z: 0, w: 0),
-                "inputGVector": CIVector(x: 0, y: color.green * a, z: 0, w: 0),
-                "inputBVector": CIVector(x: 0, y: 0, z: color.blue * a, w: 0),
-                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1)
-            ])
-        }
-        func screen(_ light: CIImage, over bg: CIImage) -> CIImage {
-            warm(light).cropped(to: extent)
-                .applyingFilter("CIScreenBlendMode", parameters: [kCIInputBackgroundImageKey: bg])
-                .cropped(to: extent)
-        }
-
-        // 1. Central glow. Deliberately dim and tight — a blown-out core both washes the
-        // colour straight back out of a tinted third eye and reads as a haze over the face.
-        var result = background
-        if let core = CIFilter(name: "CIRadialGradient", parameters: [
-            "inputCenter": c, "inputRadius0": coreRadius * 0.12, "inputRadius1": coreRadius * 0.62,
-            "inputColor0": CIColor(red: 0.28, green: 0.28, blue: 0.28, alpha: 1),
-            "inputColor1": CIColor(red: 0, green: 0, blue: 0, alpha: 1)
-        ])?.outputImage {
-            result = screen(core, over: result)
-        }
-
-        // 2. Radial beams: coarse contrasty noise, rotated about the eye (so the beams can
-        // spin), coarsened by density (finer = more beams), streaked out, and faded by a
-        // radial falloff. Rotating the noise rotates the resulting rays.
-        //
-        // The density range is deliberately gentle. An earlier mapping bottomed out at
-        // `0.30 · coreRadius` blocks and that *lowest* setting was already as busy as anyone
-        // wanted, so it is now the ceiling: the slider runs 0.60 → 0.30, and the beams
-        // themselves are dimmed and faded further at the low end.
+        let a = max(0, min(1, color.alpha))
+        let (r, g, b) = (color.red, color.green, color.blue)
         let density = max(0, min(1, rayDensity))
-        let blockScale = max(3, coreRadius * (0.60 - 0.30 * density))  // more density → finer → more rays
-        let spin = CGAffineTransform(translationX: center.x, y: center.y)
-            .rotated(by: rayAngle)
-            .translatedBy(x: -center.x, y: -center.y)
-        let noise = CIFilter(name: "CIRandomGenerator")!.outputImage!
-            .transformed(by: spin)
-            // Desaturate and harden the raw noise, but keep it centred on 0.5 so the
-            // pixellate below has a full range of block values to average.
-            .applyingFilter("CIColorControls", parameters: [
-                kCIInputSaturationKey: 0.0, kCIInputContrastKey: 3.0, kCIInputBrightnessKey: 0.0
-            ])
-            .applyingFilter("CIPixellate", parameters: [
-                "inputCenter": c, "inputScale": blockScale
-            ])
-            // Second contrast pass *after* the pixellate — this is what makes the rays read
-            // as distinct shafts. Averaging blocks pulls values toward mid-grey, and smearing
-            // mid-grey gives the soft mush; pushing the blocks back toward on/off first (and
-            // dropping the floor so only the brightest survive) yields separated beams with
-            // dark gaps between them.
-            .applyingFilter("CIColorControls", parameters: [
-                kCIInputContrastKey: 3.0, kCIInputBrightnessKey: -0.55
-            ])
-            .applyingFilter("CIZoomBlur", parameters: ["inputCenter": c, "inputAmount": max(1, rayAmount)])
-            // Fade the whole beam layer at low density too, so the bottom of the slider is
-            // a hint of light rather than a fainter starburst. Capped well under 1 — even
-            // at full INTENSITY the rays should suggest light, not flood the frame.
-            .applyingFilter("CIColorMatrix", parameters: [
-                "inputRVector": CIVector(x: 0.30 + 0.40 * density, y: 0, z: 0, w: 0),
-                "inputGVector": CIVector(x: 0, y: 0.30 + 0.40 * density, z: 0, w: 0),
-                "inputBVector": CIVector(x: 0, y: 0, z: 0.30 + 0.40 * density, w: 0),
-                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1)
-            ])
 
-        if let falloff = CIFilter(name: "CIRadialGradient", parameters: [
-            "inputCenter": c, "inputRadius0": coreRadius * 0.2, "inputRadius1": coreRadius * 1.6,
-            "inputColor0": CIColor.white,
-            "inputColor1": CIColor(red: 0, green: 0, blue: 0, alpha: 1)
-        ])?.outputImage {
-            let beams = noise.applyingFilter("CIMultiplyBlendMode", parameters: [
-                kCIInputBackgroundImageKey: falloff
-            ])
-            result = screen(beams, over: result)
+        var layers: [CIImage] = []
+
+        // Soft bloom, then a tighter core — a small bright centre inside a gentle halo reads
+        // as a lit eye, where one wide gradient reads as haze.
+        if let bloom = radialSprite(center: center, innerRadius: coreRadius * 0.10,
+                                    outerRadius: coreRadius * 1.5,
+                                    color: CIColor(red: r, green: g, blue: b, alpha: a * 0.16)) {
+            layers.append(bloom)
+        }
+        if let core = radialSprite(center: center, innerRadius: coreRadius * 0.12,
+                                   outerRadius: coreRadius * 0.60,
+                                   color: CIColor(red: min(1, r * 0.5 + 0.5),
+                                                  green: min(1, g * 0.5 + 0.5),
+                                                  blue: min(1, b * 0.5 + 0.5), alpha: a * 0.42)) {
+            layers.append(core)
         }
 
-        return result
+        // Shafts. Each spoke is one gradient through the centre, so it renders as two opposite
+        // rays — 4…11 spokes gives 8…22 visible shafts across the INTENSITY range.
+        let spokes = 4 + Int((density * 7).rounded())
+        let shaftAlpha = a * (0.20 + 0.16 * density)
+        for i in 0..<spokes {
+            let theta = rayAngle + CGFloat(i) * .pi / CGFloat(spokes)
+            if let beam = beamSprite(center: center, length: rayLength * 2,
+                                     thickness: max(2, coreRadius * 0.26), angle: theta,
+                                     color: CIColor(red: r, green: g, blue: b, alpha: shaftAlpha)) {
+                layers.append(beam)
+            }
+        }
+
+        var result = background
+        for layer in layers {
+            result = layer.cropped(to: extent)
+                .applyingFilter("CIAdditionCompositing", parameters: [kCIInputBackgroundImageKey: result])
+        }
+        return result.cropped(to: extent)
+    }
+
+    /// A finite round glow sprite centred on `center`, fading to transparent at `outerRadius`.
+    private func radialSprite(center: CGPoint, innerRadius: CGFloat, outerRadius: CGFloat, color: CIColor) -> CIImage? {
+        let diameter = outerRadius * 2 + 4
+        guard diameter.isFinite, diameter > 2 else { return nil }
+        guard let gradient = CIFilter(name: "CIRadialGradient", parameters: [
+            kCIInputCenterKey: CIVector(x: diameter / 2, y: diameter / 2),
+            "inputRadius0": max(0, innerRadius),
+            "inputRadius1": max(1, outerRadius),
+            "inputColor0": color,
+            "inputColor1": CIColor(red: color.red, green: color.green, blue: color.blue, alpha: 0)
+        ])?.outputImage?.cropped(to: CGRect(x: 0, y: 0, width: diameter, height: diameter)) else { return nil }
+
+        return gradient.transformed(by: CGAffineTransform(
+            translationX: center.x - diameter / 2, y: center.y - diameter / 2))
+    }
+
+    /// One light shaft: a round gradient squashed into a thin bar, rotated to `angle`, and
+    /// centred on `center`. Squashing an analytic gradient keeps the shaft's falloff smooth
+    /// along its length while its edges stay defined — which is exactly what smeared noise
+    /// could not do.
+    private func beamSprite(center: CGPoint, length: CGFloat, thickness: CGFloat, angle: CGFloat, color: CIColor) -> CIImage? {
+        let canvas = length
+        guard canvas.isFinite, canvas > 2, thickness.isFinite, thickness > 0 else { return nil }
+        guard let gradient = CIFilter(name: "CIRadialGradient", parameters: [
+            kCIInputCenterKey: CIVector(x: canvas / 2, y: canvas / 2),
+            "inputRadius0": canvas * 0.01,
+            "inputRadius1": canvas / 2,
+            "inputColor0": color,
+            "inputColor1": CIColor(red: color.red, green: color.green, blue: color.blue, alpha: 0)
+        ])?.outputImage?.cropped(to: CGRect(x: 0, y: 0, width: canvas, height: canvas)) else { return nil }
+
+        // Origin to the sprite's centre, squash, rotate, then out to the destination.
+        let transform = CGAffineTransform(translationX: -canvas / 2, y: -canvas / 2)
+            .concatenating(CGAffineTransform(scaleX: 1, y: max(0.0005, thickness / canvas)))
+            .concatenating(CGAffineTransform(rotationAngle: angle))
+            .concatenating(CGAffineTransform(translationX: center.x, y: center.y))
+        return gradient.transformed(by: transform)
     }
 }

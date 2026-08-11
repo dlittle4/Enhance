@@ -58,7 +58,7 @@ struct ThirdEyeEffect: FaceEffect {
         result = compositor.radialLight(
             at: forehead,
             coreRadius: eyeSize * 0.95,
-            rayAmount: eyeSize * 2.2,
+            rayLength: eyeSize * 2.6,
             rayDensity: rayIntensity,
             rayAngle: progress * 2 * .pi,
             color: CIColor(red: 1.0, green: 0.9, blue: 0.62, alpha: opacity),
