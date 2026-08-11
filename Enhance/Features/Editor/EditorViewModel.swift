@@ -920,6 +920,12 @@ class EditorViewModel {
                 guard let self else { return }
                 self.sourceImage = image
 
+                // Restore the authored text, so reopening lands on the words the user wrote rather
+                // than an empty keyboard over a title already baked into the pixels.
+                if let id = self.existingGifAssetIdentifier, self.textOverlay == nil {
+                    self.textOverlay = Self.loadTextOverlay(for: id)
+                }
+
                 if let id = self.existingGifAssetIdentifier, let params = Self.loadZoomParams(for: id) {
                     self.generationScale = params.scale
                     self.generationVisibleRect = params.rect
@@ -1123,6 +1129,7 @@ class EditorViewModel {
         }
         
         persistZoomParams(for: identifier)
+        persistTextOverlay(for: identifier)
         showToast("Updating GIF...")
         
         photoManager.deleteGifAsset(identifier: identifier) { [weak self] success, error in
@@ -1225,5 +1232,40 @@ class EditorViewModel {
 
     func persistZoomParams(for identifier: String) {
         Self.saveZoomParams(scale: generationScale, rect: generationVisibleRect, for: identifier)
+    }
+
+    // MARK: - Text Overlay Persistence
+
+    /// The text overlay is the one effect whose *recipe* has to survive a round trip.
+    ///
+    /// Everything else can be re-chosen from a card, but text is authored — losing the words means
+    /// retyping them. Reopening a saved GIF otherwise gave a blank editor over pixels that already
+    /// had a title baked in, and adding a preset started from an empty keyboard.
+    ///
+    /// Storing it is safe because the first frame of every entrance is deliberately empty (§6), so
+    /// the source image reconstructed from frame 0 carries no text and regeneration cannot double
+    /// it up. Keyed by asset identifier, exactly as the zoom parameters are.
+    private static let textOverlayPrefix = "textOverlay_"
+
+    static func saveTextOverlay(_ overlay: TextOverlay?, for identifier: String) {
+        guard !identifier.isEmpty else { return }
+        let key = "\(textOverlayPrefix)\(identifier)"
+        guard let overlay, overlay.isActive,
+              let data = try? JSONEncoder().encode(overlay) else {
+            UserDefaults.standard.removeObject(forKey: key)
+            return
+        }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    static func loadTextOverlay(for identifier: String) -> TextOverlay? {
+        guard !identifier.isEmpty,
+              let data = UserDefaults.standard.data(forKey: "\(textOverlayPrefix)\(identifier)")
+        else { return nil }
+        return try? JSONDecoder().decode(TextOverlay.self, from: data)
+    }
+
+    func persistTextOverlay(for identifier: String) {
+        Self.saveTextOverlay(textOverlay, for: identifier)
     }
 }

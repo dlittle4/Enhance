@@ -287,12 +287,17 @@ struct EditorView: View {
 
     // MARK: - Canvas
 
-    /// The TEXT and FACE FILTERS categories keep the live, editable canvas — text and face boxes
-    /// cannot be positioned against a baked `GIFPreviewView`. For TEXT this holds even after ENHANCE,
-    /// which is why the exception is needed in *both* content branches (§10).
+    /// Whether the canvas shows the editable photo rather than the rendered GIF.
+    ///
+    /// FACE FILTERS always needs it, to hit-test face boxes. TEXT needs it **only while the user is
+    /// actually editing** — typing, or with the settings panel open, which is when the text is
+    /// dragged and scaled. Once the visit is confirmed the GIF takes the canvas back, so ENHANCE
+    /// shows the rendered result like every other category. Keeping the live canvas up permanently
+    /// under TEXT meant a generated GIF never appeared in the preview at all.
     private var wantsLiveCanvas: Bool {
-        viewModel.selectedEffectCategory == .faceFilters
-            || viewModel.selectedEffectCategory == .text
+        if viewModel.selectedEffectCategory == .faceFilters { return true }
+        return viewModel.selectedEffectCategory == .text
+            && (isEnteringText || viewModel.isEditingEffect)
     }
 
     private var canvasSection: some View {

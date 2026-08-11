@@ -47,7 +47,7 @@ struct TextTileState: Equatable, Sendable {
 /// Every preset is a pure, deterministic function of `progress` and the layout's seed. Calling a
 /// random API inside the frame loop would make preview and export disagree and two generations of
 /// the same overlay differ, neither of which is recoverable after the fact.
-enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable {
+enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, Codable {
     case pop      = "POP"
     case rise     = "RISE"
     case type     = "TYPE"

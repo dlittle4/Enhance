@@ -599,6 +599,43 @@ struct EditorViewModelTests {
         #expect(vm.canUndo == false)
     }
 
+    // MARK: - Text overlay persistence
+
+    /// Text is authored, not chosen from a card, so losing it on a round trip means retyping it.
+    /// The recipe has to survive being saved and reopened.
+    @Test func textOverlay_roundTripsThroughPersistence() throws {
+        let id = "text-persist-\(UUID().uuidString)"
+        var overlay = activeOverlay("SUNSET", animation: .wordDrop)
+        overlay.color = .pink
+        overlay.center = CGPoint(x: 0.3, y: 0.7)
+        overlay.fontSize = 0.18
+        overlay.tuning = 0.8
+
+        EditorViewModel.saveTextOverlay(overlay, for: id)
+        let restored = try #require(EditorViewModel.loadTextOverlay(for: id))
+
+        #expect(restored == overlay, "every authored field must survive the round trip")
+        UserDefaults.standard.removeObject(forKey: "textOverlay_\(id)")
+    }
+
+    /// Clearing the text must clear the stored recipe too, or a removed title would come back on
+    /// the next open.
+    @Test func textOverlay_persistingNil_clearsTheStoredRecipe() {
+        let id = "text-clear-\(UUID().uuidString)"
+        EditorViewModel.saveTextOverlay(activeOverlay("GONE"), for: id)
+        #expect(EditorViewModel.loadTextOverlay(for: id) != nil)
+
+        EditorViewModel.saveTextOverlay(nil, for: id)
+        #expect(EditorViewModel.loadTextOverlay(for: id) == nil)
+    }
+
+    /// A whitespace-only overlay is not an overlay, so it must not be stored either.
+    @Test func textOverlay_whitespaceOnly_isNotPersisted() {
+        let id = "text-blank-\(UUID().uuidString)"
+        EditorViewModel.saveTextOverlay(activeOverlay("   "), for: id)
+        #expect(EditorViewModel.loadTextOverlay(for: id) == nil)
+    }
+
     // MARK: - Effect edit session
 
     /// The panel refuses to open without a selection *on the tabs that need one*, which

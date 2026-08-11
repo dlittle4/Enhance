@@ -13,7 +13,7 @@ import UIKit
 /// equality that forced `commitEditing` to push undo entries unconditionally, a cache key derived
 /// from resolved RGB instead of the stored value, and no `Codable`/`Hashable` for persistence.
 /// Colour here is a semantic enum with projections, exactly as `LaserColor` does it.
-struct TextOverlay: Equatable, Sendable {
+struct TextOverlay: Equatable, Sendable, Codable {
 
     /// Capped at `maxGraphemeClusters` by the editor, in extended grapheme clusters — never
     /// `count` on `utf16`, which would cut a family emoji in half.
@@ -91,7 +91,7 @@ struct TextOverlay: Equatable, Sendable {
 /// All five cases ship in the model and resolve to a real `UIFont`, but V1 exposes no picker and
 /// defaults to Silkscreen Bold — the app is entirely Silkscreen, so one face is a coherent V1
 /// rather than a gap. Adding the picker later is then a UI change with no model migration.
-enum TextFont: String, CaseIterable, Identifiable, Hashable, Sendable {
+enum TextFont: String, CaseIterable, Identifiable, Hashable, Sendable, Codable {
     case silkscreenRegular = "SILK"
     case silkscreenBold    = "SILK BOLD"
     case systemRounded     = "ROUND"
@@ -146,7 +146,7 @@ enum TextFont: String, CaseIterable, Identifiable, Hashable, Sendable {
 /// A semantic enum with UIKit and SwiftUI projections, the same shape as `LaserColor`. The palette
 /// leads with white and black because a title over a photograph needs contrast before it needs
 /// personality; mint is the app's own accent, defined once in `Design/Colors.swift`.
-enum TextColorChoice: String, CaseIterable, Identifiable, Hashable, Sendable {
+enum TextColorChoice: String, CaseIterable, Identifiable, Hashable, Sendable, Codable {
     case white  = "WHITE"
     case black  = "BLACK"
     case mint   = "MINT"
@@ -200,7 +200,7 @@ enum TextColorChoice: String, CaseIterable, Identifiable, Hashable, Sendable {
 /// Rendered into the one master raster in a fixed order — BLOCK fill, SHADOW, glyph fill, OUTLINE
 /// stroke — so decoration is continuous across tile seams by construction rather than by each
 /// tile redrawing its own share of it. See FEATURE-TEXT-EFFECTS.md §7.1.
-enum TextDecoration: String, CaseIterable, Identifiable, Hashable, Sendable {
+enum TextDecoration: String, CaseIterable, Identifiable, Hashable, Sendable, Codable {
     case none    = "NONE"
     case shadow  = "SHADOW"
     case block   = "BLOCK"
@@ -232,7 +232,7 @@ enum TextDecoration: String, CaseIterable, Identifiable, Hashable, Sendable {
 ///
 /// Named `TextAlign` rather than `TextAlignment` to avoid colliding with SwiftUI's type of that
 /// name, which this file's `import SwiftUI` would otherwise make ambiguous at every use site.
-enum TextAlign: String, CaseIterable, Identifiable, Hashable, Sendable {
+enum TextAlign: String, CaseIterable, Identifiable, Hashable, Sendable, Codable {
     case leading  = "LEFT"
     case center   = "CENTER"
     case trailing = "RIGHT"
