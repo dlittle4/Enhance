@@ -29,6 +29,17 @@ public class GIFGenerator: GIFGenerating {
         let faces: [DetectedFace]
     }
 
+    /// The prepared text overlay, resolved once before the frame loop.
+    ///
+    /// Pairs the master raster with the overlay it was built from: the compositor needs the
+    /// overlay for placement (`center`, `angle`, `color`) and the animation type, while the
+    /// raster carries the cut tiles. Non-nil only when there is active text to draw, so the
+    /// frame loops branch on its presence and the no-text path stays byte-identical.
+    private struct TextPass {
+        let raster: RasterizedText
+        let overlay: TextOverlay
+    }
+
     public struct DrawingContext {
         let normalizedImage: UIImage
         let outputSize: CGSize
@@ -41,7 +52,7 @@ public class GIFGenerator: GIFGenerating {
         let pauseFrameDelay: Double
     }
     
-    func generateGIF(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double = 1.0, pauseDuration: Double = 1.0, visualEffects: [VisualEffect] = [], faceEffect: FaceEffect? = nil, detectedFaces: [DetectedFace] = []) -> Data? {
+    func generateGIF(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double = 1.0, pauseDuration: Double = 1.0, visualEffects: [VisualEffect] = [], faceEffect: FaceEffect? = nil, detectedFaces: [DetectedFace] = [], textOverlay: TextOverlay? = nil) -> Data? {
         guard let context = prepareDrawingContext(from: image, currentScale: currentScale, visibleRect: visibleRect, speed: speed, pauseDuration: pauseDuration) else {
             return nil
         }
@@ -52,8 +63,20 @@ public class GIFGenerator: GIFGenerating {
         }
 
         let facePass = prepareFaceEffectPass(context: context, effect: faceEffect, faces: detectedFaces)
-        addAnimatedFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects, facePass: facePass)
-        addPauseFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects, facePass: facePass)
+
+        // Stage 4 of the pipeline: text is composited after the face → zoom → visual-effect passes,
+        // in the output frame's own coordinates, so it stays crisp and frame-anchored rather than
+        // riding the zoom. Prepared exactly once — one Core Text layout and one master raster for
+        // the whole GIF, cut into tiles the frame loop only blits. `prepare` returns nil for a nil
+        // or whitespace-only overlay, and `nil` means the frame loops run untouched, so the
+        // no-text path is byte-identical to before this existed. See FEATURE-TEXT-EFFECTS.md §7.7.
+        let textPass = textOverlay.flatMap { overlay in
+            TextRasterizer.prepare(overlay: overlay, pixelSide: context.outputSize.width)
+                .map { TextPass(raster: $0, overlay: overlay) }
+        }
+
+        addAnimatedFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects, facePass: facePass, textPass: textPass)
+        addPauseFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects, facePass: facePass, textPass: textPass)
 
         if CGImageDestinationFinalize(destination) {
             return data as Data
@@ -119,7 +142,7 @@ public class GIFGenerator: GIFGenerating {
         return destination
     }
 
-    private func addAnimatedFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?) {
+    private func addAnimatedFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?, textPass: TextPass?) {
         for i in 0..<context.frameCount {
             autoreleasepool {
                 let frameProgress = CGFloat(i) / CGFloat(context.frameCount - 1)
@@ -133,7 +156,11 @@ public class GIFGenerator: GIFGenerating {
                 let sourceForFrame = faceEffectedSource(pass: facePass, progress: frameProgress, frameIndex: i)
                 if let frameImage = createFrameImage(transform: transform, context: context, sourceOverride: sourceForFrame) {
                     let geometry = frameGeometry(params: frameParams, transform: transform, context: context)
-                    let outputImage = applyVisualEffects(frameImage, effects: visualEffects, progress: frameProgress, frameIndex: i, geometry: geometry)
+                    let effected = applyVisualEffects(frameImage, effects: visualEffects, progress: frameProgress, frameIndex: i, geometry: geometry)
+                    // The text entrance consumes the same `frameProgress` the zoom does, so the two
+                    // are choreographed by construction. `frameProgress` runs 0…1 across the moving
+                    // frames, which is exactly the normalized progress the presets expect.
+                    let outputImage = composited(effected, textPass: textPass, progress: frameProgress)
                     let frameProperties: [String: Any] = [
                         kCGImagePropertyGIFDictionary as String: [
                             kCGImagePropertyGIFDelayTime as String: context.frameDelay,
@@ -146,7 +173,7 @@ public class GIFGenerator: GIFGenerating {
         }
     }
 
-    private func addPauseFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?) {
+    private func addPauseFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?, textPass: TextPass?) {
         let finalParams = animator.animationParameters(for: 1.0, in: context)
         let finalTransform = calculateTransformForFrame(
             params: finalParams, drawRect: context.drawRect, outputSize: context.outputSize
@@ -155,7 +182,10 @@ public class GIFGenerator: GIFGenerating {
         let sourceForFrame = faceEffectedSource(pass: facePass, progress: 1.0, frameIndex: context.frameCount)
         if let finalFrameImage = createFrameImage(transform: finalTransform, context: context, sourceOverride: sourceForFrame) {
             let geometry = frameGeometry(params: finalParams, transform: finalTransform, context: context)
-            let outputImage = applyVisualEffects(finalFrameImage, effects: visualEffects, progress: 1.0, frameIndex: context.frameCount, geometry: geometry)
+            let effected = applyVisualEffects(finalFrameImage, effects: visualEffects, progress: 1.0, frameIndex: context.frameCount, geometry: geometry)
+            // Composited once at progress 1: the text is at its settled state and identical across
+            // every replicated pause frame, so the message holds still and adds no entropy.
+            let outputImage = composited(effected, textPass: textPass, progress: 1.0)
             for _ in 0..<context.pauseFrameCount {
                 let frameProperties: [String: Any] = [
                     kCGImagePropertyGIFDictionary as String: [
@@ -247,6 +277,17 @@ public class GIFGenerator: GIFGenerating {
             )
         }
         return ciContext.createCGImage(ciImage, from: ciImage.extent) ?? cgImage
+    }
+
+    /// Draws the prepared text over one finished frame, or returns the frame untouched when
+    /// there is no text pass. The compositor takes a `CGImage` and returns one, so this is a
+    /// pure stage-4 insertion that touches neither the `VisualEffect` protocol nor the zoom
+    /// transform. Tuning is left at its default here; Stage F threads the panel's control.
+    private func composited(_ frame: CGImage, textPass: TextPass?, progress: CGFloat) -> CGImage {
+        guard let textPass else { return frame }
+        return TextTileCompositor.composite(
+            textPass.raster, overlay: textPass.overlay, progress: progress, over: frame
+        )
     }
 
     /// Where the image content sits in the rendered frame, for effects with a spatial

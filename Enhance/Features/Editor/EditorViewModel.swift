@@ -954,11 +954,12 @@ class EditorViewModel {
                 pauseDuration: pauseDuration,
                 visualEffects: activeVisualEffectList,
                 faceEffect: activeFaceEffect,
-                detectedFaces: activeFaces
+                detectedFaces: activeFaces,
+                textOverlay: nil // Stage F wires the editor's text overlay through here.
             ) {
                 let tempDir = FileManager.default.temporaryDirectory
                 let fileURL = tempDir.appendingPathComponent("\(UUID().uuidString).gif")
-                
+
                 do {
                     try gifData.write(to: fileURL)
                     DispatchQueue.main.async {
@@ -1001,11 +1002,12 @@ class EditorViewModel {
                 pauseDuration: pauseDuration,
                 visualEffects: activeVisualEffectList,
                 faceEffect: activeFaceEffect,
-                detectedFaces: activeFaces
+                detectedFaces: activeFaces,
+                textOverlay: nil // Stage F wires the editor's text overlay through here.
             ) {
                 let tempDir = FileManager.default.temporaryDirectory
                 let fileURL = tempDir.appendingPathComponent("\(UUID().uuidString).gif")
-                
+
                 do {
                     try gifData.write(to: fileURL)
                     DispatchQueue.main.async {
