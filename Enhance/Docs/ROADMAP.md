@@ -88,9 +88,12 @@ The SE 3 panel is ~190–200pt (`EffectParameterTests.swift:222`).
 
 - **4 rows cannot fit an SE 3 at all** — and several control-audit items add a fourth row.
 - **5 rows needs ~76pt more than the shortest device has.** The assertion protects nothing.
-- **3 rows is marginal**: 192pt needed against a 190–200pt range. THIRD EYE ships three rows and
-  overflows at the bottom of it. The guard test only checks 200pt, and its own comment concedes it
-  tests "the roomy end."
+- **3 rows is fine — checked on device 2026-08-11.** THIRD EYE's SIZE / INTENSITY / COLOUR panel
+  renders correctly on an SE 3, with the rows visibly compressed toward the floor rather than
+  clipped: `PanelMetrics` shrinking them to fit is the mechanism working, not failing. An earlier
+  version of this entry predicted an overflow from the 192pt threshold against the test's
+  "~190–200pt" note. **That note was an estimate, not a measurement, and the prediction was wrong** —
+  recorded because the reasoning looked sound and still produced a false alarm.
 
 Overflow re-enables the `ScrollView` (`EffectDetailPanel.swift:53`), where
 `DragGesture(minimumDistance: 0)` (`ParameterSliderRow.swift:95`) loses to the scroll and a slider
@@ -98,11 +101,25 @@ drag scrolls the panel instead. That mechanism is correctly documented at
 `EffectDetailPanel.swift:45-52` and `PanelMetrics.swift:5-10` — it was only the *cost estimate* in
 the old Phase 17f that was wrong.
 
-- [ ] 🔍 **Confirm on an SE 3 whether THIRD EYE's three rows already overflow.** If they do, this
-      is a shipped bug rather than a future one.
+**Row count is no longer fixed per effect.** *(2026-08-11, from the text-overlay session.)* TEXT's
+`editingRowCount` returns **2 normally and 3 when the preset uses the direction toggle** (SLIDE), so
+a category can change its row count without the user changing effect. The whole budget model above
+assumes rows are a property of the selected effect; they are not. **Consequence: capping at three
+puts TEXT exactly at the ceiling**, and any future per-preset control pushes it over without anyone
+touching the panel code. Whatever lever is chosen has to survive a row count that varies at runtime.
+
+- [x] ~~Confirm on an SE 3 whether THIRD EYE's three rows already overflow.~~ **They don't** —
+      checked 2026-08-11. Nothing is broken today; this is about the fourth row, not the third.
 - [ ] **Pick a lever**: raise the panel's height allocation, lower the 34pt floor, or cap effects at
       three rows and treat a fourth as a design change. Then make the assertion match the lever
-      instead of the current fiction.
+      instead of the current fiction. Must survive a row count that varies at runtime (see above).
+- [ ] 🔍 **Check whether a slider still drags when the rows *are* floored.** The one part of the
+      chain nobody has verified: overflow enables the `ScrollView`, and the two code comments
+      describing what happens next **contradict each other** —
+      `PanelMetrics.swift:5-10` says `DragGesture(minimumDistance: 0)` *loses* to the scroll, while
+      `EffectDetailPanel.swift:45-52` says it *beats* the scroll and then concludes the drag scrolls
+      anyway. They agree on the outcome and disagree on the reason, so at least one was reasoned
+      rather than measured. Worth settling before the fourth row makes it reachable.
 - [ ] Extend the guard test across the real range (190pt as well as 200pt) and across row counts,
       so the cap and the geometry cannot drift apart again.
 
@@ -149,6 +166,13 @@ equals the literal it replaces, so the app should render pixel-identical. Full p
 *Promoted from §4 on 2026-08-11, at the text-overlay session's suggestion.* One structural gap
 serves two features, which is exactly the entry bar for this section — and while it sat under P1
 Correctness it was competing with polish bugs it will always out-rank.
+
+> **This is no longer latent — it is the cause of a reported bug** *(2026-08-11)*. Edit a gallery
+> GIF that already has text, change any effect, and **the text silently disappears**. The chain:
+> "SAVE NEW COPY" could not store the overlay because there was no asset id, so the reopened editor
+> has `textOverlay == nil` while the words are baked into the pixels — and the first regeneration
+> rebuilds from the textless frame 0. **Claimed by the text-overlay session**, which is in
+> `GIFLibraryService`, `PhotoManager` and `EditorViewModel.saveGIFToLibrary`.
 
 `saveGIFToLibrary`'s callback does not return the new `PHAsset` identifier, so there is **no key to
 store anything against** after a first-time save. Two consequences, found independently:
