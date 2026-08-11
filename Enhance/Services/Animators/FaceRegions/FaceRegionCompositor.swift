@@ -178,7 +178,7 @@ struct FaceRegionCompositor {
         // colour straight back out of a tinted third eye and reads as a haze over the face.
         var result = background
         if let core = CIFilter(name: "CIRadialGradient", parameters: [
-            "inputCenter": c, "inputRadius0": coreRadius * 0.15, "inputRadius1": coreRadius * 0.95,
+            "inputCenter": c, "inputRadius0": coreRadius * 0.12, "inputRadius1": coreRadius * 0.62,
             "inputColor0": CIColor(red: 0.28, green: 0.28, blue: 0.28, alpha: 1),
             "inputColor1": CIColor(red: 0, green: 0, blue: 0, alpha: 1)
         ])?.outputImage {
@@ -200,25 +200,35 @@ struct FaceRegionCompositor {
             .translatedBy(x: -center.x, y: -center.y)
         let noise = CIFilter(name: "CIRandomGenerator")!.outputImage!
             .transformed(by: spin)
+            // Desaturate and harden the raw noise, but keep it centred on 0.5 so the
+            // pixellate below has a full range of block values to average.
             .applyingFilter("CIColorControls", parameters: [
-                kCIInputSaturationKey: 0.0, kCIInputContrastKey: 2.2, kCIInputBrightnessKey: -0.60
+                kCIInputSaturationKey: 0.0, kCIInputContrastKey: 3.0, kCIInputBrightnessKey: 0.0
             ])
             .applyingFilter("CIPixellate", parameters: [
                 "inputCenter": c, "inputScale": blockScale
+            ])
+            // Second contrast pass *after* the pixellate — this is what makes the rays read
+            // as distinct shafts. Averaging blocks pulls values toward mid-grey, and smearing
+            // mid-grey gives the soft mush; pushing the blocks back toward on/off first (and
+            // dropping the floor so only the brightest survive) yields separated beams with
+            // dark gaps between them.
+            .applyingFilter("CIColorControls", parameters: [
+                kCIInputContrastKey: 3.0, kCIInputBrightnessKey: -0.55
             ])
             .applyingFilter("CIZoomBlur", parameters: ["inputCenter": c, "inputAmount": max(1, rayAmount)])
             // Fade the whole beam layer at low density too, so the bottom of the slider is
             // a hint of light rather than a fainter starburst. Capped well under 1 — even
             // at full INTENSITY the rays should suggest light, not flood the frame.
             .applyingFilter("CIColorMatrix", parameters: [
-                "inputRVector": CIVector(x: 0.22 + 0.38 * density, y: 0, z: 0, w: 0),
-                "inputGVector": CIVector(x: 0, y: 0.22 + 0.38 * density, z: 0, w: 0),
-                "inputBVector": CIVector(x: 0, y: 0, z: 0.22 + 0.38 * density, w: 0),
+                "inputRVector": CIVector(x: 0.30 + 0.40 * density, y: 0, z: 0, w: 0),
+                "inputGVector": CIVector(x: 0, y: 0.30 + 0.40 * density, z: 0, w: 0),
+                "inputBVector": CIVector(x: 0, y: 0, z: 0.30 + 0.40 * density, w: 0),
                 "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1)
             ])
 
         if let falloff = CIFilter(name: "CIRadialGradient", parameters: [
-            "inputCenter": c, "inputRadius0": coreRadius * 0.2, "inputRadius1": coreRadius * 2.3,
+            "inputCenter": c, "inputRadius0": coreRadius * 0.2, "inputRadius1": coreRadius * 1.6,
             "inputColor0": CIColor.white,
             "inputColor1": CIColor(red: 0, green: 0, blue: 0, alpha: 1)
         ])?.outputImage {
