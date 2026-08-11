@@ -7,6 +7,12 @@ struct EditorView: View {
 
     @EnvironmentObject var photoManager: PhotoManager
 
+    /// Phase 1 of the text editor: the keyboard. `textDraft` is the live field, committed to the
+    /// overlay on DONE so a cancel can discard cleanly.
+    @State private var isEnteringText = false
+    @State private var textDraft = ""
+    @FocusState private var textFieldFocused: Bool
+
     private let canvasSize: CGFloat = 325
     private let borderInset: CGFloat = 5
     private let outerRadius: CGFloat = 28
@@ -80,6 +86,10 @@ struct EditorView: View {
                 value: viewModel.isEditingEffect
             )
 
+            if isEnteringText {
+                textEntryOverlay
+                    .zIndex(2)
+            }
         }
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + AppConstants.Animation.standard) {
@@ -269,31 +279,20 @@ struct EditorView: View {
 
     // MARK: - Canvas
 
+    /// The TEXT and FACE FILTERS categories keep the live, editable canvas — text and face boxes
+    /// cannot be positioned against a baked `GIFPreviewView`. For TEXT this holds even after ENHANCE,
+    /// which is why the exception is needed in *both* content branches (§10).
+    private var wantsLiveCanvas: Bool {
+        viewModel.selectedEffectCategory == .faceFilters
+            || viewModel.selectedEffectCategory == .text
+    }
+
     private var canvasSection: some View {
         ZStack {
             switch viewModel.content {
             case .existingGif(let url, _, _):
-                if viewModel.selectedEffectCategory == .faceFilters,
-                   let source = viewModel.sourceImage {
-                    borderedCanvas {
-                        ImageCanvasView(
-                            image: viewModel.previewImage ?? source,
-                            scale: $viewModel.currentScale,
-                            visibleRect: $viewModel.visibleRect,
-                            faceOverlays: activeFaceOverlays,
-                            onFaceSelected: { index in
-                                viewModel.pushUndo()
-                                HapticService.selection()
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    viewModel.toggleFaceSelection(index)
-                                }
-                                viewModel.updateFaceFilterPreview()
-                            },
-                            onInteraction: { viewModel.noteCanvasInteraction() },
-                            onInteractionEnded: { viewModel.commitZoomCardFraming() }
-                        )
-                        .frame(width: canvasSize, height: canvasSize)
-                    }
+                if wantsLiveCanvas, let source = viewModel.sourceImage {
+                    liveCanvas(image: source)
                 } else {
                     borderedCanvas {
                         let displayURL = viewModel.generatedGifURL ?? url
@@ -303,37 +302,48 @@ struct EditorView: View {
                 }
 
             case .newImage(let image):
-                if viewModel.isSplit, let gifURL = viewModel.generatedGifURL {
+                if viewModel.isSplit, let gifURL = viewModel.generatedGifURL, !wantsLiveCanvas {
                     borderedCanvas {
                         GIFPreviewView(url: gifURL, isPlaying: viewModel.isPlaying, playbackSpeed: viewModel.playbackSpeed)
                             .frame(width: canvasSize, height: canvasSize)
                     }
                 } else {
-                    borderedCanvas {
-                        ImageCanvasView(
-                            image: viewModel.previewImage ?? image,
-                            scale: $viewModel.currentScale,
-                            visibleRect: $viewModel.visibleRect,
-                            faceOverlays: activeFaceOverlays,
-                            onFaceSelected: { index in
-                                viewModel.pushUndo()
-                                HapticService.selection()
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    viewModel.toggleFaceSelection(index)
-                                }
-                                viewModel.updateFaceFilterPreview()
-                            },
-                            onInteraction: { viewModel.noteCanvasInteraction() },
-                            onInteractionEnded: { viewModel.commitZoomCardFraming() }
-                        )
-                        .frame(width: canvasSize, height: canvasSize)
-                    }
+                    liveCanvas(image: image)
                 }
             }
         }
         .overlay(faceStatusOverlay)
         .overlay(regeneratingOverlay)
         .overlay(toastOverlay)
+    }
+
+    /// The editable canvas, shared by the face-filter and text categories. Face boxes and the text
+    /// overlay are both wired in; each is inert unless its own category is active.
+    private func liveCanvas(image: UIImage) -> some View {
+        borderedCanvas {
+            ImageCanvasView(
+                image: viewModel.previewImage ?? image,
+                scale: $viewModel.currentScale,
+                visibleRect: $viewModel.visibleRect,
+                faceOverlays: activeFaceOverlays,
+                onFaceSelected: { index in
+                    viewModel.pushUndo()
+                    HapticService.selection()
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        viewModel.toggleFaceSelection(index)
+                    }
+                    viewModel.updateFaceFilterPreview()
+                },
+                textOverlay: $viewModel.textOverlay,
+                isTextInteractive: viewModel.selectedEffectCategory == .text,
+                onTextGestureBegan: { viewModel.beginTextGesture() },
+                onTextGestureEnded: { viewModel.endTextGesture() },
+                onRequestTextEditing: { openTextEntry() },
+                onInteraction: { viewModel.noteCanvasInteraction() },
+                onInteractionEnded: { viewModel.commitZoomCardFraming() }
+            )
+            .frame(width: canvasSize, height: canvasSize)
+        }
     }
 
     private func borderedCanvas<Content: View>(@ViewBuilder content: () -> Content) -> some View {
@@ -402,9 +412,10 @@ struct EditorView: View {
                 }
                 .transition(.opacity)
             case .text:
-                // The five-preset carousel lands in a later Stage F step; the TEXT tab is not
-                // in the category bar yet, so this branch is unreachable at runtime for now.
-                EmptyView()
+                VStack(spacing: 8) {
+                    textPresetsGrid(cardSize: cardSize)
+                }
+                .transition(.opacity)
             }
 
         }
@@ -469,6 +480,110 @@ struct EditorView: View {
             }
             viewModel.beginEditing()
         }
+    }
+
+    // MARK: - Text Gallery
+
+    /// The five entrance presets. Selecting one *is* what creates the overlay — there is no
+    /// separate ADD TEXT step, matching how selecting any effect card applies that effect (§4).
+    private func textPresetsGrid(cardSize: CGFloat) -> some View {
+        EffectCarousel(
+            items: TextAnimationType.allCases,
+            scrollTo: viewModel.textOverlay?.animation,
+            contentInset: canvasInset
+        ) { preset in
+            textPresetCard(preset, cardSize: cardSize)
+        }
+    }
+
+    private func textPresetCard(_ preset: TextAnimationType, cardSize: CGFloat) -> some View {
+        let isActive = viewModel.textOverlay?.animation == preset
+        return EffectCardView(
+            title: preset.rawValue,
+            isActive: isActive,
+            isBlocked: viewModel.isRegenerating,
+            size: cardSize,
+            background: {
+                EffectCardThumbnail(image: nil, isActive: isActive, size: cardSize)
+            }
+        ) {
+            HapticService.selection()
+            selectTextPreset(preset)
+        }
+    }
+
+    /// Creates the overlay on first selection (or swaps the animation on later ones), then opens
+    /// the keyboard so the first thing the user does is type.
+    private func selectTextPreset(_ preset: TextAnimationType) {
+        viewModel.pushUndo()
+        if var overlay = viewModel.textOverlay {
+            overlay.animation = preset
+            viewModel.textOverlay = overlay
+        } else {
+            viewModel.textOverlay = TextOverlay.makeDefault(animation: preset)
+        }
+        openTextEntry()
+    }
+
+    /// Phase 1: the keyboard. Seeds the field from the current overlay and focuses it.
+    private func openTextEntry() {
+        textDraft = viewModel.textOverlay?.text ?? ""
+        withAnimation(.easeInOut(duration: 0.2)) { isEnteringText = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { textFieldFocused = true }
+    }
+
+    /// DONE: commit the typed text. An empty or whitespace-only draft leaves no active overlay, so
+    /// `TextOverlay.isActive` keeps it from gating generation or showing RESET.
+    private func commitTextEntry() {
+        textFieldFocused = false
+        if var overlay = viewModel.textOverlay {
+            overlay.text = textDraft
+            viewModel.textOverlay = overlay
+        }
+        withAnimation(.easeInOut(duration: 0.2)) { isEnteringText = false }
+        viewModel.regenerateIfNeeded()
+    }
+
+    /// The keyboard phase, presented over the canvas. A multiline field capped at the overlay's
+    /// grapheme-cluster limit, with DONE clearing to phase 2 (direct manipulation on the canvas).
+    private var textEntryOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.55).ignoresSafeArea()
+                .onTapGesture { commitTextEntry() }
+
+            VStack(spacing: 16) {
+                TextField("Type your text", text: $textDraft, axis: .vertical)
+                    .font(.silkscreenButtonLabel)
+                    .foregroundColor(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1...3)
+                    .focused($textFieldFocused)
+                    .submitLabel(.done)
+                    .padding(16)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(Color.white.opacity(0.08))
+                    )
+                    .onChange(of: textDraft) { _, newValue in
+                        if newValue.count > TextOverlay.maxGraphemeClusters {
+                            textDraft = String(newValue.prefix(TextOverlay.maxGraphemeClusters))
+                        }
+                    }
+
+                Button(action: commitTextEntry) {
+                    Text("DONE")
+                        .font(.silkscreenButtonLabel)
+                        .foregroundColor(Color(red: 0.09, green: 0.09, blue: 0.09))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 52)
+                        .background(SimpleGradientBackground())
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.horizontal, 32)
+        }
+        .transition(.opacity)
     }
 
     // MARK: - Pickers
@@ -689,10 +804,11 @@ struct EditorView: View {
     // MARK: - Effect Category Icon Tabs
 
     private var effectCategoryTabs: some View {
-        HStack(spacing: 48) {
+        HStack(spacing: 40) {
             effectCategoryIcon("icon-zoom-in", category: .zoomEffects)
             effectCategoryIcon("icon-smile", category: .faceFilters)
             effectCategoryIcon("icon-image", category: .visualEffects)
+            effectCategoryIcon("icon-text", category: .text)
         }
         .frame(maxWidth: .infinity)
         .frame(height: AppConstants.Layout.categoryTabsHeight)

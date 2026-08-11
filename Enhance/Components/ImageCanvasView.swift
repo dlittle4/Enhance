@@ -11,6 +11,17 @@ struct ImageCanvasView: View {
     var faceOverlays: [(id: UUID, rect: CGRect, isSelected: Bool)] = []
     var onFaceSelected: ((Int) -> Void)? = nil
 
+    /// The text overlay to render over the photo, and whether the TEXT category is active (so it
+    /// is interactive rather than a static at-rest preview). Both default to inert, so the
+    /// existing face-filter and zoom call sites are unchanged.
+    var textOverlay: Binding<TextOverlay?> = .constant(nil)
+    var isTextInteractive: Bool = false
+    /// Gesture-session hooks — one undo entry and one regeneration per burst — and the double-tap
+    /// that reopens the keyboard.
+    var onTextGestureBegan: (() -> Void)? = nil
+    var onTextGestureEnded: (() -> Void)? = nil
+    var onRequestTextEditing: (() -> Void)? = nil
+
     /// Fired the first time — and every time — the user works the canvas by hand.
     ///
     /// Driven from the scroll view's `willBegin` delegate callbacks rather than from
@@ -37,6 +48,11 @@ struct ImageCanvasView: View {
                 onFaceSelected: onFaceSelected,
                 onInteraction: onInteraction,
                 onInteractionEnded: onInteractionEnded,
+                textOverlay: textOverlay,
+                isTextInteractive: isTextInteractive,
+                onTextGestureBegan: onTextGestureBegan,
+                onTextGestureEnded: onTextGestureEnded,
+                onRequestTextEditing: onRequestTextEditing,
                 canvasSize: canvasSize
             )
 
@@ -59,13 +75,21 @@ private struct ScrollableCanvasView: UIViewRepresentable {
     var onFaceSelected: ((Int) -> Void)?
     var onInteraction: (() -> Void)?
     var onInteractionEnded: (() -> Void)?
+    var textOverlay: Binding<TextOverlay?>
+    var isTextInteractive: Bool
+    var onTextGestureBegan: (() -> Void)?
+    var onTextGestureEnded: (() -> Void)?
+    var onRequestTextEditing: (() -> Void)?
     let canvasSize: CGFloat
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
     }
 
-    func makeUIView(context: Context) -> UIScrollView {
+    // One representable, two siblings inside a container: routing needs a common ancestor that
+    // sees a touch before either sibling does (§8.2). The scroll view keeps its exact
+    // configuration — moved verbatim — because `updateUIView` must not disturb its scroll state.
+    func makeUIView(context: Context) -> CanvasContainerView {
         let scrollView = UIScrollView()
         scrollView.delegate = context.coordinator
         scrollView.minimumZoomScale = 1.0
@@ -93,20 +117,40 @@ private struct ScrollableCanvasView: UIViewRepresentable {
 
         context.coordinator.canvasSize = canvasSize
 
-        return scrollView
+        let textHost = TextOverlayHostView()
+        textHost.canvasSide = canvasSize
+        textHost.onOverlayChanged = { [weak coordinator = context.coordinator] o in
+            coordinator?.parent.textOverlay.wrappedValue = o
+        }
+        textHost.onGestureBegan = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.onTextGestureBegan?()
+        }
+        textHost.onGestureEnded = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.onTextGestureEnded?()
+        }
+        textHost.onRequestEditing = { [weak coordinator = context.coordinator] in
+            coordinator?.parent.onRequestTextEditing?()
+        }
+        context.coordinator.textHost = textHost
+
+        return CanvasContainerView(scrollView: scrollView, textHost: textHost)
     }
 
-    func updateUIView(_ scrollView: UIScrollView, context: Context) {
+    func updateUIView(_ container: CanvasContainerView, context: Context) {
         let coordinator = context.coordinator
         coordinator.parent = self
 
-        guard let imageView = coordinator.imageView else { return }
-
-        if imageView.image !== image {
-            imageView.image = image
+        if let imageView = coordinator.imageView {
+            if imageView.image !== image {
+                imageView.image = image
+            }
+            coordinator.updateFaceBoxes(on: imageView)
         }
 
-        coordinator.updateFaceBoxes(on: imageView)
+        if let textHost = coordinator.textHost {
+            textHost.isInteractive = isTextInteractive
+            textHost.update(overlay: textOverlay.wrappedValue, canvasSide: canvasSize)
+        }
     }
 
     private func configureContentSize(scrollView: UIScrollView, imageView: UIImageView) {
@@ -128,6 +172,7 @@ private struct ScrollableCanvasView: UIViewRepresentable {
     class Coordinator: NSObject, UIScrollViewDelegate {
         var parent: ScrollableCanvasView
         weak var imageView: UIImageView?
+        weak var textHost: TextOverlayHostView?
         var canvasSize: CGFloat = 325
 
         private var faceBoxViews: [FaceBoxView] = []
@@ -289,6 +334,61 @@ private struct ScrollableCanvasView: UIViewRepresentable {
                     }
                 )
             }
+        }
+    }
+}
+
+// MARK: - CanvasContainerView
+
+/// Root of the canvas representable: holds the scroll view and the text host as siblings and
+/// arbitrates the first touch of every sequence between them (§8.2, §8.3).
+///
+/// The scroll view's recognizers are **never disabled** — the photo pans and zooms exactly as under
+/// every other category. Routing happens here, in `hitTest`, by deciding once on the first touch of
+/// a sequence and holding that decision until every touch lifts. Holding it is the whole point: a
+/// two-finger pinch with one finger on the text and one off it would otherwise split, and neither
+/// recognizer would ever see two touches.
+final class CanvasContainerView: UIView {
+    private let scrollView: UIScrollView
+    private let textHost: TextOverlayHostView
+    private var router = TextTouchRouter()
+
+    init(scrollView: UIScrollView, textHost: TextOverlayHostView) {
+        self.scrollView = scrollView
+        self.textHost = textHost
+        super.init(frame: .zero)
+        addSubview(scrollView)
+        addSubview(textHost)
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        scrollView.frame = bounds
+        textHost.frame = bounds
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard textHost.isInteractive,
+              let region = textHost.hitRegion,
+              let touches = event?.allTouches else {
+            return super.hitTest(point, with: event)
+        }
+
+        // A fresh sequence — the first (and only) touch just beginning — re-arms the decision. A
+        // second finger landing later leaves the lock intact, so it joins the same route.
+        let active = touches.filter {
+            $0.phase == .began || $0.phase == .moved || $0.phase == .stationary
+        }
+        if active.count <= 1 { router = TextTouchRouter() }
+
+        switch router.route(firstTouchAt: point, region: region) {
+        case .text:
+            return textHost
+        case .photo:
+            let inScroll = convert(point, to: scrollView)
+            return scrollView.hitTest(inScroll, with: event) ?? scrollView
         }
     }
 }
