@@ -57,8 +57,8 @@ struct ThirdEyeEffect: FaceEffect {
         let eyeSize = max(eyeBounds.width, eyeBounds.height) * scale
         result = compositor.radialLight(
             at: forehead,
-            coreRadius: eyeSize * 1.1,
-            rayAmount: eyeSize * 3.0,
+            coreRadius: eyeSize * 0.95,
+            rayAmount: eyeSize * 2.2,
             rayDensity: rayIntensity,
             rayAngle: progress * 2 * .pi,
             color: CIColor(red: 1.0, green: 0.9, blue: 0.62, alpha: opacity),

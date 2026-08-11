@@ -174,12 +174,12 @@ struct FaceRegionCompositor {
                 .cropped(to: extent)
         }
 
-        // 1. Central glow. Deliberately not pure white — a blown-out core washes the colour
-        // straight back out of a tinted third eye.
+        // 1. Central glow. Deliberately dim and tight — a blown-out core both washes the
+        // colour straight back out of a tinted third eye and reads as a haze over the face.
         var result = background
         if let core = CIFilter(name: "CIRadialGradient", parameters: [
-            "inputCenter": c, "inputRadius0": coreRadius * 0.15, "inputRadius1": coreRadius * 1.3,
-            "inputColor0": CIColor(red: 0.55, green: 0.55, blue: 0.55, alpha: 1),
+            "inputCenter": c, "inputRadius0": coreRadius * 0.15, "inputRadius1": coreRadius * 0.95,
+            "inputColor0": CIColor(red: 0.28, green: 0.28, blue: 0.28, alpha: 1),
             "inputColor1": CIColor(red: 0, green: 0, blue: 0, alpha: 1)
         ])?.outputImage {
             result = screen(core, over: result)
@@ -201,23 +201,24 @@ struct FaceRegionCompositor {
         let noise = CIFilter(name: "CIRandomGenerator")!.outputImage!
             .transformed(by: spin)
             .applyingFilter("CIColorControls", parameters: [
-                kCIInputSaturationKey: 0.0, kCIInputContrastKey: 2.2, kCIInputBrightnessKey: -0.46
+                kCIInputSaturationKey: 0.0, kCIInputContrastKey: 2.2, kCIInputBrightnessKey: -0.60
             ])
             .applyingFilter("CIPixellate", parameters: [
                 "inputCenter": c, "inputScale": blockScale
             ])
             .applyingFilter("CIZoomBlur", parameters: ["inputCenter": c, "inputAmount": max(1, rayAmount)])
             // Fade the whole beam layer at low density too, so the bottom of the slider is
-            // a hint of light rather than a fainter starburst.
+            // a hint of light rather than a fainter starburst. Capped well under 1 — even
+            // at full INTENSITY the rays should suggest light, not flood the frame.
             .applyingFilter("CIColorMatrix", parameters: [
-                "inputRVector": CIVector(x: 0.45 + 0.55 * density, y: 0, z: 0, w: 0),
-                "inputGVector": CIVector(x: 0, y: 0.45 + 0.55 * density, z: 0, w: 0),
-                "inputBVector": CIVector(x: 0, y: 0, z: 0.45 + 0.55 * density, w: 0),
+                "inputRVector": CIVector(x: 0.22 + 0.38 * density, y: 0, z: 0, w: 0),
+                "inputGVector": CIVector(x: 0, y: 0.22 + 0.38 * density, z: 0, w: 0),
+                "inputBVector": CIVector(x: 0, y: 0, z: 0.22 + 0.38 * density, w: 0),
                 "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1)
             ])
 
         if let falloff = CIFilter(name: "CIRadialGradient", parameters: [
-            "inputCenter": c, "inputRadius0": coreRadius * 0.2, "inputRadius1": coreRadius * 3.2,
+            "inputCenter": c, "inputRadius0": coreRadius * 0.2, "inputRadius1": coreRadius * 2.3,
             "inputColor0": CIColor.white,
             "inputColor1": CIColor(red: 0, green: 0, blue: 0, alpha: 1)
         ])?.outputImage {
