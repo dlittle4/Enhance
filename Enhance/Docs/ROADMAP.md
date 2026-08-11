@@ -129,8 +129,20 @@ touching the panel code. Whatever lever is chosen has to survive a row count tha
 rules assume the colour literals are gone. Running `xcodebuild test` carries no such dependency,
 and there is no automated gate on this repo today.
 
+**A concrete instance of what this catches** *(2026-08-11)*: two sessions running simulators at once
+starved the machine enough that
+`EditorViewModelTests/generateZoomPreviewImage_afterAnEarlyNoOp_stillBuildsWhenTheSourceArrives`
+took **154s and 258s wall-clock against a 2-second poll budget**. It passes in isolation and in a
+quiet full run — a genuine flake, not a regression. Poll since widened to 10s (assertion unchanged;
+it still exits the moment the image appears, so the happy path costs nothing). **Four sessions
+sharing one machine is exactly the environment where a timing assumption rots**, and nobody found
+this by reading the test — they found it by tripping over it. A runner with a known load profile is
+where that belongs.
+
 - [ ] **Split test-only CI out and do it now** — a macOS runner on `xcodebuild test`. Lint follows
       later, with the token migration.
+- [ ] Sweep the suite for other wall-clock assumptions once CI exists — this one was found by
+      accident, so it is unlikely to be the only one.
 
 ### 1c. CIKernel de-risking gate → blocks Riso Print, Water Caustic, Hatching styles
 
