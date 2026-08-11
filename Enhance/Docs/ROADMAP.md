@@ -218,13 +218,15 @@ Each entry names the file and line where the defect lives.
 
 ### P1 — Correctness
 
-- [ ] **Edits are silently dropped during regeneration.** `guard !isRegenerating else { return }`
-      appears in 12 places. A change made while a regeneration is in flight is discarded with
-      nothing queued and no re-check on completion — the UI shows the new setting, the GIF shows
-      the old one. The four sliders are *not* `.disabled` during regeneration
-      (`EditorView.swift:641`, `:689`, `:794`, `:842`), so slider edits are the most likely to vanish.
-      Root cause: the same 6-line "mark modified + regenerate" block is copy-pasted ~13 times
-      across 8 `.onChange` handlers, 4 drag-end methods, and `restore()` (31 `regenerateGIF()` callsites).
+- [x] **Edits are silently dropped during regeneration.** *(fixed 2026-08-10 — Stage E of the text
+      overlays work, §8.7.)* The `guard !isRegenerating else { return }` in the consolidated
+      `regenerateIfNeeded()` discarded a mid-flight change with nothing queued and no re-check on
+      completion — the UI showed the new setting, the GIF the old one. Now the guard sets
+      `regeneratePending` instead of returning empty-handed, and `regenerateGIF` re-fires from every
+      completion path (success and both error paths) once `isRegenerating` clears. Because every
+      caller funnels through the one `regenerateIfNeeded` chokepoint, this covers all of them at
+      once. Tests: `regenerateIfNeeded_whileInFlight_queuesInsteadOfDropping`,
+      `drainPendingRegeneration_afterInFlight_refiresTheQueuedRequest`.
 - [ ] **Newly-saved GIFs never persist their zoom params.** `persistZoomParams` is called only from
       `updateOriginalGIF` (`EditorViewModel.swift:812`). `saveGIFToLibrary` — which handles first-time
       saves *and* "SAVE NEW COPY" — never calls it, so re-opening falls back to the hardcoded
@@ -1118,10 +1120,13 @@ Stages A–G in the plan; the gate for each is in §11.
 - [x] **Stage C** — *compiled, green (headless).* Five zoom-synchronized entrance presets: POP, RISE, TYPE,
       WORD DROP, FLICKER — evaluators verified in `TextAnimationTests`. Generation-time, memory, and
       GIF-size budgets still need a real GIF (Stage D) and a device visual review (§12.11).
-- [ ] **Stage D** — composite text after the existing face → zoom → visual-effect pipeline;
-      `textOverlay == nil` must stay byte-identical.
-- [ ] **Stage E** — repair `regenerateIfNeeded`'s dropped-edit P1 first, on its own commit. Direct
-      manipulation makes it fire constantly instead of occasionally.
+- [x] **Stage D** — *done, green.* Text composited as stage 4 after the face → zoom → visual-effect
+      pipeline, in both the animated and pause loops. `textOverlay == nil` proven byte-identical
+      (`generateGIF_withNilTextOverlay_isByteIdenticalToOmittingIt`); threaded through
+      `GIFGenerating` and both stubs. The editor still passes `nil` — Stage F wires the real overlay.
+- [x] **Stage E** — *done, green.* `regenerateIfNeeded`'s dropped-edit P1 repaired: a request
+      arriving mid-flight sets `regeneratePending` and is re-fired from every completion path of
+      `regenerateGIF`. This open P1 is now closed.
 - [ ] **Stage F** — first-touch gesture routing and the two-phase editor. The photo pans and zooms
       exactly as under every other category; a gesture starting on the text moves, scales or
       rotates it. Preset carousel → keyboard → DONE → three-row settings panel, as one undo entry.

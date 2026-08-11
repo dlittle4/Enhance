@@ -248,13 +248,33 @@ class EditorViewModel {
     /// *missing*, so an undo or a panel cancel landing on top of a running regeneration
     /// could stack two. That was the ROADMAP's open P1.
     func regenerateIfNeeded() {
-        guard !isRegenerating else { return }
+        // A regeneration already in flight must not swallow this request. Record that another is
+        // wanted and re-fire it when the current one finishes (see `drainPendingRegeneration`).
+        // Dropping it here was an open P1: with slider commits it bit occasionally, but direct
+        // manipulation of a text overlay fires this constantly, and a silently-absent edit reads
+        // as the app ignoring the user. See FEATURE-TEXT-EFFECTS.md §8.7.
+        guard !isRegenerating else { regeneratePending = true; return }
         if case .existingGif = content {
             hasModifiedSettings = true
             regenerateGIF()
         } else if isSplit {
             regenerateGIF()
         }
+    }
+
+    /// Set when `regenerateIfNeeded` is called during an in-flight regeneration; drained at every
+    /// completion path of `regenerateGIF` so the last-requested state always reaches the GIF.
+    /// Read-only outside this type — only `regenerateIfNeeded` sets it and only the drain clears it.
+    private(set) var regeneratePending = false
+
+    /// Re-fires a regeneration that was queued while one was running. Called from every exit of
+    /// `regenerateGIF` — success and both error paths — after `isRegenerating` is cleared, so the
+    /// guard in `regenerateIfNeeded` sees the door open. Internal rather than private so the
+    /// queue-and-refire cycle can be driven deterministically in a test without the async hop.
+    func drainPendingRegeneration() {
+        guard regeneratePending else { return }
+        regeneratePending = false
+        regenerateIfNeeded()
     }
 
     /// Debounced regeneration for controls that emit a stream of values instead of a
@@ -1017,17 +1037,20 @@ class EditorViewModel {
                             self.isRegenerating = false
                             self.enhanceState = .share
                         }
+                        self.drainPendingRegeneration()
                     }
                 } catch {
                     DispatchQueue.main.async {
                         withAnimation { self.isRegenerating = false }
                         self.showToast("Error creating GIF")
+                        self.drainPendingRegeneration()
                     }
                 }
             } else {
                 DispatchQueue.main.async {
                     withAnimation { self.isRegenerating = false }
                     self.showToast("Error creating GIF")
+                    self.drainPendingRegeneration()
                 }
             }
         }

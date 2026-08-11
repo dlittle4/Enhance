@@ -145,6 +145,53 @@ struct EditorViewModelTests {
         try? FileManager.default.removeItem(at: url)
     }
 
+    // MARK: - Regeneration guard (Stage E, §8.7)
+
+    private func regenReadyViewModel() -> EditorViewModel {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("regen-guard-\(UUID().uuidString).gif")
+        try? Data().write(to: url)
+        return EditorViewModel(content: .existingGif(url, 0, "id"), gifGenerator: StubGIFGenerator())
+    }
+
+    /// The P1 fix: an edit made while a regeneration is in flight must be queued, not dropped.
+    /// Before this, the `guard !isRegenerating else { return }` swallowed it silently — with
+    /// direct manipulation that would read as the app ignoring the user.
+    @Test func regenerateIfNeeded_whileInFlight_queuesInsteadOfDropping() {
+        let vm = regenReadyViewModel()
+        vm.isRegenerating = true // simulate a regeneration already running
+
+        #expect(!vm.regeneratePending)
+        vm.regenerateIfNeeded()
+        #expect(vm.regeneratePending, "the edit must be recorded, not silently dropped")
+    }
+
+    /// Draining after the in-flight run finishes re-fires the queued request exactly once and
+    /// clears the flag, so the last-requested state reaches the GIF.
+    @Test func drainPendingRegeneration_afterInFlight_refiresTheQueuedRequest() {
+        let vm = regenReadyViewModel()
+        vm.isRegenerating = true
+        vm.regenerateIfNeeded() // queued
+        #expect(vm.regeneratePending)
+
+        vm.isRegenerating = false // the running regeneration completes
+        vm.drainPendingRegeneration()
+
+        #expect(!vm.regeneratePending, "the queued request must be consumed")
+        // The re-fire ran regenerateIfNeeded again: on an existing GIF that marks settings modified
+        // before dispatching, so this is observable synchronously the moment the drain returns.
+        #expect(vm.hasModifiedSettings)
+    }
+
+    /// With nothing queued, draining is a no-op — it must not fire a spurious extra regeneration.
+    @Test func drainPendingRegeneration_withNothingQueued_doesNothing() {
+        let vm = regenReadyViewModel()
+        #expect(!vm.regeneratePending)
+        vm.drainPendingRegeneration()
+        #expect(!vm.regeneratePending)
+        #expect(!vm.hasModifiedSettings)
+    }
+
     // MARK: - showsZoomHint
 
     private func makeHintReadyViewModel() -> EditorViewModel {
