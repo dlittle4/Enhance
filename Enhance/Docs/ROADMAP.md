@@ -953,8 +953,17 @@ EYE MOUTH, and SHUFFLE behind a preset-row picker.
       (left eye→right, right eye→mouth, mouth→left). Feature-to-feature placements scale to fit the
       destination feature, modulated by SIZE. `FeatureScramblerEffect` iterates the specs, sampling
       every placement from the original so a swap is a true swap.
-- [x] **Both resolved blocking problems.** The panel is **three rows** (INTENSITY + SIZE + LAYOUT) —
-      FEATHER stayed a constant, so it fits SE 3 (guarded by `panel_threeRowsFitWithoutScrollingOnShortPanel`).
+- [x] **Skin heal so features move, not stack.** Before compositing a moved feature, the layout
+      covers the feature it *replaces* with skin sampled from just beside it (same vertical level,
+      toward the face centre — the nose bridge / cheek — so it matches local shading rather than one
+      global tone). THIRD EYE heals nothing (the real eyes stay); EYE MOUTH heals the mouth; MOUTH
+      EYES heals both eyes; SHUFFLE heals all three. Fully lazy (`CIAreaAverage`). A moved feature
+      still carries a soft patch of its *source* skin — subtle on real faces, only obvious on an
+      extreme tone gradient; tighten placement padding/feather if a real photo shows a halo.
+- [x] **INTENSITY dropped.** The effect only reads well at full strength, so it always renders
+      opaque and the slider is gone. The panel is **two rows** — SIZE (the single slider, in the
+      primary slot) + LAYOUT — which fits SE 3 with room to spare
+      (`panel_threeRowsFitWithoutScrollingOnShortPanel` still guards the 3-row general case).
       LAYOUT is a new `EffectParameter.Kind.preset` backed by a **dedicated typed `scrambleLayout`**
       on the view model *and* `EditorSnapshot` — never a numeric-store case index. Captured, restored,
       and reset with the rest of the snapshot.

@@ -71,18 +71,17 @@ struct FeatureScramblerEffect: FaceEffect {
         let opacity = finalOpacity * min(1, t / 0.25)
         guard opacity > 0.01 else { return image }
 
-        // Heal the features being replaced: paint sampled skin over them (fading in with the
-        // reveal) so the moved copies read as replacements rather than overlays. THIRD EYE
-        // heals nothing. Done before the placements so each copy lands on clean skin.
+        // Heal the features being replaced: cover each with skin sampled from just around it
+        // (fading in with the reveal) so the moved copies read as replacements rather than
+        // overlays. Local sampling tracks each feature's own lighting instead of forcing one
+        // global tone. THIRD EYE heals nothing. Done before the placements.
         var result = image
-        let healRegions = layout.healRegions()
-        if !healRegions.isEmpty, let skinFill = skinFill(from: image, face: face) {
-            for region in healRegions {
-                result = compositor.fillRegion(
-                    region, in: face, with: skinFill, over: result,
-                    padding: healPadding, feather: healFeather, opacity: opacity
-                )
-            }
+        for region in layout.healRegions() {
+            guard let fill = localSkinFill(around: region, in: image, face: face) else { continue }
+            result = compositor.fillRegion(
+                region, in: face, with: fill, over: result,
+                padding: healPadding, feather: healFeather, opacity: opacity
+            )
         }
 
         // Composite each placement onto the running result, but always sample from the
@@ -109,27 +108,28 @@ struct FeatureScramblerEffect: FaceEffect {
 
     // MARK: - Skin sampling
 
-    /// A solid, infinite image of the face's average skin colour, used to cover replaced
-    /// features. Lazy: `CIAreaAverage` yields a 1×1 image and `clampedToExtent` spreads it,
-    /// so no `CIContext` is created here.
-    private func skinFill(from image: CIImage, face: DetectedFace) -> CIImage? {
-        guard let rect = skinSampleRect(for: face, in: image.extent) else { return nil }
+    /// A solid infinite fill of the skin just around a feature, so covering it matches the
+    /// local tone and shading rather than one global average. Lazy: `CIAreaAverage` yields a
+    /// 1×1 image and `clampedToExtent` spreads it, so no `CIContext` is created here.
+    private func localSkinFill(around region: FaceRegion, in image: CIImage, face: DetectedFace) -> CIImage? {
+        guard let rect = localSkinRect(for: region, face: face, in: image.extent) else { return nil }
         return image.clampedToExtent()
             .applyingFilter("CIAreaAverage", parameters: [kCIInputExtentKey: CIVector(cgRect: rect)])
             .clampedToExtent()
     }
 
-    /// A forehead patch — between the brow line and the top of the face box — that is
-    /// reliably skin on most faces, clipped to the image so the average is well-defined.
-    private func skinSampleRect(for face: DetectedFace, in extent: CGRect) -> CGRect? {
-        let brows = face.leftEyebrowPoints + face.rightEyebrowPoints
-        let browTopY = brows.map(\.y).max() ?? (face.faceCenter.y + face.faceHeight * 0.18)
-        let faceTopY = face.boundingBox.maxY
-        guard faceTopY > browTopY else { return nil }
-        let cy = browTopY + (faceTopY - browTopY) * 0.5
-        let w = face.faceWidth * 0.28
-        let h = max(4, (faceTopY - browTopY) * 0.5)
-        let rect = CGRect(x: face.faceCenter.x - w / 2, y: cy - h / 2, width: w, height: h)
+    /// A patch of skin immediately beside a feature, at the *same* vertical level so it
+    /// matches the feature's own lighting on a shaded face (sampling below would pick up the
+    /// darker cheek/chin under top lighting). Samples toward the face centre — the nose
+    /// bridge between the eyes, a cheek beside the mouth — which is reliably skin. Clipped to
+    /// the image so the average is well-defined.
+    private func localSkinRect(for region: FaceRegion, face: DetectedFace, in extent: CGRect) -> CGRect? {
+        guard let b = region.sourceBounds(in: face) else { return nil }
+        let toward: CGFloat = b.midX <= face.faceCenter.x ? 1 : -1
+        let cx = b.midX + toward * b.width * 0.85
+        let w = max(4, b.width * 0.45)
+        let h = max(4, b.height * 0.6)
+        let rect = CGRect(x: cx - w / 2, y: b.midY - h / 2, width: w, height: h)
             .intersection(extent)
         return rect.isNull || rect.width < 1 || rect.height < 1 ? nil : rect
     }

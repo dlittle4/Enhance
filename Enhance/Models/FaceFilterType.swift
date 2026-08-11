@@ -52,6 +52,7 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         switch self {
         case .googlyEyes: return "SIZE"
         case .heartEyes:  return "SIZE"
+        case .scramble:   return "SIZE"
         case .handsome:   return "HANDSOMENESS"
         case .ripple:     return "REDNESS"
         default:          return "INTENSITY"
@@ -69,7 +70,6 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         case .heartEyes:      return "SPEED"
         case .rainbow:        return "SPEED"
         case .lensDistortion: return "REACH"
-        case .scramble:       return "SIZE"
         default:              return nil
         }
     }
@@ -95,7 +95,9 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
 
         case .heartVignette: return HeartVignetteEffect(intensity: clamped, size: clampedSecond)
         case .heartEyes:     return HeartEyesEffect(intensity: clamped, speed: clampedSecond)
-        case .scramble:      return FeatureScramblerEffect(size: clampedSecond, intensity: clamped, layout: scrambleLayout)
+        // SIZE is the only slider (the primary slot); INTENSITY is dropped because the
+        // effect only reads well at full strength, so it always renders opaque.
+        case .scramble:      return FeatureScramblerEffect(size: clamped, intensity: 1.0, layout: scrambleLayout)
 
         case .fisheye:    return FaceVisualEffect(effect: FisheyeEffect(intensity: clamped, size: clampedSecond), skipDelay: true)
         case .swirl:      return FaceVisualEffect(effect: SwirlEffect(intensity: clamped), skipDelay: true)

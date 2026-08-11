@@ -19,7 +19,7 @@ struct EffectParameterTests {
         .handsome:      ("HANDSOMENESS", nil),
         .heartVignette: ("INTENSITY", "SIZE"),
         .heartEyes:     ("SIZE", "SPEED"),
-        .scramble:      ("INTENSITY", "SIZE"),
+        .scramble:      ("SIZE", nil),
         .fisheye:       ("INTENSITY", "SIZE"),
         .swirl:         ("INTENSITY", nil),
         .pixelate:      ("INTENSITY", nil),
@@ -95,13 +95,17 @@ struct EffectParameterTests {
     }
 
     /// SCRAMBLE's picker is a `.preset` (LAYOUT), distinct from LAZER EYES' `.tintColor`.
+    /// Two rows: a single SIZE slider (in the primary slot) plus LAYOUT — INTENSITY was
+    /// dropped because the effect only reads well at full strength.
     @Test func scrambleDeclaresAPresetPicker() {
-        let picker = FaceFilterType.scramble.parameters.first { $0.kind != .slider }
+        let params = FaceFilterType.scramble.parameters
+        let picker = params.first { $0.kind != .slider }
         #expect(picker?.kind == .preset)
         #expect(picker?.label == "LAYOUT")
-        // Still leads with intensity, and stays within the panel's row budget.
-        #expect(FaceFilterType.scramble.parameters.first?.id == EffectParameter.intensityID)
-        #expect(FaceFilterType.scramble.parameters.count == 3)
+        // The one slider occupies the primary slot and is labelled SIZE.
+        #expect(params.first?.id == EffectParameter.intensityID)
+        #expect(params.first?.label == "SIZE")
+        #expect(params.count == 2)
     }
 
     // MARK: - Storage keys
