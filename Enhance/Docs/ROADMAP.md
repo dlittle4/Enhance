@@ -1090,15 +1090,17 @@ other reasons — and each has one specific catch worth deciding knowingly.
 **They compose.** Once a stack exists, the copyable payload is the stack — so settle the
 stacking model before designing the copy format, or the format will need reworking.
 
-### Phase 19c: Animated text overlays (Stage A–C written, unverified)
+### Phase 19c: Animated text overlays (Stage A–C compiled and green)
 
-**Status: Stages A–C exist on `feature/text-overlay-renderer` and have never been compiled.**
-They were written without a macOS toolchain, and there is no CI, so the first Xcode session owns
-getting them to build and proving the gates. The branch adds nine files and modifies none, so it
-cannot break the app. **§18 of the plan is the handoff**: what exists, the likely first errors,
-the order to run the tests, and what a failure in each one actually means.
+**Status: Stages A–C are verified in Xcode — they build clean and all 80 text tests pass (full
+suite 319/0).** Written first without a macOS toolchain, they compiled on the first Xcode build
+with none of §18's predicted errors, and the two load-bearing tests hold:
+`tiles_partitionTheMasterRaster_withoutOverlapOrLoss` and `arabicJoining_survivesTiling`. Verified
+on 2026-08-10 on `claude/text-effects-resume-726acc` (merged from `feature/text-overlay-renderer`);
+fold to `main` when convenient. The nine files add code and modify none, so nothing else moved.
 
-Stages D–G are not started. The file manifest is §17.
+Stages D–G are not started. Stage D is the next branch — small, but it modifies shipped code
+(`GIFGenerator`), which is why it waited for a compiler. The file manifest is §17.
 
 Full product, rendering, gesture, UX, accessibility, and test plan:
 **[FEATURE-TEXT-EFFECTS.md](FEATURE-TEXT-EFFECTS.md)** — **revision 2 (2026-08-10)**, which moves
@@ -1110,11 +1112,12 @@ on" makes unreachable, and it left the overlay uneditable after ENHANCE because 
 
 Stages A–G in the plan; the gate for each is in §11.
 
-- [~] **Stage A** — *written, unverified.* One CoreText layout, one master raster, non-overlapping tiles. Prove the
-      partition invariant and Arabic joining before anything else is built on it.
-- [~] **Stage B** — *written, unverified.* The shared transform and the export compositor, still headless.
-- [~] **Stage C** — *written, unverified.* Five zoom-synchronized entrance presets: POP, RISE, TYPE, WORD DROP, FLICKER.
-      Establish generation-time, memory, and GIF-size budgets from this prototype.
+- [x] **Stage A** — *compiled, green.* One CoreText layout, one master raster, non-overlapping tiles.
+      Partition invariant and Arabic joining both proven in `TextLayoutTests`.
+- [x] **Stage B** — *compiled, green.* The shared transform and the export compositor, still headless.
+- [x] **Stage C** — *compiled, green (headless).* Five zoom-synchronized entrance presets: POP, RISE, TYPE,
+      WORD DROP, FLICKER — evaluators verified in `TextAnimationTests`. Generation-time, memory, and
+      GIF-size budgets still need a real GIF (Stage D) and a device visual review (§12.11).
 - [ ] **Stage D** — composite text after the existing face → zoom → visual-effect pipeline;
       `textOverlay == nil` must stay byte-identical.
 - [ ] **Stage E** — repair `regenerateIfNeeded`'s dropped-edit P1 first, on its own commit. Direct

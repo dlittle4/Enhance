@@ -1262,13 +1262,16 @@ Stage C and Stage G both need a device: the preset review and the Silkscreen cri
 
 ## 18. Implementation status — Stage A–C handoff
 
-> **Written but never compiled.** Stages A–C exist on `feature/text-overlay-renderer`
-> (`f2c57a5`, branched from `580bf83`). They were written in a Linux cloud session with no Swift
-> toolchain and no CI, so every line is unverified. **Nothing existing was modified** — the branch
-> adds nine files and touches none — so a compile error in it cannot break the app.
+> **Compiled and green (2026-08-10).** Stages A–C were written in a Linux cloud session with no
+> Swift toolchain, then verified in Xcode 26.3 on `claude/text-effects-resume-726acc` (merged from
+> `feature/text-overlay-renderer`, `f2c57a5`). They **built clean on the first attempt** — none of
+> the "likely errors" below actually bit — and all 80 text tests pass (full suite 319/0), including
+> the two load-bearing ones: `tiles_partitionTheMasterRaster_withoutOverlapOrLoss` and
+> `arabicJoining_survivesTiling`. **Nothing existing was modified.**
 >
-> This section is the pickup point for the first session with Xcode. Delete it once Stage A–C is
-> green and merged; the rest of this document is the durable spec.
+> The build-error and test-order notes below are kept as the record of what was watched for; they
+> are now history, not a to-do. Delete this whole section once A–C reaches `main`; the rest of this
+> document is the durable spec. The next branch is Stage D (§17 manifest, §7.7).
 
 ### What exists
 
