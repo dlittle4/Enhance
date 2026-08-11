@@ -83,13 +83,25 @@ struct EffectParameterTests {
         }
     }
 
-    /// Only LAZER EYES has a colour picker today; this fails loudly if another filter
-    /// claims one without the panel gaining a matching row.
-    @Test func faceFilter_onlyLazerEyesDeclaresAPicker() {
+    /// LAZER EYES (tint swatches) and SCRAMBLE (layout presets) are the only filters with a
+    /// picker row; this fails loudly if another filter claims one without the panel gaining
+    /// a matching row and a height budget for it.
+    @Test func onlyLazerEyesAndScrambleDeclareAPicker() {
+        let expectedPickerOwners: Set<FaceFilterType> = [.lazerEyes, .scramble]
         for type in FaceFilterType.allCases {
             let hasPicker = type.parameters.contains { $0.kind != .slider }
-            #expect(hasPicker == (type == .lazerEyes), "\(type.rawValue) picker unexpected")
+            #expect(hasPicker == expectedPickerOwners.contains(type), "\(type.rawValue) picker unexpected")
         }
+    }
+
+    /// SCRAMBLE's picker is a `.preset` (LAYOUT), distinct from LAZER EYES' `.tintColor`.
+    @Test func scrambleDeclaresAPresetPicker() {
+        let picker = FaceFilterType.scramble.parameters.first { $0.kind != .slider }
+        #expect(picker?.kind == .preset)
+        #expect(picker?.label == "LAYOUT")
+        // Still leads with intensity, and stays within the panel's row budget.
+        #expect(FaceFilterType.scramble.parameters.first?.id == EffectParameter.intensityID)
+        #expect(FaceFilterType.scramble.parameters.count == 3)
     }
 
     // MARK: - Storage keys
@@ -200,6 +212,23 @@ struct EffectParameterTests {
             #expect(pickers.count <= 1, "\(type.rawValue) declares more than one picker")
             #expect((pickers.first != nil) == type.supportsColorPicker, "\(type.rawValue) picker disagrees with colorPickerKind")
         }
+    }
+
+    // MARK: - Panel fit
+
+    /// SCRAMBLE's three rows (INTENSITY + SIZE + LAYOUT) must not floor-and-overflow on the
+    /// shortest supported panel, which would re-enable the scroll and let it steal slider
+    /// drags. The panel on an iPhone SE 3 is ~190–200pt; at the roomy end a 3-row panel is
+    /// not floored, so rows shrink to fit. (True on-device fit is a Stage D2 QA item.)
+    @Test func panel_threeRowsFitWithoutScrollingOnShortPanel() {
+        typealias L = AppConstants.Layout
+        let available: CGFloat = 200
+        let h = L.parameterRowHeight(forPanelHeight: available, rowCount: 3)
+        // Not clamped to the floor — if it were, the rows would overflow into a scroll.
+        #expect(h > L.parameterRowMinHeight, "3 rows floored at \(available)pt re-enables scroll")
+        // The header counts as one more unit; the whole stack must fit the available height.
+        let stack = CGFloat(3 + 1) * h + AppConstants.Spacing.small * 3 + AppConstants.Spacing.grid * 2
+        #expect(stack <= available + 0.5)
     }
 
     // MARK: - Card sizing

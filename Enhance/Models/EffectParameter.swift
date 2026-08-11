@@ -16,6 +16,10 @@ struct EffectParameter: Identifiable, Hashable {
         case tintColor
         /// The three gradient stop colour wells.
         case gradientStops
+        /// A row of mutually-exclusive named options (Scrambler LAYOUT). The chosen value
+        /// lives in dedicated typed view-model state, not the numeric parameter store — the
+        /// view supplies the options and binding, like `.tintColor` supplies `LaserColor`.
+        case preset
     }
 
     /// Stable key for value storage. Must not change once shipped — values are keyed

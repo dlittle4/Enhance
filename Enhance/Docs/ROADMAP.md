@@ -22,11 +22,11 @@ Each step should feel fast, tactile, and visually satisfying.
 pushed to `origin/main`. Unit suite green. The session's pattern is to commit on the branch and
 fast-forward `main` at each green stage, so Xcode always sees a working build.
 
-THIRD EYE's on-device pass is confirmed (2026-08-10) — V1 fully done.
+THIRD EYE's on-device pass is confirmed (2026-08-10) — V1 fully done. **Scrambler Stage E** (the
+MOUTH EYES / EYE MOUTH / SHUFFLE layout pack) is also shipped; only device QA on those three new
+layouts remains (THIRD EYE is already device-confirmed).
 
-**Next:** step 5 below — Phase 17f (control audit) is the smallest, then Gallery Stage B. The
-Stage E layout pack (MOUTH EYES / EYE MOUTH / SHUFFLE) is the natural Scrambler follow-on and its
-groundwork — the `FaceRegion` compositor and `FaceRegions` model — already exists.
+**Next:** step 5 below — Phase 17f (control audit) is the smallest, then Gallery Stage B.
 
 ### What shipped
 
@@ -93,13 +93,14 @@ assumption turned out to be false. Rationale in "Why this order" below.
       infrastructure. Rendered on the reference photo and inspected: radial prismatic dispersion,
       centre-clean, REACH confines it to an edge fringe at 0 and fills the frame at 1. 216 tests.
 
-**4 — Feature Scrambler (Phase 17i), re-scoped to THIRD EYE only. ✓ Done 2026-08-10.**
+**4 — Feature Scrambler (Phase 17i). ✓ V1 + layout pack done 2026-08-10.**
 
-- [x] Shipped THIRD EYE as V1 (Stage E layout pack deferred, as planned). Copies one eye to the
-      forehead over the zoom with a `smoothstep` settle, INTENSITY + SIZE (two rows), single-face.
-      Left behind the reusable landmark compositor (`FaceRegion` / `FaceRegionMaskBuilder` /
-      `FaceRegionCompositor`) and the `FaceRegions` + `LandmarkQuality` model. Confirmed on a real
-      photo. **Device pass confirmed 2026-08-10 — looks good on device.** V1 fully verified.
+- [x] Shipped THIRD EYE (V1) then the Stage E layout pack (MOUTH EYES / EYE MOUTH / SHUFFLE).
+      Copies features to wrong positions over the zoom with a `smoothstep` settle; single-face;
+      INTENSITY + SIZE + LAYOUT (three-row panel). Left behind the reusable landmark compositor
+      (`FaceRegion` / `FaceRegionMaskBuilder` / `FaceRegionCompositor`), the `FaceRegions` +
+      `LandmarkQuality` model, `ScrambleLayout`, and a general `EffectParameter.Kind.preset`.
+      **THIRD EYE device-confirmed; the three new layouts still need a device pass.**
 
 **5 — Then, in rough value order.**
 
@@ -910,7 +911,7 @@ Despite the name, the effect is not geometric distortion: it is radial prismatic
 also ships in both carousels and is linear rather than radial — and whether "LENS" or "PRISM"
 describes it more honestly than "LENS DISTORTION".
 
-### Phase 17i: Feature Scrambler — THIRD EYE ✓ (V1 shipped 2026-08-10); layout pack (Stage E) deferred
+### Phase 17i: Feature Scrambler ✓ — THIRD EYE (V1) + layout pack (Stage E) shipped 2026-08-10
 
 > Full specification in **[FEATURE-SCRAMBLER.md](FEATURE-SCRAMBLER.md)**. This section records
 > the review outcome, the re-scope, and what V1 actually shipped.
@@ -943,34 +944,31 @@ the lesson EDGES and the black band taught.
       or stale preview reported. Deep-matrix edge cases (4× 12-frame floor, animal fallback) can be
       spot-checked opportunistically but are no longer blocking.
 
-**Stage E — layout pack (deferred, unchanged plan).** MOUTH EYES / EYE MOUTH / SHUFFLE behind a
-preset-row picker, typed `scrambleLayout` state on the view model and `EditorSnapshot`, and
-per-layout availability. The two blocking problems below are Stage E's, not V1's:
+**Stage E — layout pack ✓ shipped 2026-08-10 (pending device QA on the new layouts).** MOUTH EYES,
+EYE MOUTH, and SHUFFLE behind a preset-row picker.
 
-- [ ] **Four rows do not fit.** `params.count <= 5` is a *declaration* assertion, not a layout
-      guarantee. Measured on SE 3, the panel has ~190–200pt; four rows clamp at the 34pt floor and
-      need ~234pt, **overflowing ~40pt**. That re-enables the `ScrollView`, and
-      `DragGesture(minimumDistance: 0)` then loses to it — so dragging SIZE or FEATHER would
-      scroll the panel instead of adjusting it. Dropping FEATHER (which the plan itself says to
-      tune from rendered output, making it a constant rather than a knob) leaves LAYOUT + SIZE +
-      INTENSITY at three rows, which fits.
-- [ ] **`layout` cannot live where the plan puts it.** `parameterValues` is `[String: Double]`; an
-      enum has no home there, and encoding it as a case index makes reordering `ScrambleLayout`
-      silently reinterpret saved values. The codebase already solved this: every non-Double
-      parameter (`tintColor`, `gradientStops`, `laserColor`) is a dedicated typed property on the
-      view model *and* a field on `EditorSnapshot`. Follow that, rather than the plan's proposed
-      "shared typed option container".
+- [x] **`ScrambleLayout` enum** owns per-layout availability and placement specs. THIRD EYE copies
+      one eye to the forehead (V1 mapping preserved exactly); EYE MOUTH enlarges an eye onto the
+      mouth; MOUTH EYES copies the mouth onto both eyes; SHUFFLE is a three-way cycle
+      (left eye→right, right eye→mouth, mouth→left). Feature-to-feature placements scale to fit the
+      destination feature, modulated by SIZE. `FeatureScramblerEffect` iterates the specs, sampling
+      every placement from the original so a swap is a true swap.
+- [x] **Both resolved blocking problems.** The panel is **three rows** (INTENSITY + SIZE + LAYOUT) —
+      FEATHER stayed a constant, so it fits SE 3 (guarded by `panel_threeRowsFitWithoutScrollingOnShortPanel`).
+      LAYOUT is a new `EffectParameter.Kind.preset` backed by a **dedicated typed `scrambleLayout`**
+      on the view model *and* `EditorSnapshot` — never a numeric-store case index. Captured, restored,
+      and reset with the rest of the snapshot.
+- [x] **Availability + normalization.** Mouth layouts need precise lips; swaps need both eyes; a
+      profile face degrades to THIRD EYE / EYE MOUTH. The preset row shows only available layouts,
+      and `toggleFaceSelection` collapses a stored layout the new face can't support to THIRD EYE
+      (no hidden invalid layout). `onlyLazerEyesAndScrambleDeclareAPicker` updated for the new owner.
+- [ ] **Device QA on the new layouts (Stage E's D2).** THIRD EYE is device-confirmed; MOUTH EYES /
+      EYE MOUTH / SHUFFLE verified only by rendered fixtures. Watch feature-fit scale on real faces,
+      the SHUFFLE cycle reading clearly, and the three-row panel not scrolling on a physical SE 3.
 
-Smaller corrections carried forward:
-
-- [ ] A new `Kind` breaks `faceFilter_onlyLazerEyesDeclaresAPicker` — expected, but unlisted.
-- [ ] Per-layout availability messaging (`NEEDS A CLEAR VIEW OF THE MOUTH`) is **new component
-      work** — `EffectDetailPanel` and `ParameterPickerRow` have no disabled state and no
-      explanatory-text affordance — and it competes for the same panel height.
-- [ ] Two requirements are already free: pause frames render one image and append it N times, so
-      "byte-stable" needs nothing from the effect; and a `scaled()` enumeration test must know
-      that `normalizedBoundingBox` is *deliberately* unscaled or it is an instant false positive.
-- [ ] The performance budget is stated against the wrong baseline — see "Next up" step 1.
+Free requirements noted during the port: pause frames already reuse one rendered image, so
+"byte-stable" needs nothing from the effect; and the `scaled()` enumeration test knows
+`normalizedBoundingBox` is deliberately unscaled.
 
 ### Phase 17e: New Image Effects — Phase 2 (not started, deliberately deferred)
 

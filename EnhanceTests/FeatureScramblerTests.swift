@@ -244,4 +244,85 @@ struct FeatureScramblerTests {
         #expect(doubled(face.regions.rightEye, scaled.regions.rightEye))
         #expect(doubled(face.regions.outerLips, scaled.regions.outerLips))
     }
+
+    // MARK: - Stage E layouts
+
+    /// One eye (left) plus a precise mouth — the case that allows EYE MOUTH but not swaps.
+    private func makeOneEyeMouthFace() -> DetectedFace {
+        let regions = FaceRegions(
+            leftEye: eyePolygon(cx: 100, cy: 190, rx: 26, ry: 15),
+            rightEye: [], outerLips: eyePolygon(cx: 150, cy: 120, rx: 34, ry: 14),
+            innerLips: [], nose: []
+        )
+        return DetectedFace(
+            boundingBox: CGRect(x: 70, y: 80, width: 160, height: 160),
+            faceCenter: CGPoint(x: 150, y: 160), faceWidth: 160, faceHeight: 160,
+            leftPupilCenter: CGPoint(x: 100, y: 190), rightPupilCenter: nil,
+            leftEyeWidth: 52, rightEyeWidth: 0,
+            leftEyebrowPoints: [], rightEyebrowPoints: [], faceContourPoints: [],
+            normalizedBoundingBox: CGRect(x: 70.0 / 300, y: 80.0 / 300, width: 160.0 / 300, height: 160.0 / 300),
+            regions: regions, landmarkQuality: .precise
+        )
+    }
+
+    @Test func layoutAvailability_preciseFaceSupportsAll() {
+        let face = makePreciseFace()
+        for layout in ScrambleLayout.allCases {
+            #expect(layout.isAvailable(for: face), "\(layout.rawValue) should be available")
+        }
+    }
+
+    @Test func layoutAvailability_noLipsOffersOnlyThirdEye() {
+        let face = makePupilOnlyFace()  // pupils but no lip polygon
+        #expect(ScrambleLayout.thirdEye.isAvailable(for: face))
+        #expect(!ScrambleLayout.eyeMouth.isAvailable(for: face))
+        #expect(!ScrambleLayout.mouthEyes.isAvailable(for: face))
+        #expect(!ScrambleLayout.shuffle.isAvailable(for: face))
+    }
+
+    @Test func layoutAvailability_oneEyePlusMouthAllowsEyeMouthNotSwaps() {
+        let face = makeOneEyeMouthFace()
+        #expect(ScrambleLayout.thirdEye.isAvailable(for: face))
+        #expect(ScrambleLayout.eyeMouth.isAvailable(for: face))
+        #expect(!ScrambleLayout.mouthEyes.isAvailable(for: face), "needs both eyes")
+        #expect(!ScrambleLayout.shuffle.isAvailable(for: face), "needs both eyes")
+    }
+
+    @Test func placements_countMatchesLayout() {
+        let face = makePreciseFace()
+        #expect(ScrambleLayout.thirdEye.placements(for: face, size: 0.5).count == 1)
+        #expect(ScrambleLayout.eyeMouth.placements(for: face, size: 0.5).count == 1)
+        #expect(ScrambleLayout.mouthEyes.placements(for: face, size: 0.5).count == 2)
+        #expect(ScrambleLayout.shuffle.placements(for: face, size: 0.5).count == 3)
+    }
+
+    @Test func placements_emptyWhenLayoutUnavailable() {
+        #expect(ScrambleLayout.mouthEyes.placements(for: makePupilOnlyFace(), size: 0.5).isEmpty)
+    }
+
+    @Test func effect_everyLayoutPreservesExtent() {
+        let input = makeFixture()
+        for layout in ScrambleLayout.allCases {
+            let out = FeatureScramblerEffect(size: 0.5, intensity: 0.9, layout: layout)
+                .apply(to: input, face: makePreciseFace(), progress: 1.0, frameIndex: 0)
+            #expect(out.extent == input.extent, "\(layout.rawValue) extent")
+        }
+    }
+
+    @Test func effect_mouthEyesCopiesMouthOntoEyes() {
+        let input = makeFixture()
+        let out = FeatureScramblerEffect(size: 0.5, intensity: 0.95, layout: .mouthEyes)
+            .apply(to: input, face: makePreciseFace(), progress: 1.0, frameIndex: 0)
+        // The mouth is dark/reddish (low green, low blue) — the eye it lands on stops being cyan.
+        #expect(!isCyanish(pixel(out, x: 100, y: 190)))
+    }
+
+    @Test func effect_unavailableLayoutIsNoOp() {
+        let input = makeFixture()
+        // MOUTH EYES on a face with no lips has no placements → original image untouched.
+        let out = FeatureScramblerEffect(size: 0.5, intensity: 0.9, layout: .mouthEyes)
+            .apply(to: input, face: makePupilOnlyFace(), progress: 1.0, frameIndex: 0)
+        #expect(out.extent == input.extent)
+        #expect(isCyanish(pixel(out, x: 100, y: 190)), "left eye must be untouched")
+    }
 }

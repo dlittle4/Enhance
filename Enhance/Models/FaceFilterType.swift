@@ -42,6 +42,9 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         if self == .lazerEyes {
             params.append(EffectParameter(id: "tint", label: "COLOUR", kind: .tintColor))
         }
+        if self == .scramble {
+            params.append(EffectParameter(id: "layout", label: "LAYOUT", kind: .preset))
+        }
         return params
     }
 
@@ -81,7 +84,7 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         }
     }
 
-    func effect(intensity: Double = 0.5, secondValue: Double = 0.5, laserColor: LaserColor = .red) -> FaceEffect {
+    func effect(intensity: Double = 0.5, secondValue: Double = 0.5, laserColor: LaserColor = .red, scrambleLayout: ScrambleLayout = .thirdEye) -> FaceEffect {
         let clamped = max(0, min(1, intensity))
         let clampedSecond = max(0, min(1, secondValue))
         switch self {
@@ -92,7 +95,7 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
 
         case .heartVignette: return HeartVignetteEffect(intensity: clamped, size: clampedSecond)
         case .heartEyes:     return HeartEyesEffect(intensity: clamped, speed: clampedSecond)
-        case .scramble:      return FeatureScramblerEffect(size: clampedSecond, intensity: clamped)
+        case .scramble:      return FeatureScramblerEffect(size: clampedSecond, intensity: clamped, layout: scrambleLayout)
 
         case .fisheye:    return FaceVisualEffect(effect: FisheyeEffect(intensity: clamped, size: clampedSecond), skipDelay: true)
         case .swirl:      return FaceVisualEffect(effect: SwirlEffect(intensity: clamped), skipDelay: true)
