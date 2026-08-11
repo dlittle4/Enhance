@@ -176,6 +176,11 @@ struct EditorView: View {
             if let filter = viewModel.selectedFaceFilter {
                 parameterRows(for: filter, colorSelection: $viewModel.laserColor)
             }
+        case .text:
+            // The three-row TEXT panel (COLOR, STYLE, per-preset tunable) lands in a later
+            // Stage F step. The TEXT category is not yet reachable from the category bar, so
+            // this branch does not render at runtime.
+            EmptyView()
         case .zoomEffects:
             // Built directly rather than through `parameterRows`. Speed and pause are
             // *output* settings that shape the whole GIF, not per-effect parameters —
@@ -213,7 +218,7 @@ struct EditorView: View {
                 // Disabled while the panel is open: it owns history there via its own
                 // back/confirm. A global undo could otherwise restore state *older* than
                 // the panel's entry snapshot, after which back would restore forward.
-                let historyEnabled = !viewModel.isEditingEffect
+                let historyEnabled = !viewModel.isEditingEffect && !viewModel.isTextGestureActive
 
                 if viewModel.hasNonDefaultSettings {
                     Button {
@@ -396,6 +401,10 @@ struct EditorView: View {
                     faceFiltersGrid(cardSize: cardSize)
                 }
                 .transition(.opacity)
+            case .text:
+                // The five-preset carousel lands in a later Stage F step; the TEXT tab is not
+                // in the category bar yet, so this branch is unreachable at runtime for now.
+                EmptyView()
             }
 
         }

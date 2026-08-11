@@ -24,6 +24,9 @@ struct EditorSnapshot {
     /// Scrambler's arrangement. A dedicated typed field rather than a numeric parameter,
     /// because an enum has no honest home in `parameterValues: [String: Double]`.
     let scrambleLayout: ScrambleLayout
+    /// The text overlay, or `nil`. A whole value type per §6, so undo/redo, cancel and reset
+    /// carry the text, its placement, style and animation as one unit.
+    let textOverlay: TextOverlay?
 }
 
 @Observable
@@ -61,6 +64,11 @@ class EditorViewModel {
     var hasModifiedSettings: Bool = false
     var selectedEffectCategory: EffectCategory = .zoomEffects
     var selectedVisualEffect: VisualEffectType? = nil
+    /// The single text overlay, `nil` until a preset is chosen. Whitespace-only text is not an
+    /// active overlay (`TextOverlay.isActive`), so an empty draft never gates generation or
+    /// counts as a non-default setting. Rendered as GIF stage 4 (§7.7) regardless of which
+    /// category is active.
+    var textOverlay: TextOverlay? = nil
     /// Per-parameter control values, keyed by `EffectParameter.key(_:for:)`.
     ///
     /// Replaces the four fixed Doubles this used to hold, so an effect can declare any
@@ -127,8 +135,17 @@ class EditorViewModel {
     /// part of `EditorSnapshot` — undo should not teleport between panels.
     var isEditingEffect = false
 
+    /// True for the span of a direct-manipulation gesture on the text overlay (drag, pinch,
+    /// rotate — possibly several at once). Global undo/redo are disabled while it is set, the
+    /// same way `isEditingEffect` disables them, so an undo mid-drag cannot fight the gesture.
+    var isTextGestureActive = false
+
     /// State as it was when the panel opened, so the back chevron can discard.
     private var editEntrySnapshot: EditorSnapshot?
+
+    /// State captured at the *start* of a gesture session, pushed once when it ends — one undo
+    /// entry per session no matter how many recognizers took part (§8.6).
+    private var textGestureEntrySnapshot: EditorSnapshot?
 
     /// Whether the active category has something for the panel to edit.
     ///
@@ -141,6 +158,7 @@ class EditorViewModel {
         case .zoomEffects:   return true
         case .visualEffects: return selectedVisualEffect != nil
         case .faceFilters:   return selectedFaceFilter != nil
+        case .text:          return textOverlay?.isActive == true
         }
     }
 
@@ -159,6 +177,9 @@ class EditorViewModel {
         case .visualEffects: return selectedVisualEffect?.parameters ?? []
         case .faceFilters:   return selectedFaceFilter?.parameters ?? []
         case .zoomEffects:   return []
+        // COLOR and STYLE are built directly (like zoom's speed/pause/motion), plus the
+        // per-preset tunable; none are declared `EffectParameter`s, so this stays empty.
+        case .text:          return []
         }
     }
 
@@ -170,6 +191,8 @@ class EditorViewModel {
         case .zoomEffects:   return 3
         case .visualEffects: return selectedVisualEffect?.parameters.count ?? 0
         case .faceFilters:   return selectedFaceFilter?.parameters.count ?? 0
+        // COLOR, STYLE, and the per-preset tunable — three rows, the honest budget (§10).
+        case .text:          return 3
         }
     }
 
@@ -178,6 +201,7 @@ class EditorViewModel {
         case .visualEffects: return selectedVisualEffect?.rawValue ?? ""
         case .faceFilters:   return selectedFaceFilter?.rawValue ?? ""
         case .zoomEffects:   return selectedAnimatorType?.rawValue.uppercased() ?? "NO ZOOM"
+        case .text:          return textOverlay?.animation.rawValue ?? "TEXT"
         }
     }
 
@@ -213,6 +237,29 @@ class EditorViewModel {
         }
         editEntrySnapshot = nil
         isEditingEffect = false
+    }
+
+    /// Opens a direct-manipulation gesture session, capturing the pre-gesture state. Called from
+    /// the first recognizer's `.began` (the 0→1 transition of `TextGestureSession`'s counter), so
+    /// a simultaneous drag+pinch+rotate still captures exactly one entry snapshot.
+    func beginTextGesture() {
+        guard !isTextGestureActive else { return }
+        isTextGestureActive = true
+        textGestureEntrySnapshot = currentSnapshot()
+    }
+
+    /// Closes the gesture session. Pushes the pre-gesture snapshot (pre-change discipline, matching
+    /// `commitEditing`) only if the overlay actually changed, then requests one regeneration — so a
+    /// cancelled or no-op gesture litters neither the undo stack nor the GIF queue.
+    func endTextGesture() {
+        guard isTextGestureActive else { return }
+        isTextGestureActive = false
+        defer { textGestureEntrySnapshot = nil }
+
+        if let entry = textGestureEntrySnapshot, entry.textOverlay != textOverlay {
+            push(entry)
+            regenerateIfNeeded()
+        }
     }
 
     func undo() {
@@ -306,7 +353,8 @@ class EditorViewModel {
             laserColor: laserColor,
             tintColor: tintColor,
             gradientStops: gradientStopsOverride ?? gradientStops,
-            scrambleLayout: scrambleLayout
+            scrambleLayout: scrambleLayout,
+            textOverlay: textOverlay
         )
     }
 
@@ -324,6 +372,7 @@ class EditorViewModel {
         tintColor = snapshot.tintColor
         gradientStops = snapshot.gradientStops
         scrambleLayout = snapshot.scrambleLayout
+        textOverlay = snapshot.textOverlay
 
         // Navigation is not snapshotted, and a restore can clear the very selection the
         // panel is editing — so always leave the panel rather than risk an open panel
@@ -434,13 +483,14 @@ class EditorViewModel {
     var hasNonDefaultSettings: Bool {
         let hasVisualEffect = selectedVisualEffect != nil
         let hasFaceFilter = selectedFaceFilter != nil
+        let hasText = textOverlay?.isActive == true
         // Tolerant comparison, not `!=`. Speed used to be one of four exact literals so
         // equality worked; with a continuous geometric slider, moving the knob off the
         // default and back yields 0.5000000000000001 and RESET would never disappear.
         let timingChanged = !ZoomPlayback.isDefaultSpeed(playbackSpeed)
             || !ZoomPlayback.isDefaultPause(pauseDuration)
         let base = selectedAnimatorType != .zoomIn || hasActiveModifier || timingChanged
-            || hasVisualEffect || hasFaceFilter
+            || hasVisualEffect || hasFaceFilter || hasText
 
         if case .newImage = content {
             return base || isSplit
@@ -497,6 +547,7 @@ class EditorViewModel {
         tintColor = .red
         gradientStops = .default
         scrambleLayout = .thirdEye
+        textOverlay = nil
         detectedFaces = []
         faceDetectionService.clearCache()
 
@@ -931,6 +982,7 @@ class EditorViewModel {
     /// effect, face filter, or modifier is applied that will animate on its own.
     private var hasEffectsWithoutZoom: Bool {
         selectedVisualEffect != nil || selectedFaceFilter != nil || selectedModifier != nil
+            || textOverlay?.isActive == true
     }
 
     func generateGIF() {
@@ -975,7 +1027,7 @@ class EditorViewModel {
                 visualEffects: activeVisualEffectList,
                 faceEffect: activeFaceEffect,
                 detectedFaces: activeFaces,
-                textOverlay: nil // Stage F wires the editor's text overlay through here.
+                textOverlay: textOverlay,
             ) {
                 let tempDir = FileManager.default.temporaryDirectory
                 let fileURL = tempDir.appendingPathComponent("\(UUID().uuidString).gif")
@@ -1023,7 +1075,7 @@ class EditorViewModel {
                 visualEffects: activeVisualEffectList,
                 faceEffect: activeFaceEffect,
                 detectedFaces: activeFaces,
-                textOverlay: nil // Stage F wires the editor's text overlay through here.
+                textOverlay: textOverlay,
             ) {
                 let tempDir = FileManager.default.temporaryDirectory
                 let fileURL = tempDir.appendingPathComponent("\(UUID().uuidString).gif")

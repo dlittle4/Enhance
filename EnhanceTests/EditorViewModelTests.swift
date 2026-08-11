@@ -526,6 +526,79 @@ struct EditorViewModelTests {
         #expect(vm.value(EffectParameter.sizeID, for: VisualEffectType.dither) == 0.2)
     }
 
+    // MARK: - Text overlay (Stage F model plumbing)
+
+    private func activeOverlay(_ text: String = "HELLO",
+                              animation: TextAnimationType = .pop) -> TextOverlay {
+        TextOverlay(text: text, center: CGPoint(x: 0.5, y: 0.5), fontSize: 0.12, angle: 0,
+                    font: .silkscreenBold, color: .white, alignment: .center,
+                    decoration: .shadow, animation: animation, seed: 5)
+    }
+
+    @Test func hasNonDefaultSettings_withActiveTextOverlay_isTrue() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        #expect(vm.hasNonDefaultSettings == false)
+        vm.textOverlay = activeOverlay()
+        #expect(vm.hasNonDefaultSettings == true)
+    }
+
+    /// Whitespace-only text is not an active overlay, so it must not read as a non-default setting
+    /// — otherwise RESET would appear for an empty draft the user never really made.
+    @Test func hasNonDefaultSettings_withWhitespaceOnlyText_isFalse() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.textOverlay = activeOverlay("   \n ")
+        #expect(vm.hasNonDefaultSettings == false)
+    }
+
+    @Test func resetEffects_clearsTextOverlay() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.textOverlay = activeOverlay()
+        vm.resetEffects()
+        #expect(vm.textOverlay == nil)
+    }
+
+    /// The overlay is a snapshot field, so undo restores it as one unit with everything else.
+    @Test func undo_restoresTextOverlay() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.textOverlay = activeOverlay("FIRST")
+
+        vm.pushUndo()
+        vm.textOverlay = activeOverlay("SECOND")
+        #expect(vm.textOverlay?.text == "SECOND")
+
+        vm.undo()
+        #expect(vm.textOverlay?.text == "FIRST")
+    }
+
+    /// A gesture session that changes the overlay records exactly one undo entry, and undo
+    /// restores the pre-gesture state.
+    @Test func textGesture_committingAChange_recordsOneUndoEntry() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.textOverlay = activeOverlay("HELLO")
+        #expect(vm.canUndo == false)
+
+        vm.beginTextGesture()
+        vm.textOverlay?.center = CGPoint(x: 0.3, y: 0.4) // as a drag would
+        vm.endTextGesture()
+
+        #expect(vm.canUndo == true)
+        #expect(vm.isTextGestureActive == false)
+        vm.undo()
+        #expect(vm.textOverlay?.center == CGPoint(x: 0.5, y: 0.5))
+    }
+
+    /// A gesture that ends where it began — a tap that selected but moved nothing, or a cancelled
+    /// pinch — must not litter the undo stack.
+    @Test func textGesture_withNoChange_pushesNoUndoEntry() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.textOverlay = activeOverlay("HELLO")
+
+        vm.beginTextGesture()
+        vm.endTextGesture()
+
+        #expect(vm.canUndo == false)
+    }
+
     // MARK: - Effect edit session
 
     /// The panel refuses to open without a selection *on the tabs that need one*, which
