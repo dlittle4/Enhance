@@ -1092,15 +1092,26 @@ stacking model before designing the copy format, or the format will need reworki
 
 ### Phase 19c: Animated text overlays (Stage A–C compiled and green)
 
-**Status: Stages A–C are verified in Xcode — they build clean and all 80 text tests pass (full
-suite 319/0).** Written first without a macOS toolchain, they compiled on the first Xcode build
-with none of §18's predicted errors, and the two load-bearing tests hold:
-`tiles_partitionTheMasterRaster_withoutOverlapOrLoss` and `arabicJoining_survivesTiling`. Verified
-on 2026-08-10 on `claude/text-effects-resume-726acc` (merged from `feature/text-overlay-renderer`);
-fold to `main` when convenient. The nine files add code and modify none, so nothing else moved.
+**Status: Stages A–F are on `main` and the feature works end to end on device** — TEXT tab → pick a
+preset → type → place it → the GIF carries the animated text. Full suite green (330/0) as of
+2026-08-11. Only Stage G (hardening) remains.
 
-Stages D–G are not started. Stage D is the next branch — small, but it modifies shipped code
-(`GIFGenerator`), which is why it waited for a compiler. The file manifest is §17.
+Stages A–C were written without a macOS toolchain and compiled clean on their first Xcode build,
+with none of §18's predicted errors; the two load-bearing tests hold
+(`tiles_partitionTheMasterRaster_withoutOverlapOrLoss`, `arabicJoining_survivesTiling`).
+
+Device testing then found three things worth recording, because each was a design fault rather
+than a typo:
+
+- **A full-canvas sibling view will eat every touch.** `TextOverlayHostView` covers the canvas and
+  sits above the scroll view, so until it answered `point(inside:)` for the text's own box only,
+  the photo could not be panned or zoomed *in any category*.
+- **`.whole`-granularity presets cut one tile spanning the entire raster**, so measuring "the text"
+  from tiles reports the whole canvas. Anything sizing a hit region or a selection box must use
+  `layout.inkBounds`.
+- **Decoration cannot work through a single-colour coverage mask.** SHADOW renders in the text's own
+  colour and BLOCK fills a plate over the glyphs. The STYLE control is withdrawn until the
+  rasterizer draws decoration in a second, contrasting fill; `TextDecoration` stays in the model.
 
 Full product, rendering, gesture, UX, accessibility, and test plan:
 **[FEATURE-TEXT-EFFECTS.md](FEATURE-TEXT-EFFECTS.md)** — **revision 2 (2026-08-10)**, which moves
@@ -1115,9 +1126,12 @@ Stages A–G in the plan; the gate for each is in §11.
 - [x] **Stage A** — *compiled, green.* One CoreText layout, one master raster, non-overlapping tiles.
       Partition invariant and Arabic joining both proven in `TextLayoutTests`.
 - [x] **Stage B** — *compiled, green.* The shared transform and the export compositor, still headless.
-- [x] **Stage C** — *compiled, green (headless).* Five zoom-synchronized entrance presets: POP, RISE, TYPE,
-      WORD DROP, FLICKER — evaluators verified in `TextAnimationTests`. Generation-time, memory, and
-      GIF-size budgets still need a real GIF (Stage D) and a device visual review (§12.11).
+- [x] **Stage C** — *shipped.* Five zoom-synchronized entrance presets, revised after device review:
+      **POP** (damped spring), **SLIDE** (word-staggered, UP/DOWN toggle — the old RISE and WORD DROP
+      folded together, since they differed only by direction), **TYPEWRITER** (was TYPE; its SPEED
+      control was inverted and now reads higher = faster), **SPIN** (scales up through 1–3
+      revolutions), **FLICKER**. Generation-time, memory and GIF-size budgets are still unmeasured —
+      that belongs to Stage G.
 - [x] **Stage D** — *done, green.* Text composited as stage 4 after the face → zoom → visual-effect
       pipeline, in both the animated and pause loops. `textOverlay == nil` proven byte-identical
       (`generateGIF_withNilTextOverlay_isByteIdenticalToOmittingIt`); threaded through
@@ -1125,11 +1139,20 @@ Stages A–G in the plan; the gate for each is in §11.
 - [x] **Stage E** — *done, green.* `regenerateIfNeeded`'s dropped-edit P1 repaired: a request
       arriving mid-flight sets `regeneratePending` and is re-fired from every completion path of
       `regenerateGIF`. This open P1 is now closed.
-- [ ] **Stage F** — first-touch gesture routing and the two-phase editor. The photo pans and zooms
-      exactly as under every other category; a gesture starting on the text moves, scales or
-      rotates it. Preset carousel → keyboard → DONE → three-row settings panel, as one undo entry.
+- [x] **Stage F** — *shipped.* First-touch gesture routing and the two-phase editor. The photo pans
+      and zooms exactly as under every other category; a gesture starting on the text moves, scales
+      or rotates it, as one undo entry per gesture session. Preset carousel → keyboard (Return
+      commits) → settings panel. Two departures from the plan, both deliberate: the panel holds
+      **two** rows (COLOR + the preset's tunable, plus FROM for SLIDE) rather than three, because
+      STYLE is withdrawn; and the canvas is live **only while editing**, handing back to the GIF on
+      confirm — keeping it live permanently meant a generated GIF never appeared in the preview.
+      The overlay is persisted per asset id, so reopening a GIF restores the words.
 - [ ] **Stage G** — hardening. Prove emoji, composed-character, ligature, multiline and RTL
-      correctness, and profile on the oldest supported device.
+      correctness on device; measure generation time, peak memory and GIF byte size against the
+      no-text baseline; VoiceOver adjustable actions and Reduce Motion. Known gaps to close:
+      preset cards render blank thumbnails, edge clamping has no rubber-band, rotation has no
+      haptic detents, and a **first-time** save cannot restore its text because the save callback
+      discards the new asset identifier (the same P1 that blocks zoom-param persistence).
 
 Cross-cutting: include text in undo/redo, reset, regeneration, save, and share; keep the live
 canvas (not the baked GIF) while the TEXT category is active.

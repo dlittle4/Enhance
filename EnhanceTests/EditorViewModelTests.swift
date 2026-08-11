@@ -605,7 +605,7 @@ struct EditorViewModelTests {
     /// The recipe has to survive being saved and reopened.
     @Test func textOverlay_roundTripsThroughPersistence() throws {
         let id = "text-persist-\(UUID().uuidString)"
-        var overlay = activeOverlay("SUNSET", animation: .wordDrop)
+        var overlay = activeOverlay("SUNSET", animation: .slide)
         overlay.color = .pink
         overlay.center = CGPoint(x: 0.3, y: 0.7)
         overlay.fontSize = 0.18

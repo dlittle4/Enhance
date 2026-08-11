@@ -85,6 +85,11 @@ struct EditorView: View {
                 .spring(response: AppConstants.Animation.standard, dampingFraction: 0.85),
                 value: viewModel.isEditingEffect
             )
+            // The keyboard slides *over* the editor rather than shoving it upward. SwiftUI's
+            // default avoidance lifted the whole column, so ENHANCE and SHARE rode up above the
+            // keyboard and stayed tappable while typing. Opting out leaves them where they are,
+            // covered by the keyboard, which is what a text-entry sheet should do.
+            .ignoresSafeArea(.keyboard, edges: .bottom)
 
             if isEnteringText {
                 textEntryOverlay
@@ -192,6 +197,15 @@ struct EditorView: View {
             // are worth a control. `TextDecoration` stays in the model for that work.
             ParameterPickerRow(label: "COLOR") {
                 textColorSwatchContent()
+            }
+            if viewModel.textOverlay?.animation.usesDirection == true {
+                ParameterPickerRow(label: "FROM") {
+                    SegmentedBar(
+                        items: TextSlideDirection.allCases,
+                        selection: textDirectionBinding,
+                        label: { $0.rawValue }
+                    )
+                }
             }
             ParameterSliderRow(
                 label: viewModel.textOverlay?.animation.parameterLabel ?? "AMOUNT",
@@ -606,6 +620,19 @@ struct EditorView: View {
             set: { newValue in
                 guard var overlay = viewModel.textOverlay else { return }
                 overlay.color = newValue
+                viewModel.textOverlay = overlay
+                viewModel.regenerateIfNeeded()
+            }
+        )
+    }
+
+    /// SLIDE's entry edge. "UP" means the text travels up into place from below.
+    private var textDirectionBinding: Binding<TextSlideDirection> {
+        Binding(
+            get: { viewModel.textOverlay?.slideDirection ?? .up },
+            set: { newValue in
+                guard var overlay = viewModel.textOverlay else { return }
+                overlay.slideDirection = newValue
                 viewModel.textOverlay = overlay
                 viewModel.regenerateIfNeeded()
             }

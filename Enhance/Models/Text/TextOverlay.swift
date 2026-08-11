@@ -49,6 +49,10 @@ struct TextOverlay: Equatable, Sendable, Codable {
     /// of the range so an untouched slider sits centred.
     var tuning: CGFloat = 0.5
 
+    /// Which edge SLIDE enters from. Ignored by the other presets, but stored on the overlay so
+    /// switching away and back remembers the choice.
+    var slideDirection: TextSlideDirection = .up
+
     /// The editor's input cap. Three rendered lines is a field-sizing guideline, not a renderer
     /// constraint — the layout engine will wrap to as many lines as the size demands.
     static let maxGraphemeClusters = 120

@@ -187,8 +187,9 @@ class EditorViewModel {
         case .zoomEffects:   return 3
         case .visualEffects: return selectedVisualEffect?.parameters.count ?? 0
         case .faceFilters:   return selectedFaceFilter?.parameters.count ?? 0
-        // COLOR and the per-preset tunable. STYLE is held back until decoration renders correctly.
-        case .text:          return 2
+        // COLOR and the per-preset tunable, plus DIRECTION for the presets that travel. STYLE is
+        // held back until decoration renders correctly.
+        case .text:          return (textOverlay?.animation.usesDirection == true) ? 3 : 2
         }
     }
 

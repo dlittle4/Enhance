@@ -141,22 +141,22 @@ struct TextAnimationTests {
     /// TYPE is a stepped reveal: each unit is fully on or fully off, never part-way. Exact 0/1
     /// alpha is also what lets the partition test compare a composite byte for byte.
     @Test func type_revealsUnitsInLogicalOrderWithoutPartialAlpha() throws {
-        let prepared = try layout(.type, text: "TYPING")
+        let prepared = try layout(.typewriter, text: "TYPING")
         var seen = 0
         for step in 0...30 {
-            let states = TextAnimationType.type.tileStates(at: CGFloat(step) / 30, layout: prepared)
-            let visible = states.prefix(TextAnimationType.type.slotCount(in: prepared))
+            let states = TextAnimationType.typewriter.tileStates(at: CGFloat(step) / 30, layout: prepared)
+            let visible = states.prefix(TextAnimationType.typewriter.slotCount(in: prepared))
                 .filter { $0.alpha > 0 }
             for state in visible { #expect(state.alpha == 1) }
             #expect(visible.count >= seen, "the reveal went backwards")
             seen = visible.count
         }
-        #expect(seen == TextAnimationType.type.slotCount(in: prepared))
+        #expect(seen == TextAnimationType.typewriter.slotCount(in: prepared))
     }
 
-    @Test func wordDrop_staggersWordsRatherThanMovingThemTogether() throws {
-        let prepared = try layout(.wordDrop, text: "ONE TWO THREE")
-        let states = TextAnimationType.wordDrop.tileStates(at: 0.25, layout: prepared)
+    @Test func slide_staggersWordsRatherThanMovingThemTogether() throws {
+        let prepared = try layout(.slide, text: "ONE TWO THREE")
+        let states = TextAnimationType.slide.tileStates(at: 0.25, layout: prepared)
         let alphas = Set(states.map { ($0.alpha * 1000).rounded() })
         #expect(prepared.wordRanges.count >= 3)
         #expect(alphas.count > 1, "every word animated in lockstep — the stagger is missing")
@@ -183,14 +183,14 @@ struct TextAnimationTests {
                                             pixelSide: side))
     }
 
-    /// A 90°-rotated title that RISEs must still travel up the *screen*: preset translation is
+    /// A 90°-rotated title that SLIDEs must still travel up the *screen*: preset translation is
     /// applied after the user's rotation, in output space.
     @Test func screenSpaceTranslation_survivesUserRotation() throws {
-        let turned = try raster(.rise, angle: .pi / 2)
-        let model = overlay(.rise, angle: .pi / 2)
+        let turned = try raster(.slide, angle: .pi / 2)
+        let model = overlay(.slide, angle: .pi / 2)
         let tile = try #require(turned.tiles.first)
 
-        let moving = TextAnimationType.rise.tileStates(at: 0.1, layout: turned.layout)[0]
+        let moving = TextAnimationType.slide.tileStates(at: 0.1, layout: turned.layout)[0]
         let atRest = TextTileState.resting
 
         let movingY = TextComposer.transform(tile: tile, state: moving, overlay: model,

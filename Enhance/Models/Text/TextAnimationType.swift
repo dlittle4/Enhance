@@ -7,10 +7,26 @@ import CoreGraphics
 enum TextTileGranularity: Sendable {
     /// One tile: the whole block moves as a unit.
     case whole
-    /// One tile per shaping-safe reveal unit — TYPE.
+    /// One tile per shaping-safe reveal unit — TYPEWRITER.
     case unit
-    /// One tile per linguistic word token — WORD DROP.
+    /// One tile per linguistic word token — SLIDE.
     case word
+}
+
+/// Which edge SLIDE enters from.
+///
+/// The one axis that distinguished the old RISE and WORD DROP presets: both travel vertically and
+/// settle, differing only in whether the text comes up from below or falls in from above. Folding
+/// them into one preset with a direction leaves the carousel shorter and the choice clearer.
+enum TextSlideDirection: String, CaseIterable, Identifiable, Hashable, Sendable, Codable {
+    case up   = "UP"
+    case down = "DOWN"
+
+    var id: String { rawValue }
+
+    /// Sign of the *starting* offset in output space, where positive y is down. Entering from
+    /// below means starting at +y and travelling up to zero.
+    var startSign: CGFloat { self == .up ? 1 : -1 }
 }
 
 /// What one tile is doing at one instant.
@@ -18,7 +34,7 @@ enum TextTileGranularity: Sendable {
 /// Two spatial spaces are mixed here on purpose, and the split is the contract:
 /// `scaleDelta` and `rotationDelta` are **local**, applied about the tile's own centre, while
 /// `translationDelta` is in **output space**, applied last. That is why a 90°-rotated title
-/// still RISEs up the screen but scales about itself — gravity is a screen metaphor, scale is
+/// still slides up the screen but scales about itself — gravity is a screen metaphor, scale is
 /// a typographic one. See FEATURE-TEXT-EFFECTS.md §7.6.
 ///
 /// `translationDelta` is normalized to the output frame's side, not pixels, so this whole type
@@ -48,11 +64,11 @@ struct TextTileState: Equatable, Sendable {
 /// random API inside the frame loop would make preview and export disagree and two generations of
 /// the same overlay differ, neither of which is recoverable after the fact.
 enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, Codable {
-    case pop      = "POP"
-    case rise     = "RISE"
-    case type     = "TYPE"
-    case wordDrop = "WORD DROP"
-    case flicker  = "FLICKER"
+    case pop        = "POP"
+    case slide      = "SLIDE"
+    case typewriter = "TYPEWRITER"
+    case spin       = "SPIN"
+    case flicker    = "FLICKER"
 
     var id: String { rawValue }
 
@@ -62,9 +78,9 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
 
     var granularity: TextTileGranularity {
         switch self {
-        case .pop, .rise, .flicker: return .whole
-        case .type:                 return .unit
-        case .wordDrop:             return .word
+        case .pop, .spin, .flicker: return .whole
+        case .typewriter:           return .unit
+        case .slide:                return .word
         }
     }
 
@@ -72,31 +88,31 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
     ///
     /// The rasterizer draws the master this much larger than its resting size so the sharpest
     /// frame is 1:1 rather than an upscale, and the resting transform divides it back out. It is
-    /// declared here rather than hardcoded in the rasterizer so a future preset that overshoots
-    /// further widens the raster automatically.
-    ///
-    /// Fixed, not derived from the tunable: POP's BOUNCE modulates the overshoot *within* this
-    /// ceiling, so the raster never has to be re-sized when a slider moves.
+    /// declared here rather than hardcoded in the rasterizer so a preset that overshoots further
+    /// widens the raster automatically — which POP's spring relies on.
     var peakScale: CGFloat {
         switch self {
-        case .pop: return 1.08
+        case .pop: return 1.45
         default:   return 1.0
         }
     }
 
-    /// Only TYPE draws a cursor, and it is the one synthetic tile in the system.
-    var hasCursor: Bool { self == .type }
+    /// Only TYPEWRITER draws a cursor, and it is the one synthetic tile in the system.
+    var hasCursor: Bool { self == .typewriter }
 
-    /// The label of this preset's single tunable control, shown in the settings panel's third row.
+    /// The label of this preset's single tunable control, shown in the settings panel.
     var parameterLabel: String {
         switch self {
-        case .pop:      return "BOUNCE"
-        case .rise:     return "DISTANCE"
-        case .type:     return "SPEED"
-        case .wordDrop: return "STAGGER"
-        case .flicker:  return "INTENSITY"
+        case .pop:        return "BOUNCE"
+        case .slide:      return "DISTANCE"
+        case .typewriter: return "SPEED"
+        case .spin:       return "SPINS"
+        case .flicker:    return "INTENSITY"
         }
     }
+
+    /// Whether this preset exposes the UP/DOWN direction control.
+    var usesDirection: Bool { self == .slide }
 
     /// Stable storage key component for the tunable. Must not change once shipped — values are
     /// keyed on it, and renaming one silently resets that control to its default.
@@ -112,7 +128,7 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
         }
     }
 
-    /// Total entries `tileStates` returns: one per slot, plus the cursor for TYPE.
+    /// Total entries `tileStates` returns: one per slot, plus the cursor for TYPEWRITER.
     func stateCount(in layout: PreparedTextLayout) -> Int {
         slotCount(in: layout) + (hasCursor ? 1 : 0)
     }
@@ -131,11 +147,13 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
     ///     value outside the range gets the endpoint rather than an extrapolated transform.
     ///   - layout: supplies the unit and word counts, and the overlay's seed.
     ///   - tuning: this preset's single control, `0…1`. Defaulted so the renderer and the tests
-    ///     can call the two-argument form, the same way `VisualEffect` defaults its later
-    ///     overloads rather than forcing every call site to thread a value it does not have.
+    ///     can call the shorter form, the same way `VisualEffect` defaults its later overloads
+    ///     rather than forcing every call site to thread a value it does not have.
+    ///   - direction: SLIDE's entry edge; ignored by every other preset.
     func tileStates(at progress: CGFloat,
                     layout: PreparedTextLayout,
-                    tuning: CGFloat = 0.5) -> [TextTileState] {
+                    tuning: CGFloat = 0.5,
+                    direction: TextSlideDirection = .up) -> [TextTileState] {
         let p = min(1, max(0, progress))
         let q = min(1, p / Self.entranceWindow)
         let t = min(1, max(0, tuning))
@@ -143,67 +161,50 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
 
         var states: [TextTileState]
         switch self {
-        case .pop:      states = popStates(q: q, slots: slots, tuning: t)
-        case .rise:     states = riseStates(q: q, slots: slots, tuning: t)
-        case .type:     states = typeStates(q: q, slots: slots, tuning: t)
-        case .wordDrop: states = wordDropStates(q: q, slots: slots, tuning: t)
-        case .flicker:  states = flickerStates(q: q, slots: slots, tuning: t, seed: layout.seed)
+        case .pop:        states = popStates(q: q, slots: slots, tuning: t)
+        case .slide:      states = slideStates(q: q, slots: slots, tuning: t, direction: direction)
+        case .typewriter: states = typewriterStates(q: q, slots: slots, tuning: t)
+        case .spin:       states = spinStates(q: q, slots: slots, tuning: t)
+        case .flicker:    states = flickerStates(q: q, slots: slots, tuning: t, seed: layout.seed)
         }
 
         if hasCursor {
-            states.append(cursorState(q: q, slots: slots, tuning: t))
+            states.append(cursorState(q: q))
         }
         return states
     }
 
     // MARK: - Presets
 
+    /// A spring that overshoots and rings down, rather than the single soft overshoot this had
+    /// before — which read as a gentle swell instead of a bounce.
+    ///
+    /// BOUNCE scales the amplitude of the ringing, so the control changes how springy it feels
+    /// rather than merely how big the one overshoot is. The decay is exponential and the sine is
+    /// phased to start at −1, so the text begins small, punches past full size, and settles.
     private func popStates(q: CGFloat, slots: Int, tuning: CGFloat) -> [TextTileState] {
-        // BOUNCE modulates the overshoot within `peakScale`, so the raster size is unaffected.
-        let peak = 1 + (peakScale - 1) * tuning * 2
-        let clampedPeak = min(peakScale, max(1, peak))
+        guard q < 1 else { return Array(repeating: .resting, count: slots) }
 
-        let scale: CGFloat
-        if q <= 0.65 {
-            scale = 0.55 + (clampedPeak - 0.55) * textEaseOut(q / 0.65)
-        } else {
-            // Settle exactly onto 1 at q == 1, so the resting invariant holds for every tuning.
-            scale = clampedPeak + (1 - clampedPeak) * easeInOut((q - 0.65) / 0.35)
-        }
+        let amplitude = 0.4 + 0.8 * tuning          // 0.4…1.2
+        let ring = pow(2, -10 * q) * sin((q * 10 - 0.75) * (2 * CGFloat.pi / 3))
+        // Bounded by peakScale so the raster is never upscaled at the overshoot frame.
+        let scale = min(peakScale, max(0.05, 1 + ring * amplitude))
 
-        let alpha = textEaseOut(min(1, q / 0.45))
-        let state = TextTileState(alpha: alpha, scaleDelta: scale,
+        let state = TextTileState(alpha: textEaseOut(min(1, q / 0.35)), scaleDelta: scale,
                                   rotationDelta: 0, translationDelta: .zero)
-        return Array(repeating: q >= 1 ? .resting : state, count: slots)
+        return Array(repeating: state, count: slots)
     }
 
-    private func riseStates(q: CGFloat, slots: Int, tuning: CGFloat) -> [TextTileState] {
-        // Normalized to the output side: 0.08 is the plan's ~48px of a 600px frame.
-        let distance = 0.04 + 0.08 * tuning
-        let remaining = 1 - textEaseOut(q)
-        // Positive y is down, so the text starts *below* its resting place and travels up into it.
-        let state = TextTileState(alpha: textEaseOut(min(1, q / 0.6)),
-                                  scaleDelta: 1, rotationDelta: 0,
-                                  translationDelta: CGPoint(x: 0, y: distance * remaining))
-        return Array(repeating: q >= 1 ? .resting : state, count: slots)
-    }
-
-    private func typeStates(q: CGFloat, slots: Int, tuning: CGFloat) -> [TextTileState] {
-        // SPEED finishes the reveal earlier, leaving the settled text on screen for longer.
-        let completion = 0.75 + 0.25 * tuning
-        let advance = min(1, q / completion)
-        let revealed = Int((advance * CGFloat(slots)).rounded(.down))
-
-        return (0..<slots).map { index in
-            // A stepped reveal, not a per-unit fade: typing is discrete, and an exact 0/1 alpha
-            // is what lets the partition test compare the composite byte-for-byte.
-            index < revealed || q >= 1 ? .resting : .hidden
-        }
-    }
-
-    private func wordDropStates(q: CGFloat, slots: Int, tuning: CGFloat) -> [TextTileState] {
+    /// Word tokens travelling in from one edge and settling, staggered so the line cascades.
+    ///
+    /// This is the old RISE and WORD DROP folded together: they only ever differed by which edge
+    /// the text came from, which is now `direction`.
+    private func slideStates(q: CGFloat, slots: Int, tuning: CGFloat,
+                             direction: TextSlideDirection) -> [TextTileState] {
         guard slots > 0 else { return [] }
-        let spread = 0.15 + 0.45 * tuning
+        // Normalized to the output side: 0.12 is a little over a tenth of the frame.
+        let distance = (0.04 + 0.08 * tuning) * direction.startSign
+        let spread: CGFloat = 0.35
         let window = max(0.0001, 1 - spread)
 
         return (0..<slots).map { index in
@@ -211,10 +212,47 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
             let offset = slots > 1 ? spread * CGFloat(index) / CGFloat(slots - 1) : 0
             let local = min(1, max(0, (q - offset) / window))
             let eased = textEaseOut(local)
-            // Negative y is up: each word falls from above and settles.
             return TextTileState(alpha: eased, scaleDelta: 1, rotationDelta: 0,
-                                 translationDelta: CGPoint(x: 0, y: -0.05 * (1 - eased)))
+                                 translationDelta: CGPoint(x: 0, y: distance * (1 - eased)))
         }
+    }
+
+    /// A stepped reveal, unit by unit, with a blinking block cursor.
+    ///
+    /// SPEED reads the way a speed control should: **higher is faster**. It sets how much of the
+    /// entrance window the reveal consumes, so turning it up finishes the typing sooner and leaves
+    /// the finished message on screen for longer. It used to be inverted.
+    private func typewriterStates(q: CGFloat, slots: Int, tuning: CGFloat) -> [TextTileState] {
+        let completion = 1.0 - 0.35 * tuning        // 1.0 (slowest) … 0.65 (fastest)
+        let advance = min(1, q / completion)
+        let revealed = Int((advance * CGFloat(slots)).rounded(.down))
+
+        return (0..<slots).map { index in
+            // Discrete 0/1 alpha: typing is stepped, and an exact alpha is what lets the
+            // partition test compare the composite byte for byte.
+            index < revealed || q >= 1 ? .resting : .hidden
+        }
+    }
+
+    /// Spins into place: the block turns through whole revolutions while growing to full size.
+    ///
+    /// The rotation is a *local* delta, so it pivots on the text's own centre rather than swinging
+    /// the block around the frame. SPINS chooses how many turns, and the easing is a plain
+    /// ease-out so the last part of the turn slows into the resting orientation.
+    private func spinStates(q: CGFloat, slots: Int, tuning: CGFloat) -> [TextTileState] {
+        guard q < 1 else { return Array(repeating: .resting, count: slots) }
+
+        let turns = 1 + (2 * tuning).rounded()      // 1, 2 or 3 full revolutions
+        let eased = textEaseOut(q)
+        let remaining = 1 - eased
+        let state = TextTileState(
+            alpha: textEaseOut(min(1, q / 0.3)),
+            scaleDelta: max(0.05, 0.2 + 0.8 * eased),
+            // Unwinds to exactly zero, so the text lands upright at its resting angle.
+            rotationDelta: turns * 2 * CGFloat.pi * remaining,
+            translationDelta: .zero
+        )
+        return Array(repeating: state, count: slots)
     }
 
     private func flickerStates(q: CGFloat, slots: Int, tuning: CGFloat,
@@ -256,11 +294,11 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
         return Array(repeating: state, count: slots)
     }
 
-    /// The TYPE cursor: a deterministic blink that is gone by the time the text settles.
+    /// The TYPEWRITER cursor: a deterministic blink that is gone by the time the text settles.
     ///
     /// It must reach zero at `q == 1`. The pause is a single render replicated, so a cursor still
     /// visible at the end would sit frozen over the finished message for the whole hold.
-    private func cursorState(q: CGFloat, slots: Int, tuning: CGFloat) -> TextTileState {
+    private func cursorState(q: CGFloat) -> TextTileState {
         guard q < 1 else { return .hidden }
         let blinks: CGFloat = 6
         let on = sin(q * blinks * 2 * CGFloat.pi) > 0

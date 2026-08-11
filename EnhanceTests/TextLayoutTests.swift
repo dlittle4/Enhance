@@ -14,7 +14,7 @@ struct TextLayoutTests {
     private let side: CGFloat = 480
 
     private func overlay(_ text: String,
-                         animation: TextAnimationType = .type,
+                         animation: TextAnimationType = .typewriter,
                          decoration: TextDecoration = .none,
                          font: TextFont = .silkscreenBold,
                          angle: CGFloat = 0,
@@ -50,7 +50,7 @@ struct TextLayoutTests {
     /// mis-derived seam positions, local/pixel coordinate errors, and any future "optimization"
     /// that inflates tiles to contain decoration bleed. If only one test survives, this is it.
     @Test(arguments: [
-        TextAnimationType.pop, .type, .wordDrop
+        TextAnimationType.pop, .typewriter, .slide
     ])
     func tiles_partitionTheMasterRaster_withoutOverlapOrLoss(animation: TextAnimationType) throws {
         for decoration in TextDecoration.allCases {
@@ -86,7 +86,7 @@ struct TextLayoutTests {
     /// from the pixel side: if a seam is off by one, or a crop lands upside down, the ink count
     /// moves even when the rects look right.
     @Test func restingComposite_preservesTheMastersInk() throws {
-        let model = overlay("HELLO", animation: .type)
+        let model = overlay("HELLO", animation: .typewriter)
         let raster = try #require(TextRasterizer.prepare(overlay: model, pixelSide: side))
 
         let masterInk = measure(raster.master).ink
@@ -130,7 +130,7 @@ struct TextLayoutTests {
     /// Lam-alef is two grapheme clusters and one glyph. A cluster-sized reveal would type half a
     /// glyph; the merge rule must fold them into one unit.
     @Test func lamAlef_isASingleUnit() throws {
-        let model = overlay("لا", animation: .type)
+        let model = overlay("لا", animation: .typewriter)
         let layout = try #require(TextLayoutEngine.layout(overlay: model, outputSide: side))
         #expect(model.text.count == 2, "precondition: two grapheme clusters")
         #expect(layout.units.count == 1, "a ligature must not be split across reveal units")
@@ -139,7 +139,7 @@ struct TextLayoutTests {
     /// Grapheme clusters are never split, whatever they are made of.
     @Test(arguments: ["👩‍👩‍👧‍👦", "🇯🇵", "é", "👍🏽"])
     func graphemeClusters_areNeverSplit(sample: String) throws {
-        let model = overlay(sample, animation: .type)
+        let model = overlay(sample, animation: .typewriter)
         let layout = try #require(TextLayoutEngine.layout(overlay: model, outputSide: side))
         #expect(layout.units.count == sample.count,
                 "\(sample) produced \(layout.units.count) units for \(sample.count) clusters")
@@ -148,7 +148,7 @@ struct TextLayoutTests {
     /// RTL reveals in typing order while sitting in visual order: the first-typed unit is the
     /// rightmost on screen. Getting this from Core Text's caret offsets is what makes it free.
     @Test func rtl_typesInLogicalOrderAtVisualPositions() throws {
-        let model = overlay("سلام", animation: .type)
+        let model = overlay("سلام", animation: .typewriter)
         let layout = try #require(TextLayoutEngine.layout(overlay: model, outputSide: side))
         let inked = layout.units.filter { !$0.isWhitespace }
         let first = try #require(inked.first)
@@ -161,8 +161,8 @@ struct TextLayoutTests {
     }
 
     /// Words come from `NLTokenizer`, never a split on spaces — "don't" is one word.
-    @Test func wordDrop_usesLinguisticTokens() throws {
-        let model = overlay("don't stop", animation: .wordDrop)
+    @Test func slide_usesLinguisticWordTokens() throws {
+        let model = overlay("don't stop", animation: .slide)
         let layout = try #require(TextLayoutEngine.layout(overlay: model, outputSide: side))
         #expect(layout.wordRanges.count == 2,
                 "expected two linguistic tokens, got \(layout.wordRanges.count)")
@@ -176,7 +176,7 @@ struct TextLayoutTests {
     /// transform function. If every geometric value scales linearly with the side, they cannot
     /// disagree — and this fails loudly the moment someone reintroduces a constant in pixels.
     @Test func layoutIsResolutionIndependent() throws {
-        let model = overlay("RESOLUTION", animation: .type)
+        let model = overlay("RESOLUTION", animation: .typewriter)
         let small = try #require(TextLayoutEngine.layout(overlay: model, outputSide: 300))
         let large = try #require(TextLayoutEngine.layout(overlay: model, outputSide: 600))
 
@@ -202,12 +202,12 @@ struct TextLayoutTests {
     /// Rotation is applied at composite time, so an off-axis overlay is supersampled to keep the
     /// resample clean. Axis-aligned text must not pay that cost.
     @Test func offAxisRotation_supersamplesButRightAnglesDoNot() {
-        let upright = TextRasterizer.supersampleFactor(for: overlay("A", animation: .rise))
+        let upright = TextRasterizer.supersampleFactor(for: overlay("A", animation: .slide))
         let turned = TextRasterizer.supersampleFactor(
-            for: overlay("A", animation: .rise, angle: .pi / 5)
+            for: overlay("A", animation: .slide, angle: .pi / 5)
         )
         let rightAngle = TextRasterizer.supersampleFactor(
-            for: overlay("A", animation: .rise, angle: .pi / 2)
+            for: overlay("A", animation: .slide, angle: .pi / 2)
         )
 
         #expect(upright == 1)
