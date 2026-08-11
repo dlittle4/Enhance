@@ -1334,3 +1334,47 @@ the compiler forces every site to be updated.
 plus an `EditorSnapshot` field. Never a case index. Relevant to the PIXELATE SHAPE and HALFTONE
 style candidates in the control audit — a worked example (built for layouts, then deleted) is in
 commit `580bf83`.
+
+---
+
+## 2026-08-11: A full-canvas sibling view swallows every touch unless it overrides `point(inside:)`
+
+**Problem:** adding the text overlay to the canvas killed pinch-zoom and pan on the photo — not only
+under the TEXT category, but under **every** category, including ones that never show text.
+
+**Root cause:** `TextOverlayHostView` is a sibling of the `UIScrollView` inside the canvas
+container, sized to the whole canvas so the text can be positioned anywhere in it. A plain `UIView`
+answers `point(inside:)` `true` across its entire bounds, and UIKit's default `hitTest` walks
+subviews in **reverse order** — so the topmost full-bounds view wins every touch. The scroll view
+underneath never saw a finger. The container's own `hitTest` had a `super.hitTest` fallback for the
+"text isn't active" case, which is exactly the path that handed everything to the host.
+
+**Fix:** the overlay answers `point(inside:)` only for the text's own rotated box, and the
+container's `hitTest` routes to the scroll view **explicitly** rather than ever falling through to
+`super`.
+
+**Rule:** any view layered over the canvas — text, stickers, crop handles, badges — must either be
+sized to its content or override `point(inside:)`. A transparent full-bounds view is not passive;
+it is an invisible wall. And never leave a `super.hitTest` fallback in a container whose whole job
+is arbitration: make every branch name its destination.
+
+---
+
+## 2026-08-11: `.whole`-granularity text tiles span the entire raster — measure `layout.inkBounds`
+
+**Problem:** with a POP overlay on the canvas, a two-finger pinch anywhere — including far from the
+words — scaled the *text* instead of zooming the photo. The touch region was reporting the whole
+325×325 canvas as "the text".
+
+**Root cause:** `TextRasterizer.cut` returns, for `.whole` granularity (POP, SPIN, FLICKER), a
+single tile whose rect is the **full raster bounds**, not the ink. That is correct for compositing —
+the tile is the whole decorated block — but it means the union of tile rects is the entire canvas.
+Code that measured the text from `raster.tiles` therefore got the canvas size, and only for those
+presets: `.unit` and `.word` presets measured correctly, so it looked preset-specific rather than
+structural.
+
+**Fix:** size the touch region from `raster.layout.inkBounds`, converted by
+`canvasSide / raster.pixelSide`. That is granularity-independent and supersample-independent.
+
+**Rule:** tiles are a *compositing* partition, not a measurement of the ink. Anything that needs the
+text's real extent — hit regions, selection outlines, clamping, layout — reads `layout.inkBounds`.
