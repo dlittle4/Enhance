@@ -12,6 +12,21 @@
 > ROADMAP.md; each is marked below with a pointer rather than a checkbox, so the open-item count
 > lives in exactly one file.
 
+### Where a "don't fix this back" decision belongs
+
+Three files can hold one, and the distinction is about *when*, not *what*:
+
+- **A feature doc**, while the feature is still in flight. The decision is provisional — it may be
+  revisited before the feature ships, and the reader who needs it is the one working on that
+  feature. Text overlays' two-row settings panel and its edit-only live canvas sit in
+  FEATURE-TEXT-EFFECTS.md §18 for exactly this reason, and should migrate here when Stage G closes.
+- **Here**, once the work has shipped. At that point the audience is no longer the feature's author
+  but whoever wonders, a year later, why the code has its current shape — and they will not think
+  to open a feature plan.
+- **[LEARNINGS.md](LEARNINGS.md)**, whenever the rule outlives its origin. If the next person to hit
+  it will be working on something unrelated, it is a learning, not history. The test: name who hits
+  this next. If you can only name someone working on the same feature, it is not a learning yet.
+
 ---
 
 ## Phase 0: Cleanup & Foundation ✓

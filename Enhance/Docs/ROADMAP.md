@@ -144,7 +144,25 @@ equals the literal it replaces, so the app should render pixel-identical. Full p
       or **253 across 44** including it. The file count — the number that sets migration scope — is
       understated either way.
 
-### 1e. Effect-carousel thumbnail cost → worsens with every effect added
+### 1e. Return the new asset id from the save callback → blocks zoom params *and* text restore
+
+*Promoted from §4 on 2026-08-11, at the text-overlay session's suggestion.* One structural gap
+serves two features, which is exactly the entry bar for this section — and while it sat under P1
+Correctness it was competing with polish bugs it will always out-rank.
+
+`saveGIFToLibrary`'s callback does not return the new `PHAsset` identifier, so there is **no key to
+store anything against** after a first-time save. Two consequences, found independently:
+
+- **Zoom params are never persisted for new saves.** `persistZoomParams` is called only from
+  `updateOriginalGIF` (`EditorViewModel.swift:812`); `saveGIFToLibrary` — first-time saves *and*
+  "SAVE NEW COPY" — never calls it, so re-opening falls back to a hardcoded
+  `scale = 2.0, rect = (0.15, 0.15, 0.7, 0.7)` (`:632`).
+- **A first-time save cannot restore its text overlay**, for the same reason (§3a).
+
+- [ ] Thread the created asset identifier back through the save callback, then have both
+      persistence paths key off it. Do this once rather than twice.
+
+### 1f. Effect-carousel thumbnail cost → worsens with every effect added
 
 Already at 11 thumbnails, up from 8. Each new effect in §2 makes it worse, which is what puts it
 here rather than in §4.
@@ -262,7 +280,7 @@ Stages A–F are on `main`. Full plan in [FEATURE-TEXT-EFFECTS.md](FEATURE-TEXT-
       VoiceOver adjustable actions. Two carry beyond this section — **STYLE is withdrawn** until the
       rasterizer can draw decoration in a second contrasting fill (a shadow currently renders in the
       text's own colour), and a **first-time save cannot restore its text** because the save
-      callback discards the new asset id, which is the same blocker as the zoom-param P1 in §1.
+      callback discards the new asset id, which is the same blocker as the zoom-param persistence in §1e.
 - [ ] Deliberately after V1: **fill effects** (static and animated gradients, sparkle) and **font
       choice**. `TextFont` already models five cases; V1 ships Silkscreen Bold and no picker. The
       rasterizer keeps the glyph coverage mask as a distinct step so the seam is in the right place.
@@ -363,11 +381,8 @@ repairs. Stage B remains:
 
 ### P1 — Correctness
 
-- [ ] **Newly-saved GIFs never persist their zoom params.** `persistZoomParams` is called only from
-      `updateOriginalGIF` (`EditorViewModel.swift:812`); `saveGIFToLibrary` — which handles
-      first-time saves *and* "SAVE NEW COPY" — never calls it, so re-opening falls back to a
-      hardcoded `scale = 2.0, rect = (0.15, 0.15, 0.7, 0.7)` (`:632`). **Structurally blocked:** the
-      save callback does not return the new PHAsset identifier, so there is no key to store against.
+- **Newly-saved GIFs never persist their zoom params** — **moved to §1e**, because the same
+  missing asset id also blocks text-overlay restore. One fix, two features.
 - [ ] **Saving a photo sometimes uses a different photo's frame** in the gallery thumbnail.
 - [ ] **Onboarding tagline truncates on SE 3** — "DRAMATIC ZOOMS AND S…". A fixed font size against
       a narrower screen.
