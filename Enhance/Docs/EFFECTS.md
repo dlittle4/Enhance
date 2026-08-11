@@ -19,7 +19,7 @@
 `VisualEffectType.retired` to bring one back): Monotone, Duotone, Bloom, Inversion,
 Vintage Grain, Pop Art.
 
-**14 face filters**, all shipped. LENS is the seventh effect living in *both* carousels, via
+**15 face filters**, all shipped. LENS is the seventh effect living in *both* carousels, via
 `FaceVisualEffect`.
 
 Every effect so far is composed from stock `CIFilter`s. **There is no custom Core Image
@@ -307,13 +307,34 @@ picker row and its `ColorPicker` wells already exist and need no new UI.
 
 ### Also worth building
 
+> **Classified by what actually blocks each one, not by kernel-vs-not** — that axis stopped
+> predicting anything. LENS was assumed to need a kernel and needed eight stock nodes. Water
+> caustic was filed here as an easy catalog fill and is the one item that genuinely cannot be
+> built stock. Corrected 2026-08-11 against the filter catalog; status lives in
+> [ROADMAP.md](ROADMAP.md) §2.
+
+**Ready — stock filters, no new infrastructure:**
+
 | Effect | Approach | Notes |
 |---|---|---|
-| **Hatching** | Luminance-driven line density: `sin(rotatedUV * frequency)` thresholded against luminance, layered at multiple angles for cross-hatch | `CIEdgeWork` / `CIComicEffect` get part-way without a kernel — try those first |
-| **Slice shift** | Horizontal bands, per-band displacement with a `frameIndex`-seeded hash | Was previously in the project as `GlitchEffect` and deleted; animates well across frames. Strip compositing may avoid a kernel entirely |
-| **Pixel stretch** | Project each pixel onto a line segment, replace one UV component with the projection, `smoothstep` falloff | No built-in equivalent |
-| **Pattern refraction** | Procedural height → normal via finite differences → offset UV by `normal.xy * (IOR - 1)`; per-channel IOR for dispersion | `CIGlassDistortion` needs a texture; procedural normals are better |
-| **Water caustic** | Animated caustic pattern composited over the photo | The one *fill* from the catalog that works on a photo rather than as a background |
+| **Bokeh (face-aware)** | `CIMaskedVariableBlur` graded by a `FaceRegionMaskBuilder` mask | See the dedicated section below. The strongest candidate: it adds a *capability*, and the hard part already exists |
+| **Slice shift** | Horizontal bands, per-band displacement with a `frameIndex`-seeded hash | Was previously in the project as `GlitchEffect` and deleted; animates well across frames. Strip compositing avoids a kernel |
+| **Hatching** (straight lines) | Three luminance-banded line screens at 15°/45°/75°, composited with darken | **`CILineScreen` and `CIHatchedScreen` take angle and width directly** — closer than the `CIEdgeWork` / `CIComicEffect` route suggested previously. Grid effect: needs `FrameGeometry` scale *and* phase |
+
+**Needs a spike first:**
+
+| Effect | Approach | Notes |
+|---|---|---|
+| **Pattern refraction** | Procedural height → normal via finite differences → offset UV by `normal.xy * (IOR - 1)`; per-channel IOR for dispersion | **`CIDisplacementDistortion` exists** and expresses a per-pixel UV remap directly. Build the height field as a CIImage, displace, three passes for dispersion — the LENS trick. Test before assuming a kernel |
+| **Pixel stretch** | Project each pixel onto a line segment, replace one UV component with the projection, `smoothstep` falloff | Same spike: a displacement field can express this too |
+
+**Genuinely needs the kernel gate:**
+
+| Effect | Approach | Notes |
+|---|---|---|
+| **Riso Print** | Tonal-band separation + three halftone screens | Spec below. WGSL in hand |
+| **Water caustic** | Animated caustic pattern composited over the photo | *Reclassified 2026-08-11.* Core Image has **no caustic and no Worley/Voronoi generator**. `CICrystallize` makes Voronoi-ish cells but exposes no seed or phase, so it cannot flow across frames — and blurred noise is ruled out (LEARNINGS, "light and structure from smeared noise") |
+| **Hatching line styles** | Wave, zigzag, concentric | Arbitrary substitutions into the `sin` argument; no stock equivalent. The straight-line version above needs none of this |
 
 ### Deliberately not building
 
@@ -505,8 +526,18 @@ density rather than dot radius, so the tonal ramp is linear.
 
 ### Bokeh — the face-aware version
 
-`CIBokehBlur` exists, so a kernel is only worth it for the brightness weighting, which is what
-makes bokeh read as bokeh rather than as blur:
+**The interesting version here is not in the reference.** The app already detects faces, so
+blurring *everything except* the detected face gives real portrait-mode depth of field —
+something the source effect cannot do because it has no notion of a subject.
+
+**Build it from `CIMaskedVariableBlur`, not `CIBokehBlur` plus a binary mask.** The masked-variable
+filter grades blur radius by mask value, so blur *falls off* with distance from the face. That is
+the difference between reading as depth and reading as a sharp face pasted onto a blurry photo —
+and it is the thing a kernel would otherwise be written to do. Feed it the soft alpha mask
+`FaceRegionMaskBuilder` already produces for THIRD EYE.
+
+A kernel is then only worth it for the brightness weighting, which is what makes bokeh read as
+bokeh rather than as blur:
 
 ```
 weight = 1 + max(0, luminance - brightnessThreshold) * bloomIntensity
@@ -515,9 +546,12 @@ weight = 1 + max(0, luminance - brightnessThreshold) * bloomIntensity
 Sample on a golden-angle spiral for even disc coverage:
 `angle = i * 2.399963`, `radius = sqrt(i / N) * blurRadius`.
 
-**The interesting version here is not in the reference.** The app already detects faces, so
-blurring *everything except* the detected face gives real portrait-mode depth of field —
-something the source effect cannot do because it has no notion of a subject.
+**That weighting approximates stock**: threshold the highlights (`CIColorClamp` or a luminance
+matrix), blur them separately, add back additively. Worth trying before reaching for §2c.
+
+**Degrade, don't vanish.** Unlike THIRD EYE, this needs no precise landmark geometry — a blur is
+forgiving. It should still work from `LandmarkQuality.estimated` (a bounding box is enough),
+rather than requiring the precise Vision path.
 
 ---
 
@@ -543,13 +577,30 @@ the extra control would actually change what a user can make.
 | **PIXELATE** | Rectangular cells only | **SHAPE** — `CIHexagonalPixellate` already exists, so hex is nearly free |
 | **RAINBOW** | No animation control | **SPEED**. The *face* variant already has one; the image variant does not |
 
-### Watch the budget
+### Watch the budget — and note the enforced cap is fiction
 
-`parameters.count <= 5` and `pickers.count <= 1` are enforced by
-`EffectParameterTests`, and they exist because the browse state has no scroll. Most of the
-above adds one or two rows, which is fine. If an effect genuinely needs more than five, raise
-the cap deliberately and confirm the panel still scrolls correctly on a short device — do not
-just relax the assertion.
+`parameters.count <= 5` and `pickers.count <= 1` are enforced by `EffectParameterTests`.
+**The row cap does not describe anything the hardware can render.** Computed from
+`PanelMetrics.swift:35-41` (grid 16, small 8, floor 34pt, cap 44pt), the panel height needed
+before rows floor and the content overflows:
+
+| rows | minimum panel height |
+|---|---|
+| 3 | **192pt** |
+| 4 | **234pt** |
+| 5 | **276pt** |
+
+The SE 3 panel is ~190–200pt (`EffectParameterTests.swift:222`). So **four rows do not fit that
+device at all**, and five — the enforced cap — needs about 76pt more than it has. Three rows is
+itself marginal: THIRD EYE ships three and overflows at the bottom of that range, and the guard
+test only checks 200pt, the roomy end, as its own comment concedes.
+
+When the rows floor, the content overflows, which re-enables the `ScrollView`
+(`EffectDetailPanel.swift:53`) — and `DragGesture(minimumDistance: 0)`
+(`ParameterSliderRow.swift:95`) loses to a live scroll, so dragging a slider scrolls the panel
+instead. **So "adds one row" is not automatically cheap.** Check the table before declaring a
+parameter, and see [ROADMAP.md](ROADMAP.md) §1a — the budget decision is tracked there and gates
+this whole section.
 
 ### Prefer separating coupled qualities over adding new ones
 
