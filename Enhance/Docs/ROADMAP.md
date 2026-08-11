@@ -1081,13 +1081,15 @@ other reasons — and each has one specific catch worth deciding knowingly.
 **They compose.** Once a stack exists, the copyable payload is the stack — so settle the
 stacking model before designing the copy format, or the format will need reworking.
 
-### Phase 19c: Animated text overlays (planned — approved, awaiting a Mac)
+### Phase 19c: Animated text overlays (Stage A–C written, unverified)
 
-**Status: plan approved, implementation deliberately not started.** The feature is CoreText, Core
-Graphics, UIKit gesture recognizers and CALayer end to end, so none of it compiles or tests off a
-macOS toolchain, and there is no CI to catch what inspection misses. Stage A's gate is that the
-tile partition invariant is *proven*, which cannot be met by reading code. The file manifest to
-work through is §17 of the plan.
+**Status: Stages A–C exist on `feature/text-overlay-renderer` and have never been compiled.**
+They were written without a macOS toolchain, and there is no CI, so the first Xcode session owns
+getting them to build and proving the gates. The branch adds nine files and modifies none, so it
+cannot break the app. **§18 of the plan is the handoff**: what exists, the likely first errors,
+the order to run the tests, and what a failure in each one actually means.
+
+Stages D–G are not started. The file manifest is §17.
 
 Full product, rendering, gesture, UX, accessibility, and test plan:
 **[FEATURE-TEXT-EFFECTS.md](FEATURE-TEXT-EFFECTS.md)** — **revision 2 (2026-08-10)**, which moves
@@ -1099,10 +1101,10 @@ on" makes unreachable, and it left the overlay uneditable after ENHANCE because 
 
 Stages A–G in the plan; the gate for each is in §11.
 
-- [ ] **Stage A** — one CoreText layout, one master raster, non-overlapping tiles. Prove the
+- [~] **Stage A** — *written, unverified.* One CoreText layout, one master raster, non-overlapping tiles. Prove the
       partition invariant and Arabic joining before anything else is built on it.
-- [ ] **Stage B** — the shared transform and the export compositor, still headless.
-- [ ] **Stage C** — five zoom-synchronized entrance presets: POP, RISE, TYPE, WORD DROP, FLICKER.
+- [~] **Stage B** — *written, unverified.* The shared transform and the export compositor, still headless.
+- [~] **Stage C** — *written, unverified.* Five zoom-synchronized entrance presets: POP, RISE, TYPE, WORD DROP, FLICKER.
       Establish generation-time, memory, and GIF-size budgets from this prototype.
 - [ ] **Stage D** — composite text after the existing face → zoom → visual-effect pipeline;
       `textOverlay == nil` must stay byte-identical.
