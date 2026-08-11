@@ -368,4 +368,20 @@ struct FeatureScramblerTests {
             .apply(to: input, face: makePreciseFace(), progress: 1.0, frameIndex: 0)
         #expect(isCyanish(pixel(out, x: 100, y: 190)), "the original left eye must remain")
     }
+
+    @Test func thirdEye_growsInPlaceWithGlow() {
+        let specs = ScrambleLayout.thirdEye.placements(for: makePreciseFace(), size: 0.5)
+        #expect(specs.count == 1)
+        let spec = specs[0]
+        #expect(spec.glows)
+        #expect(spec.startScaleFraction == 0, "grows from nothing")
+        #expect(spec.sourceCenter == spec.destination, "grows in place, does not travel")
+    }
+
+    @Test func swapLayouts_travelAndDoNotGlow() {
+        let specs = ScrambleLayout.shuffle.placements(for: makePreciseFace(), size: 0.5)
+        #expect(!specs.isEmpty)
+        #expect(specs.allSatisfy { !$0.glows })
+        #expect(specs.contains { $0.sourceCenter != $0.destination }, "a swap travels")
+    }
 }

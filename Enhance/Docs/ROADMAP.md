@@ -947,8 +947,10 @@ the lesson EDGES and the black band taught.
 **Stage E — layout pack ✓ shipped 2026-08-10 (pending device QA on the new layouts).** MOUTH EYES,
 EYE MOUTH, and SHUFFLE behind a preset-row picker.
 
-- [x] **`ScrambleLayout` enum** owns per-layout availability and placement specs. THIRD EYE copies
-      one eye to the forehead (V1 mapping preserved exactly); EYE MOUTH enlarges an eye onto the
+- [x] **`ScrambleLayout` enum** owns per-layout availability and placement specs. THIRD EYE grows an
+      eye out of the forehead in place (source == destination, scale 0 → full) with a soft radiating
+      glow (screen-blended radial gradient), rather than travelling from the real eye; EYE MOUTH
+      enlarges an eye onto the
       mouth; MOUTH EYES copies the mouth onto both eyes; NOSE SWAP swaps nose ↔ mouth; SHUFFLE is a
       four-way cycle (left eye→right, right eye→nose, nose→mouth, mouth→left). Feature-to-feature
       placements fit *within* the destination — the smaller of the width/height ratios, so a tall

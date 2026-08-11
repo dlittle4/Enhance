@@ -1,12 +1,18 @@
 import CoreGraphics
 
 /// One copied-feature placement, described by its endpoints. The effect interpolates from
-/// `sourceCenter` to `destination` over the reveal and scales toward `finalScale`.
+/// `sourceCenter` to `destination` over the reveal and scales from `startScaleFraction` of
+/// `finalScale` up to `finalScale`.
 struct ScramblePlacementSpec {
     var region: FaceRegion
     var sourceCenter: CGPoint
     var destination: CGPoint
     var finalScale: CGFloat
+    /// Scale at the start of the reveal, as a fraction of `finalScale`. Travelling copies
+    /// start near full (they settle as they arrive); a copy that grows *in place* starts at 0.
+    var startScaleFraction: CGFloat = 0.65
+    /// Whether a soft glow of light radiates from this placement (THIRD EYE).
+    var glows: Bool = false
 }
 
 /// The arrangement Feature Scrambler copies a face's features into. THIRD EYE is V1; the
@@ -68,12 +74,12 @@ enum ScrambleLayout: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .thirdEye:
             guard let eye = bestEye(in: face),
-                  let eyeCenter = eye.sourceCenter(in: face),
                   let forehead = foreheadCenter(for: face) else { return [] }
-            // Preserve V1's tuned life-size mapping to the forehead exactly.
+            // Grows out of the forehead in place (source == destination, scale 0 → full)
+            // with a radiating glow, rather than travelling from the real eye.
             return [ScramblePlacementSpec(
-                region: eye, sourceCenter: eyeCenter, destination: forehead,
-                finalScale: 0.6 + size * 0.9
+                region: eye, sourceCenter: forehead, destination: forehead,
+                finalScale: 0.6 + size * 0.9, startScaleFraction: 0, glows: true
             )]
 
         case .eyeMouth:

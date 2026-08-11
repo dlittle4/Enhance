@@ -91,9 +91,20 @@ struct FeatureScramblerEffect: FaceEffect {
                 x: lerp(spec.sourceCenter.x, spec.destination.x, t),
                 y: lerp(spec.sourceCenter.y, spec.destination.y, t)
             )
-            // Each copy grows from two-thirds toward its final size as it travels, so it
-            // settles rather than snapping into place.
-            let scale = spec.finalScale * lerp(0.65, 1.0, t)
+            // Each copy grows from its start fraction toward full size over the reveal — a
+            // travelling copy settles as it arrives; a grow-in-place copy emerges from zero.
+            let scale = spec.finalScale * lerp(spec.startScaleFraction, 1.0, t)
+
+            // A glow of light radiates from a glowing placement (THIRD EYE), emerging with it
+            // — composited under the copy so the copy stays crisp with a halo around it.
+            if spec.glows, let eyeBounds = spec.region.sourceBounds(in: face) {
+                let placedRadius = max(eyeBounds.width, eyeBounds.height) * scale
+                result = compositor.radialGlow(
+                    at: center, radius: placedRadius * 2.2,
+                    color: CIColor(red: 1.0, green: 0.93, blue: 0.75, alpha: 0.35 * opacity),
+                    over: result
+                )
+            }
 
             let placement = FaceRegionPlacement(
                 region: spec.region, destinationCenter: center, scale: scale, opacity: opacity
