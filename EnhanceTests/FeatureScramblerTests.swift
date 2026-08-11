@@ -361,12 +361,14 @@ struct FeatureScramblerTests {
     }
 
     /// THIRD EYE keeps the real eyes — it heals nothing, so the source eye stays put while a
-    /// copy also appears on the forehead.
+    /// copy also appears on the forehead. (The radiating glow casts warm light onto the eye,
+    /// raising its red, so this checks the eye is still present via its dominant blue rather
+    /// than strict cyan — a healed eye would be low-blue skin.)
     @Test func thirdEye_leavesTheSourceEyeInPlace() {
         let input = makeFixture()
         let out = FeatureScramblerEffect(size: 0.5, intensity: 0.9, layout: .thirdEye)
             .apply(to: input, face: makePreciseFace(), progress: 1.0, frameIndex: 0)
-        #expect(isCyanish(pixel(out, x: 100, y: 190)), "the original left eye must remain")
+        #expect(pixel(out, x: 100, y: 190).b > 150, "the original left eye must remain (not healed to skin)")
     }
 
     @Test func thirdEye_growsInPlaceWithGlow() {

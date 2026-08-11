@@ -122,26 +122,40 @@ struct FaceRegionCompositor {
             .cropped(to: background.extent)
     }
 
-    /// Screen a soft radial glow of light onto the image, brightest at `center` and fading to
-    /// nothing by `radius`. Lazy (a radial gradient + a screen blend), so no `CIContext`.
-    /// Screen lightens without blowing past white, which reads as light radiating outward.
-    func radialGlow(
+    /// Screen a burst of light radiating outward from `center` onto the image — a bright warm
+    /// core smeared into radial streaks with `CIZoomBlur`, the same mechanism that gives the
+    /// LENS effect its radial fan. Lazy (radial gradient + zoom blur + screen blend), so no
+    /// `CIContext`. Screen lightens without blowing past white, which reads as emitted light.
+    ///
+    /// - Parameters:
+    ///   - coreRadius: radius of the bright core before streaking.
+    ///   - rayAmount: `CIZoomBlur` amount — how far the light streaks radiate out.
+    func radialLight(
         at center: CGPoint,
-        radius: CGFloat,
+        coreRadius: CGFloat,
+        rayAmount: CGFloat,
         color: CIColor,
         over background: CIImage
     ) -> CIImage {
-        guard radius > 1, center.x.isFinite, center.y.isFinite, color.alpha > 0.001,
-              let gradient = CIFilter(name: "CIRadialGradient", parameters: [
+        guard coreRadius > 1, center.x.isFinite, center.y.isFinite, color.alpha > 0.001,
+              let core = CIFilter(name: "CIRadialGradient", parameters: [
                 "inputCenter": CIVector(x: center.x, y: center.y),
-                "inputRadius0": 0,
-                "inputRadius1": radius,
+                "inputRadius0": coreRadius * 0.2,
+                "inputRadius1": coreRadius,
                 "inputColor0": color,
                 "inputColor1": CIColor(red: color.red, green: color.green, blue: color.blue, alpha: 0)
               ])?.outputImage
         else { return background }
 
-        return gradient.cropped(to: background.extent)
+        // Smear the core outward into radial rays, then screen it onto the scene.
+        let rays = core.clampedToExtent()
+            .applyingFilter("CIZoomBlur", parameters: [
+                "inputCenter": CIVector(x: center.x, y: center.y),
+                "inputAmount": max(1, rayAmount)
+            ])
+            .cropped(to: background.extent)
+
+        return rays
             .applyingFilter("CIScreenBlendMode", parameters: [kCIInputBackgroundImageKey: background])
             .cropped(to: background.extent)
     }
