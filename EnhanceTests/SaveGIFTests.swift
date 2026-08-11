@@ -5,7 +5,7 @@ import UIKit
 /// Local stub — `StubGIFGenerator` in EditorViewModelTests is file-private. These tests never
 /// trigger generation, so it only needs to satisfy the initializer.
 private struct SaveStubGenerator: GIFGenerating {
-    func generateGIF(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double, pauseDuration: Double, visualEffects: [VisualEffect], faceEffect: FaceEffect?, detectedFaces: [DetectedFace]) -> Data? { nil }
+    func generateGIF(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double, pauseDuration: Double, visualEffects: [VisualEffect], faceEffect: FaceEffect?, detectedFaces: [DetectedFace], textOverlay: TextOverlay?) -> Data? { nil }
     func saveTempGIF(_ gifData: Data) -> URL? { nil }
 }
 

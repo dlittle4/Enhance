@@ -21,6 +21,9 @@ struct EditorSnapshot {
     let laserColor: LaserColor
     let tintColor: LaserColor
     let gradientStops: GradientStops
+    /// The text overlay, or `nil`. A whole value type per §6, so undo/redo, cancel and reset
+    /// carry the text, its placement, style and animation as one unit.
+    let textOverlay: TextOverlay?
 }
 
 @Observable
@@ -58,6 +61,11 @@ class EditorViewModel {
     var hasModifiedSettings: Bool = false
     var selectedEffectCategory: EffectCategory = .zoomEffects
     var selectedVisualEffect: VisualEffectType? = nil
+    /// The single text overlay, `nil` until a preset is chosen. Whitespace-only text is not an
+    /// active overlay (`TextOverlay.isActive`), so an empty draft never gates generation or
+    /// counts as a non-default setting. Rendered as GIF stage 4 (§7.7) regardless of which
+    /// category is active.
+    var textOverlay: TextOverlay? = nil
     /// Per-parameter control values, keyed by `EffectParameter.key(_:for:)`.
     ///
     /// Replaces the four fixed Doubles this used to hold, so an effect can declare any
@@ -123,8 +131,17 @@ class EditorViewModel {
     /// part of `EditorSnapshot` — undo should not teleport between panels.
     var isEditingEffect = false
 
+    /// True for the span of a direct-manipulation gesture on the text overlay (drag, pinch,
+    /// rotate — possibly several at once). Global undo/redo are disabled while it is set, the
+    /// same way `isEditingEffect` disables them, so an undo mid-drag cannot fight the gesture.
+    var isTextGestureActive = false
+
     /// State as it was when the panel opened, so the back chevron can discard.
     private var editEntrySnapshot: EditorSnapshot?
+
+    /// State captured at the *start* of a gesture session, pushed once when it ends — one undo
+    /// entry per session no matter how many recognizers took part (§8.6).
+    private var textGestureEntrySnapshot: EditorSnapshot?
 
     /// Whether the active category has something for the panel to edit.
     ///
@@ -137,6 +154,7 @@ class EditorViewModel {
         case .zoomEffects:   return true
         case .visualEffects: return selectedVisualEffect != nil
         case .faceFilters:   return selectedFaceFilter != nil
+        case .text:          return textOverlay?.isActive == true
         }
     }
 
@@ -155,6 +173,9 @@ class EditorViewModel {
         case .visualEffects: return selectedVisualEffect?.parameters ?? []
         case .faceFilters:   return selectedFaceFilter?.parameters ?? []
         case .zoomEffects:   return []
+        // COLOR and STYLE are built directly (like zoom's speed/pause/motion), plus the
+        // per-preset tunable; none are declared `EffectParameter`s, so this stays empty.
+        case .text:          return []
         }
     }
 
@@ -166,6 +187,8 @@ class EditorViewModel {
         case .zoomEffects:   return 3
         case .visualEffects: return selectedVisualEffect?.parameters.count ?? 0
         case .faceFilters:   return selectedFaceFilter?.parameters.count ?? 0
+        // COLOR and the per-preset tunable. STYLE is held back until decoration renders correctly.
+        case .text:          return 2
         }
     }
 
@@ -174,6 +197,7 @@ class EditorViewModel {
         case .visualEffects: return selectedVisualEffect?.rawValue ?? ""
         case .faceFilters:   return selectedFaceFilter?.rawValue ?? ""
         case .zoomEffects:   return selectedAnimatorType?.rawValue.uppercased() ?? "NO ZOOM"
+        case .text:          return textOverlay?.animation.rawValue ?? "TEXT"
         }
     }
 
@@ -211,6 +235,29 @@ class EditorViewModel {
         isEditingEffect = false
     }
 
+    /// Opens a direct-manipulation gesture session, capturing the pre-gesture state. Called from
+    /// the first recognizer's `.began` (the 0→1 transition of `TextGestureSession`'s counter), so
+    /// a simultaneous drag+pinch+rotate still captures exactly one entry snapshot.
+    func beginTextGesture() {
+        guard !isTextGestureActive else { return }
+        isTextGestureActive = true
+        textGestureEntrySnapshot = currentSnapshot()
+    }
+
+    /// Closes the gesture session. Pushes the pre-gesture snapshot (pre-change discipline, matching
+    /// `commitEditing`) only if the overlay actually changed, then requests one regeneration — so a
+    /// cancelled or no-op gesture litters neither the undo stack nor the GIF queue.
+    func endTextGesture() {
+        guard isTextGestureActive else { return }
+        isTextGestureActive = false
+        defer { textGestureEntrySnapshot = nil }
+
+        if let entry = textGestureEntrySnapshot, entry.textOverlay != textOverlay {
+            push(entry)
+            regenerateIfNeeded()
+        }
+    }
+
     func undo() {
         guard let snapshot = undoStack.popLast() else { return }
         redoStack.append(currentSnapshot())
@@ -244,13 +291,33 @@ class EditorViewModel {
     /// *missing*, so an undo or a panel cancel landing on top of a running regeneration
     /// could stack two. That was the ROADMAP's open P1.
     func regenerateIfNeeded() {
-        guard !isRegenerating else { return }
+        // A regeneration already in flight must not swallow this request. Record that another is
+        // wanted and re-fire it when the current one finishes (see `drainPendingRegeneration`).
+        // Dropping it here was an open P1: with slider commits it bit occasionally, but direct
+        // manipulation of a text overlay fires this constantly, and a silently-absent edit reads
+        // as the app ignoring the user. See FEATURE-TEXT-EFFECTS.md §8.7.
+        guard !isRegenerating else { regeneratePending = true; return }
         if case .existingGif = content {
             hasModifiedSettings = true
             regenerateGIF()
         } else if isSplit {
             regenerateGIF()
         }
+    }
+
+    /// Set when `regenerateIfNeeded` is called during an in-flight regeneration; drained at every
+    /// completion path of `regenerateGIF` so the last-requested state always reaches the GIF.
+    /// Read-only outside this type — only `regenerateIfNeeded` sets it and only the drain clears it.
+    private(set) var regeneratePending = false
+
+    /// Re-fires a regeneration that was queued while one was running. Called from every exit of
+    /// `regenerateGIF` — success and both error paths — after `isRegenerating` is cleared, so the
+    /// guard in `regenerateIfNeeded` sees the door open. Internal rather than private so the
+    /// queue-and-refire cycle can be driven deterministically in a test without the async hop.
+    func drainPendingRegeneration() {
+        guard regeneratePending else { return }
+        regeneratePending = false
+        regenerateIfNeeded()
     }
 
     /// Debounced regeneration for controls that emit a stream of values instead of a
@@ -281,7 +348,8 @@ class EditorViewModel {
             selectedFaceIndex: selectedFaceIndex,
             laserColor: laserColor,
             tintColor: tintColor,
-            gradientStops: gradientStopsOverride ?? gradientStops
+            gradientStops: gradientStopsOverride ?? gradientStops,
+            textOverlay: textOverlay
         )
     }
 
@@ -298,6 +366,7 @@ class EditorViewModel {
         laserColor = snapshot.laserColor
         tintColor = snapshot.tintColor
         gradientStops = snapshot.gradientStops
+        textOverlay = snapshot.textOverlay
 
         // Navigation is not snapshotted, and a restore can clear the very selection the
         // panel is editing — so always leave the panel rather than risk an open panel
@@ -333,6 +402,17 @@ class EditorViewModel {
     func clearSingleFaceFilterIfNeeded() {
         if selectedFaceFilter?.requiresSingleFace == true {
             selectedFaceFilter = nil
+        }
+    }
+
+    /// Toggle the target face: tapping the selected one reverts to all-faces, tapping a
+    /// different one isolates it.
+    func toggleFaceSelection(_ index: Int) {
+        if selectedFaceIndex == index {
+            selectedFaceIndex = nil
+            clearSingleFaceFilterIfNeeded()
+        } else {
+            selectedFaceIndex = index
         }
     }
 
@@ -372,13 +452,14 @@ class EditorViewModel {
     var hasNonDefaultSettings: Bool {
         let hasVisualEffect = selectedVisualEffect != nil
         let hasFaceFilter = selectedFaceFilter != nil
+        let hasText = textOverlay?.isActive == true
         // Tolerant comparison, not `!=`. Speed used to be one of four exact literals so
         // equality worked; with a continuous geometric slider, moving the knob off the
         // default and back yields 0.5000000000000001 and RESET would never disappear.
         let timingChanged = !ZoomPlayback.isDefaultSpeed(playbackSpeed)
             || !ZoomPlayback.isDefaultPause(pauseDuration)
         let base = selectedAnimatorType != .zoomIn || hasActiveModifier || timingChanged
-            || hasVisualEffect || hasFaceFilter
+            || hasVisualEffect || hasFaceFilter || hasText
 
         if case .newImage = content {
             return base || isSplit
@@ -434,6 +515,7 @@ class EditorViewModel {
         laserColor = .red
         tintColor = .red
         gradientStops = .default
+        textOverlay = nil
         detectedFaces = []
         faceDetectionService.clearCache()
 
@@ -838,6 +920,12 @@ class EditorViewModel {
                 guard let self else { return }
                 self.sourceImage = image
 
+                // Restore the authored text, so reopening lands on the words the user wrote rather
+                // than an empty keyboard over a title already baked into the pixels.
+                if let id = self.existingGifAssetIdentifier, self.textOverlay == nil {
+                    self.textOverlay = Self.loadTextOverlay(for: id)
+                }
+
                 if let id = self.existingGifAssetIdentifier, let params = Self.loadZoomParams(for: id) {
                     self.generationScale = params.scale
                     self.generationVisibleRect = params.rect
@@ -868,6 +956,7 @@ class EditorViewModel {
     /// effect, face filter, or modifier is applied that will animate on its own.
     private var hasEffectsWithoutZoom: Bool {
         selectedVisualEffect != nil || selectedFaceFilter != nil || selectedModifier != nil
+            || textOverlay?.isActive == true
     }
 
     func generateGIF() {
@@ -911,11 +1000,12 @@ class EditorViewModel {
                 pauseDuration: pauseDuration,
                 visualEffects: activeVisualEffectList,
                 faceEffect: activeFaceEffect,
-                detectedFaces: activeFaces
+                detectedFaces: activeFaces,
+                textOverlay: textOverlay,
             ) {
                 let tempDir = FileManager.default.temporaryDirectory
                 let fileURL = tempDir.appendingPathComponent("\(UUID().uuidString).gif")
-                
+
                 do {
                     try gifData.write(to: fileURL)
                     DispatchQueue.main.async {
@@ -958,11 +1048,12 @@ class EditorViewModel {
                 pauseDuration: pauseDuration,
                 visualEffects: activeVisualEffectList,
                 faceEffect: activeFaceEffect,
-                detectedFaces: activeFaces
+                detectedFaces: activeFaces,
+                textOverlay: textOverlay,
             ) {
                 let tempDir = FileManager.default.temporaryDirectory
                 let fileURL = tempDir.appendingPathComponent("\(UUID().uuidString).gif")
-                
+
                 do {
                     try gifData.write(to: fileURL)
                     DispatchQueue.main.async {
@@ -972,17 +1063,20 @@ class EditorViewModel {
                             self.isRegenerating = false
                             self.enhanceState = .share
                         }
+                        self.drainPendingRegeneration()
                     }
                 } catch {
                     DispatchQueue.main.async {
                         withAnimation { self.isRegenerating = false }
                         self.showToast("Error creating GIF")
+                        self.drainPendingRegeneration()
                     }
                 }
             } else {
                 DispatchQueue.main.async {
                     withAnimation { self.isRegenerating = false }
                     self.showToast("Error creating GIF")
+                    self.drainPendingRegeneration()
                 }
             }
         }
@@ -1035,6 +1129,7 @@ class EditorViewModel {
         }
         
         persistZoomParams(for: identifier)
+        persistTextOverlay(for: identifier)
         showToast("Updating GIF...")
         
         photoManager.deleteGifAsset(identifier: identifier) { [weak self] success, error in
@@ -1137,5 +1232,40 @@ class EditorViewModel {
 
     func persistZoomParams(for identifier: String) {
         Self.saveZoomParams(scale: generationScale, rect: generationVisibleRect, for: identifier)
+    }
+
+    // MARK: - Text Overlay Persistence
+
+    /// The text overlay is the one effect whose *recipe* has to survive a round trip.
+    ///
+    /// Everything else can be re-chosen from a card, but text is authored — losing the words means
+    /// retyping them. Reopening a saved GIF otherwise gave a blank editor over pixels that already
+    /// had a title baked in, and adding a preset started from an empty keyboard.
+    ///
+    /// Storing it is safe because the first frame of every entrance is deliberately empty (§6), so
+    /// the source image reconstructed from frame 0 carries no text and regeneration cannot double
+    /// it up. Keyed by asset identifier, exactly as the zoom parameters are.
+    private static let textOverlayPrefix = "textOverlay_"
+
+    static func saveTextOverlay(_ overlay: TextOverlay?, for identifier: String) {
+        guard !identifier.isEmpty else { return }
+        let key = "\(textOverlayPrefix)\(identifier)"
+        guard let overlay, overlay.isActive,
+              let data = try? JSONEncoder().encode(overlay) else {
+            UserDefaults.standard.removeObject(forKey: key)
+            return
+        }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+
+    static func loadTextOverlay(for identifier: String) -> TextOverlay? {
+        guard !identifier.isEmpty,
+              let data = UserDefaults.standard.data(forKey: "\(textOverlayPrefix)\(identifier)")
+        else { return nil }
+        return try? JSONDecoder().decode(TextOverlay.self, from: data)
+    }
+
+    func persistTextOverlay(for identifier: String) {
+        Self.saveTextOverlay(textOverlay, for: identifier)
     }
 }

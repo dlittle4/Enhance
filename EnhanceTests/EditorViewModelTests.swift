@@ -6,7 +6,7 @@ import UIKit
 private struct StubGIFGenerator: GIFGenerating {
     var shouldSucceed: Bool = true
     
-    func generateGIF(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double, pauseDuration: Double, visualEffects: [VisualEffect], faceEffect: FaceEffect? = nil, detectedFaces: [DetectedFace] = []) -> Data? {
+    func generateGIF(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double, pauseDuration: Double, visualEffects: [VisualEffect], faceEffect: FaceEffect? = nil, detectedFaces: [DetectedFace] = [], textOverlay: TextOverlay? = nil) -> Data? {
         guard shouldSucceed else { return nil }
         return Data([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])
     }
@@ -143,6 +143,53 @@ struct EditorViewModelTests {
 
         #expect(vm.hasModifiedSettings)
         try? FileManager.default.removeItem(at: url)
+    }
+
+    // MARK: - Regeneration guard (Stage E, §8.7)
+
+    private func regenReadyViewModel() -> EditorViewModel {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("regen-guard-\(UUID().uuidString).gif")
+        try? Data().write(to: url)
+        return EditorViewModel(content: .existingGif(url, 0, "id"), gifGenerator: StubGIFGenerator())
+    }
+
+    /// The P1 fix: an edit made while a regeneration is in flight must be queued, not dropped.
+    /// Before this, the `guard !isRegenerating else { return }` swallowed it silently — with
+    /// direct manipulation that would read as the app ignoring the user.
+    @Test func regenerateIfNeeded_whileInFlight_queuesInsteadOfDropping() {
+        let vm = regenReadyViewModel()
+        vm.isRegenerating = true // simulate a regeneration already running
+
+        #expect(!vm.regeneratePending)
+        vm.regenerateIfNeeded()
+        #expect(vm.regeneratePending, "the edit must be recorded, not silently dropped")
+    }
+
+    /// Draining after the in-flight run finishes re-fires the queued request exactly once and
+    /// clears the flag, so the last-requested state reaches the GIF.
+    @Test func drainPendingRegeneration_afterInFlight_refiresTheQueuedRequest() {
+        let vm = regenReadyViewModel()
+        vm.isRegenerating = true
+        vm.regenerateIfNeeded() // queued
+        #expect(vm.regeneratePending)
+
+        vm.isRegenerating = false // the running regeneration completes
+        vm.drainPendingRegeneration()
+
+        #expect(!vm.regeneratePending, "the queued request must be consumed")
+        // The re-fire ran regenerateIfNeeded again: on an existing GIF that marks settings modified
+        // before dispatching, so this is observable synchronously the moment the drain returns.
+        #expect(vm.hasModifiedSettings)
+    }
+
+    /// With nothing queued, draining is a no-op — it must not fire a spurious extra regeneration.
+    @Test func drainPendingRegeneration_withNothingQueued_doesNothing() {
+        let vm = regenReadyViewModel()
+        #expect(!vm.regeneratePending)
+        vm.drainPendingRegeneration()
+        #expect(!vm.regeneratePending)
+        #expect(!vm.hasModifiedSettings)
     }
 
     // MARK: - showsZoomHint
@@ -479,6 +526,116 @@ struct EditorViewModelTests {
         #expect(vm.value(EffectParameter.sizeID, for: VisualEffectType.dither) == 0.2)
     }
 
+    // MARK: - Text overlay (Stage F model plumbing)
+
+    private func activeOverlay(_ text: String = "HELLO",
+                              animation: TextAnimationType = .pop) -> TextOverlay {
+        TextOverlay(text: text, center: CGPoint(x: 0.5, y: 0.5), fontSize: 0.12, angle: 0,
+                    font: .silkscreenBold, color: .white, alignment: .center,
+                    decoration: .shadow, animation: animation, seed: 5)
+    }
+
+    @Test func hasNonDefaultSettings_withActiveTextOverlay_isTrue() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        #expect(vm.hasNonDefaultSettings == false)
+        vm.textOverlay = activeOverlay()
+        #expect(vm.hasNonDefaultSettings == true)
+    }
+
+    /// Whitespace-only text is not an active overlay, so it must not read as a non-default setting
+    /// — otherwise RESET would appear for an empty draft the user never really made.
+    @Test func hasNonDefaultSettings_withWhitespaceOnlyText_isFalse() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.textOverlay = activeOverlay("   \n ")
+        #expect(vm.hasNonDefaultSettings == false)
+    }
+
+    @Test func resetEffects_clearsTextOverlay() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.textOverlay = activeOverlay()
+        vm.resetEffects()
+        #expect(vm.textOverlay == nil)
+    }
+
+    /// The overlay is a snapshot field, so undo restores it as one unit with everything else.
+    @Test func undo_restoresTextOverlay() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.textOverlay = activeOverlay("FIRST")
+
+        vm.pushUndo()
+        vm.textOverlay = activeOverlay("SECOND")
+        #expect(vm.textOverlay?.text == "SECOND")
+
+        vm.undo()
+        #expect(vm.textOverlay?.text == "FIRST")
+    }
+
+    /// A gesture session that changes the overlay records exactly one undo entry, and undo
+    /// restores the pre-gesture state.
+    @Test func textGesture_committingAChange_recordsOneUndoEntry() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.textOverlay = activeOverlay("HELLO")
+        #expect(vm.canUndo == false)
+
+        vm.beginTextGesture()
+        vm.textOverlay?.center = CGPoint(x: 0.3, y: 0.4) // as a drag would
+        vm.endTextGesture()
+
+        #expect(vm.canUndo == true)
+        #expect(vm.isTextGestureActive == false)
+        vm.undo()
+        #expect(vm.textOverlay?.center == CGPoint(x: 0.5, y: 0.5))
+    }
+
+    /// A gesture that ends where it began — a tap that selected but moved nothing, or a cancelled
+    /// pinch — must not litter the undo stack.
+    @Test func textGesture_withNoChange_pushesNoUndoEntry() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.textOverlay = activeOverlay("HELLO")
+
+        vm.beginTextGesture()
+        vm.endTextGesture()
+
+        #expect(vm.canUndo == false)
+    }
+
+    // MARK: - Text overlay persistence
+
+    /// Text is authored, not chosen from a card, so losing it on a round trip means retyping it.
+    /// The recipe has to survive being saved and reopened.
+    @Test func textOverlay_roundTripsThroughPersistence() throws {
+        let id = "text-persist-\(UUID().uuidString)"
+        var overlay = activeOverlay("SUNSET", animation: .wordDrop)
+        overlay.color = .pink
+        overlay.center = CGPoint(x: 0.3, y: 0.7)
+        overlay.fontSize = 0.18
+        overlay.tuning = 0.8
+
+        EditorViewModel.saveTextOverlay(overlay, for: id)
+        let restored = try #require(EditorViewModel.loadTextOverlay(for: id))
+
+        #expect(restored == overlay, "every authored field must survive the round trip")
+        UserDefaults.standard.removeObject(forKey: "textOverlay_\(id)")
+    }
+
+    /// Clearing the text must clear the stored recipe too, or a removed title would come back on
+    /// the next open.
+    @Test func textOverlay_persistingNil_clearsTheStoredRecipe() {
+        let id = "text-clear-\(UUID().uuidString)"
+        EditorViewModel.saveTextOverlay(activeOverlay("GONE"), for: id)
+        #expect(EditorViewModel.loadTextOverlay(for: id) != nil)
+
+        EditorViewModel.saveTextOverlay(nil, for: id)
+        #expect(EditorViewModel.loadTextOverlay(for: id) == nil)
+    }
+
+    /// A whitespace-only overlay is not an overlay, so it must not be stored either.
+    @Test func textOverlay_whitespaceOnly_isNotPersisted() {
+        let id = "text-blank-\(UUID().uuidString)"
+        EditorViewModel.saveTextOverlay(activeOverlay("   "), for: id)
+        #expect(EditorViewModel.loadTextOverlay(for: id) == nil)
+    }
+
     // MARK: - Effect edit session
 
     /// The panel refuses to open without a selection *on the tabs that need one*, which
@@ -755,6 +912,16 @@ struct EditorViewModelTests {
         vm.selectedModifier = .shake
         #expect(vm.hasActiveModifier == true)
         #expect(vm.hasNonDefaultSettings == true)
+    }
+
+    // MARK: - Face selection
+
+    @Test func toggleFaceSelection_isolatesAndReverts() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.toggleFaceSelection(1)
+        #expect(vm.selectedFaceIndex == 1)
+        vm.toggleFaceSelection(1)  // tapping the selected one reverts to all-faces
+        #expect(vm.selectedFaceIndex == nil)
     }
 }
 

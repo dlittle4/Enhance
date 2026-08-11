@@ -12,7 +12,8 @@ protocol GIFGenerating {
         pauseDuration: Double,
         visualEffects: [VisualEffect],
         faceEffect: FaceEffect?,
-        detectedFaces: [DetectedFace]
+        detectedFaces: [DetectedFace],
+        textOverlay: TextOverlay?
     ) -> Data?
     
     func saveTempGIF(_ gifData: Data) -> URL?

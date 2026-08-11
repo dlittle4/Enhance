@@ -1,5 +1,6 @@
 import Testing
 import UIKit
+import ImageIO
 @testable import Enhance
 
 struct GIFGeneratorTests {
@@ -98,6 +99,83 @@ struct GIFGeneratorTests {
         #expect(data != nil)
     }
     
+    // MARK: - Text overlay (Stage D pipeline splice)
+
+    private func makeOverlay(_ text: String = "HI",
+                             animation: TextAnimationType = .pop) -> TextOverlay {
+        TextOverlay(text: text, center: CGPoint(x: 0.5, y: 0.5), fontSize: 0.12, angle: 0,
+                    font: .silkscreenBold, color: .white, alignment: .center,
+                    decoration: .shadow, animation: animation, seed: 99)
+    }
+
+    private func frameCount(of data: Data) -> Int {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return 0 }
+        return CGImageSourceGetCount(source)
+    }
+
+    /// The Stage D gate: with no overlay, the generator must be byte-for-byte what it was before
+    /// the text pass existed. Passing `nil` explicitly must equal omitting the argument entirely,
+    /// so the whole no-text world is provably untouched. See FEATURE-TEXT-EFFECTS.md §12.9.
+    @Test func generateGIF_withNilTextOverlay_isByteIdenticalToOmittingIt() {
+        let generator = GIFGenerator()
+        let image = makeTestImage()
+        let rect = CGRect(x: 0.15, y: 0.15, width: 0.7, height: 0.7)
+
+        let withoutArg = generator.generateGIF(from: image, currentScale: 2.0, visibleRect: rect,
+                                               animator: ZoomInAnimator())
+        let withNil = generator.generateGIF(from: image, currentScale: 2.0, visibleRect: rect,
+                                            animator: ZoomInAnimator(), textOverlay: nil)
+        #expect(withoutArg != nil)
+        #expect(withoutArg == withNil)
+    }
+
+    @Test func generateGIF_withTextOverlay_returnsData() {
+        let generator = GIFGenerator()
+        let data = generator.generateGIF(
+            from: makeTestImage(), currentScale: 2.0,
+            visibleRect: CGRect(x: 0.15, y: 0.15, width: 0.7, height: 0.7),
+            animator: ZoomInAnimator(), textOverlay: makeOverlay()
+        )
+        #expect(data != nil)
+    }
+
+    /// Adding text must change the pixels but not the timeline: the overlay is composited into
+    /// existing frames, never inserted as new ones, so the frame count is unchanged.
+    @Test func generateGIF_addingText_changesTheBytesButNotTheFrameCount() {
+        let generator = GIFGenerator()
+        let image = makeTestImage()
+        let rect = CGRect(x: 0.15, y: 0.15, width: 0.7, height: 0.7)
+
+        guard let plain = generator.generateGIF(from: image, currentScale: 2.0, visibleRect: rect,
+                                                animator: ZoomInAnimator()),
+              let texted = generator.generateGIF(from: image, currentScale: 2.0, visibleRect: rect,
+                                                 animator: ZoomInAnimator(),
+                                                 textOverlay: makeOverlay()) else {
+            Issue.record("GIF generation returned nil")
+            return
+        }
+
+        #expect(plain != texted, "the overlay must change the rendered pixels")
+        #expect(frameCount(of: plain) == frameCount(of: texted),
+                "text is composited into frames, not added as new ones")
+    }
+
+    /// FLICKER is the one preset with randomness, seeded from the overlay. Two generations of the
+    /// same overlay must be byte-identical, or preview and export could never be trusted to agree.
+    @Test func generateGIF_withText_isDeterministic() {
+        let generator = GIFGenerator()
+        let image = makeTestImage()
+        let rect = CGRect(x: 0.15, y: 0.15, width: 0.7, height: 0.7)
+        let overlay = makeOverlay("GO", animation: .flicker)
+
+        let first = generator.generateGIF(from: image, currentScale: 2.0, visibleRect: rect,
+                                          animator: ZoomInAnimator(), textOverlay: overlay)
+        let second = generator.generateGIF(from: image, currentScale: 2.0, visibleRect: rect,
+                                           animator: ZoomInAnimator(), textOverlay: overlay)
+        #expect(first != nil)
+        #expect(first == second)
+    }
+
     // MARK: - saveTempGIF
     
     @Test func saveTempGIF_writesFileAndReturnsURL() {

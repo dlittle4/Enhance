@@ -19,14 +19,16 @@ Each step should feel fast, tactile, and visually satisfying.
 
 ## Pick up here
 
-**State:** `main` has LENS (Phase 17h) and **Feature Scrambler V1 — THIRD EYE (Phase 17i)**,
-pushed to `origin/main`. Unit suite green. The session's pattern is to commit on the branch and
-fast-forward `main` at each green stage, so Xcode always sees a working build.
+**State:** `main` has LENS (Phase 17h) and **THIRD EYE (Phase 17i)**, pushed to `origin/main`.
+Unit suite green. The session's pattern is to commit on the branch and fast-forward `main` at each
+green stage, so Xcode always sees a working build.
 
-**Next:** step 5 below — Phase 17f (control audit) is the smallest, then Gallery Stage B. THIRD
-EYE's on-device matrix (Stage D2) is still open under "Needs device verification". Its Stage E
-layout pack (MOUTH EYES / EYE MOUTH / SHUFFLE) is the natural follow-on and its groundwork —
-the `FaceRegion` compositor and `FaceRegions` model — already exists.
+THIRD EYE is device-confirmed and done (2026-08-10). Note that Phase 17i **began** as Feature
+Scrambler: the MOUTH EYES / EYE MOUTH / NOSE SWAP / SHUFFLE layout pack shipped, was reviewed on
+device, and was then deliberately deleted — only THIRD EYE was worth keeping.
+[FEATURE-SCRAMBLER.md](FEATURE-SCRAMBLER.md) is historical; Phase 17i below is current.
+
+**Next:** step 5 below — Phase 17f (control audit) is the smallest, then Gallery Stage B.
 
 ### What shipped
 
@@ -93,13 +95,13 @@ assumption turned out to be false. Rationale in "Why this order" below.
       infrastructure. Rendered on the reference photo and inspected: radial prismatic dispersion,
       centre-clean, REACH confines it to an edge fringe at 0 and fills the frame at 1. 216 tests.
 
-**4 — Feature Scrambler (Phase 17i), re-scoped to THIRD EYE only. ✓ Done 2026-08-10.**
+**4 — THIRD EYE (Phase 17i). ✓ Done 2026-08-10.**
 
-- [x] Shipped THIRD EYE as V1 (Stage E layout pack deferred, as planned). Copies one eye to the
-      forehead over the zoom with a `smoothstep` settle, INTENSITY + SIZE (two rows), single-face.
-      Left behind the reusable landmark compositor (`FaceRegion` / `FaceRegionMaskBuilder` /
-      `FaceRegionCompositor`) and the `FaceRegions` + `LandmarkQuality` model. Confirmed on a real
-      photo (eye travels to the forehead and settles). **Device matrix (Stage D2) still pending.**
+- [x] An eye grows out of the forehead over the zoom, radiating spinning shafts of light.
+      Single-face; SIZE + INTENSITY (ray count) + COLOUR. Left behind the reusable landmark
+      compositor (`FaceRegion` / `FaceRegionMaskBuilder` / `FaceRegionCompositor`) and the
+      `FaceRegions` + `LandmarkQuality` model. Device-confirmed.
+      **Began as Feature Scrambler — the layout pack shipped and was then deleted; see 17i.**
 
 **5 — Then, in rough value order.**
 
@@ -149,12 +151,10 @@ rendering frames and inspecting them, which cannot catch everything.
       per frame and confirm it moves monotonically with the pan.
 - [ ] **DITHER legibility after GIF palettisation.** Does the stipple survive the 256-colour
       quantisation, or read as noise? If it needs help, the SCALE slider is the first lever.
-- [ ] **THIRD EYE (Feature Scrambler V1)** — the full Stage D2 matrix. Verified only by
-      rendered-frame inspection and one real-photo check that the eye travels to the forehead and
-      settles. Watch for: crop seams / halo where the copied eye meets skin (padding 0.35, feather
-      0.55 are the levers); placement height across face shapes; the reveal reading deliberately at
-      the 12-frame 4× floor for Zoom In, Zoom Out, and Pulse; and the eye fallback on a profile
-      face with one visible eye.
+- [x] **THIRD EYE** — device-confirmed 2026-08-10 over several passes, each feeding a tuning
+      correction back into the glow constants. The deep edge cases (4× 12-frame floor across
+      Zoom In/Out/Pulse; the one-eye profile fallback; the animal/estimated-landmark fallback)
+      were not each individually exercised and can be spot-checked if a report comes in.
 - [ ] **20-item effects carousel** — scroll feel, and whether entering the IMAGE tab stutters
       while 11 thumbnails render (was 8 before the new effects).
 - [ ] **GRADIENT colour wells** — the three system wells show Apple's spectrum ring; confirmed
@@ -219,13 +219,15 @@ Each entry names the file and line where the defect lives.
 
 ### P1 — Correctness
 
-- [ ] **Edits are silently dropped during regeneration.** `guard !isRegenerating else { return }`
-      appears in 12 places. A change made while a regeneration is in flight is discarded with
-      nothing queued and no re-check on completion — the UI shows the new setting, the GIF shows
-      the old one. The four sliders are *not* `.disabled` during regeneration
-      (`EditorView.swift:641`, `:689`, `:794`, `:842`), so slider edits are the most likely to vanish.
-      Root cause: the same 6-line "mark modified + regenerate" block is copy-pasted ~13 times
-      across 8 `.onChange` handlers, 4 drag-end methods, and `restore()` (31 `regenerateGIF()` callsites).
+- [x] **Edits are silently dropped during regeneration.** *(fixed 2026-08-10 — Stage E of the text
+      overlays work, §8.7.)* The `guard !isRegenerating else { return }` in the consolidated
+      `regenerateIfNeeded()` discarded a mid-flight change with nothing queued and no re-check on
+      completion — the UI showed the new setting, the GIF the old one. Now the guard sets
+      `regeneratePending` instead of returning empty-handed, and `regenerateGIF` re-fires from every
+      completion path (success and both error paths) once `isRegenerating` clears. Because every
+      caller funnels through the one `regenerateIfNeeded` chokepoint, this covers all of them at
+      once. Tests: `regenerateIfNeeded_whileInFlight_queuesInsteadOfDropping`,
+      `drainPendingRegeneration_afterInFlight_refiresTheQueuedRequest`.
 - [ ] **Newly-saved GIFs never persist their zoom params.** `persistZoomParams` is called only from
       `updateOriginalGIF` (`EditorViewModel.swift:812`). `saveGIFToLibrary` — which handles first-time
       saves *and* "SAVE NEW COPY" — never calls it, so re-opening falls back to the hardcoded
@@ -912,17 +914,42 @@ Despite the name, the effect is not geometric distortion: it is radial prismatic
 also ships in both carousels and is linear rather than radial — and whether "LENS" or "PRISM"
 describes it more honestly than "LENS DISTORTION".
 
-### Phase 17i: Feature Scrambler — THIRD EYE ✓ (V1 shipped 2026-08-10); layout pack (Stage E) deferred
+### Phase 17i: THIRD EYE ✓ shipped 2026-08-10 (began as Feature Scrambler)
 
-> Full specification in **[FEATURE-SCRAMBLER.md](FEATURE-SCRAMBLER.md)**. This section records
-> the review outcome, the re-scope, and what V1 actually shipped.
+> **What shipped is one effect, not the Scrambler.** [FEATURE-SCRAMBLER.md](FEATURE-SCRAMBLER.md)
+> is now historical: it specifies a layout pack that was built, reviewed on device, and then
+> **deliberately deleted**. Read it for the compositor design, not for current behaviour.
 
-Copies eyes and mouth to deliberately wrong positions. The engineering design is sound — Core
-Image compositing rather than a kernel, a reusable region compositor as the strategic payload,
-and a Stage A prototype rendered *through GIF encoding* before any real work, which is exactly
-the lesson EDGES and the black band taught.
+**The arc.** The plan was face-region rearrangement: copy eyes and mouth to wrong positions,
+with THIRD EYE as V1 and a MOUTH EYES / EYE MOUTH / SHUFFLE layout pack behind it. All of that
+shipped — plus NOSE SWAP and a four-way SHUFFLE — and then, on review, only THIRD EYE was worth
+keeping. The rest was cut on 2026-08-10 along with `ScrambleLayout`, the LAYOUT preset row, and
+`EffectParameter.Kind.preset`. Implementations are in the history around `580bf83`…`cab247c` if
+a layout is ever wanted back.
 
-**Shipped THIRD EYE as V1 — no layout picker.**
+**What that leaves.** `ThirdEyeEffect` + `FaceFilterType.thirdEye`, single-face, three rows:
+SIZE, INTENSITY (number of light rays), and a COLOUR swatch that tints the eye. An eye grows out
+of the forehead in place over the reveal — scale 0 → full, `smoothstep`, no travel — radiating
+spinning shafts of light. The real eyes stay: it is an addition, not a swap, so nothing is healed.
+
+**The light is built from discrete analytic shapes, the way `LazerEyesEffect` builds its glow,
+and that is load-bearing.** The first version streaked `CIRandomGenerator` noise with `CIZoomBlur`
+(the LENS mechanism). It read as mush, and no amount of contrast fixed it: a blur *averages
+neighbouring values into a continuous wash*, so the shafts can never fully separate again. Each
+shaft is now its own radial gradient squashed into a thin bar and rotated into place, layered over
+core + bloom sprites and composited **additively** — clean edges at any length, punchy rather than
+milky. INTENSITY maps to a real count (4–11 spokes = 8–22 visible rays). Still lazy, still
+deterministic.
+
+**Tuning history worth keeping** (each was a device-QA correction, in order): the ray range was far
+too hot, so the old *minimum* became the new maximum; the glow was too bright and hazy, so the core
+was dimmed and tightened and the reach cut; and the core is deliberately not white, because a
+blown-out centre washes the chosen colour straight back out of the eye. The ray colour is still
+hardcoded warm gold — driving it from the COLOUR pick (as LAZER EYES does) is the obvious next
+polish.
+
+**The groundwork below survived the cut** and is the real payload — `FaceRegions`,
+`LandmarkQuality`, and the `FaceRegion*` compositor now support any future region effect.
 
 - [x] **Stage B — landmark groundwork.** `FaceRegions` (eye/lip/nose polygons) + `LandmarkQuality`
       added to `DetectedFace`, defaulted so the many memberwise-init call sites stayed source-
@@ -934,45 +961,24 @@ the lesson EDGES and the black band taught.
       mask), `FaceRegionCompositor` (crop → clamp → mask → transform → composite, extent-preserving,
       no `CIContext`/`createCGImage`). Colored-fixture tests prove sampled pixels land at the
       destination. This is the strategic payload the whole feature existed to leave behind.
-- [x] **Stage D — THIRD EYE vertical slice.** `FeatureScramblerEffect` + `FaceFilterType.scramble`,
-      INTENSITY + SIZE via the existing `secondaryID` convention (two rows, fits SE 3),
-      `requiresSingleFace`. Timeline reveal `0.15→0.75` with a single `smoothstep` settle,
-      deterministic (no `frameIndex`, no unseeded randomness). Intensity 0 is an exact no-op; any
-      positive value keeps the tuned opacity floor. Parity table updated. Padding/feather/placement
-      constants locked after visual QA on a real photo.
+- [x] **The effect.** `ThirdEyeEffect` + `FaceFilterType.thirdEye`. SIZE (primary slot) +
+      INTENSITY (`secondaryID`, ray count) + a `.tintColor` COLOUR picker — three rows, fits SE 3.
+      `requiresSingleFace`. Reveal `0.15→0.75`, `smoothstep`, deterministic (no `frameIndex`, no
+      unseeded randomness), so it assembles monotonically under Zoom In, Zoom Out, and Pulse alike.
+- [x] **The light.** `FaceRegionCompositor.radialLight` — core + bloom sprites and N squashed-gradient
+      shafts, rotated about the eye and composited additively. See the note above on why this is
+      analytic rather than noise-based; that is the one decision here worth not re-litigating.
 - [x] **Stage C2** (face-effect render perf prerequisite) was already done — see "Next up" step 1.
-- [ ] **Stage D2 — device matrix still pending.** 0.25×/0.5×/1×/4×, Zoom In/Out/Pulse, Shake/Spiral,
-      and front/profile/occluded/glasses/small/multi-face/animal photos; inspect in Photos,
-      Messages, and the in-app gallery. Added to "Needs device verification".
+- [x] **Device QA.** Confirmed on device across several passes, each of which fed a tuning
+      correction back into the constants. No crawling, seams, or stale preview.
+- [ ] **Ray colour follows the COLOUR pick.** Currently hardcoded warm gold while the eye tints —
+      LAZER EYES tints its whole glow, which is part of why it reads as cohesive. Small, obvious.
+- [ ] **Deep edge cases**, opportunistic: the 4× 12-frame floor, and the animal/estimated-landmark
+      fallback (THIRD EYE works from a pupil + eye width, so it should degrade rather than vanish).
 
-**Stage E — layout pack (deferred, unchanged plan).** MOUTH EYES / EYE MOUTH / SHUFFLE behind a
-preset-row picker, typed `scrambleLayout` state on the view model and `EditorSnapshot`, and
-per-layout availability. The two blocking problems below are Stage E's, not V1's:
-
-- [ ] **Four rows do not fit.** `params.count <= 5` is a *declaration* assertion, not a layout
-      guarantee. Measured on SE 3, the panel has ~190–200pt; four rows clamp at the 34pt floor and
-      need ~234pt, **overflowing ~40pt**. That re-enables the `ScrollView`, and
-      `DragGesture(minimumDistance: 0)` then loses to it — so dragging SIZE or FEATHER would
-      scroll the panel instead of adjusting it. Dropping FEATHER (which the plan itself says to
-      tune from rendered output, making it a constant rather than a knob) leaves LAYOUT + SIZE +
-      INTENSITY at three rows, which fits.
-- [ ] **`layout` cannot live where the plan puts it.** `parameterValues` is `[String: Double]`; an
-      enum has no home there, and encoding it as a case index makes reordering `ScrambleLayout`
-      silently reinterpret saved values. The codebase already solved this: every non-Double
-      parameter (`tintColor`, `gradientStops`, `laserColor`) is a dedicated typed property on the
-      view model *and* a field on `EditorSnapshot`. Follow that, rather than the plan's proposed
-      "shared typed option container".
-
-Smaller corrections carried forward:
-
-- [ ] A new `Kind` breaks `faceFilter_onlyLazerEyesDeclaresAPicker` — expected, but unlisted.
-- [ ] Per-layout availability messaging (`NEEDS A CLEAR VIEW OF THE MOUTH`) is **new component
-      work** — `EffectDetailPanel` and `ParameterPickerRow` have no disabled state and no
-      explanatory-text affordance — and it competes for the same panel height.
-- [ ] Two requirements are already free: pause frames render one image and append it N times, so
-      "byte-stable" needs nothing from the effect; and a `scaled()` enumeration test must know
-      that `normalizedBoundingBox` is *deliberately* unscaled or it is an instant false positive.
-- [ ] The performance budget is stated against the wrong baseline — see "Next up" step 1.
+Free requirements confirmed along the way: pause frames already reuse one rendered image, so
+"byte-stable" needs nothing from the effect; and the `scaled()` enumeration test knows
+`normalizedBoundingBox` is deliberately unscaled.
 
 ### Phase 17e: New Image Effects — Phase 2 (not started, deliberately deferred)
 
@@ -1085,13 +1091,17 @@ other reasons — and each has one specific catch worth deciding knowingly.
 **They compose.** Once a stack exists, the copyable payload is the stack — so settle the
 stacking model before designing the copy format, or the format will need reworking.
 
-### Phase 19c: Animated text overlays (planned — approved, awaiting a Mac)
+### Phase 19c: Animated text overlays (Stage A–C compiled and green)
 
-**Status: plan approved, implementation deliberately not started.** The feature is CoreText, Core
-Graphics, UIKit gesture recognizers and CALayer end to end, so none of it compiles or tests off a
-macOS toolchain, and there is no CI to catch what inspection misses. Stage A's gate is that the
-tile partition invariant is *proven*, which cannot be met by reading code. The file manifest to
-work through is §17 of the plan.
+**Status: Stages A–C are verified in Xcode — they build clean and all 80 text tests pass (full
+suite 319/0).** Written first without a macOS toolchain, they compiled on the first Xcode build
+with none of §18's predicted errors, and the two load-bearing tests hold:
+`tiles_partitionTheMasterRaster_withoutOverlapOrLoss` and `arabicJoining_survivesTiling`. Verified
+on 2026-08-10 on `claude/text-effects-resume-726acc` (merged from `feature/text-overlay-renderer`);
+fold to `main` when convenient. The nine files add code and modify none, so nothing else moved.
+
+Stages D–G are not started. Stage D is the next branch — small, but it modifies shipped code
+(`GIFGenerator`), which is why it waited for a compiler. The file manifest is §17.
 
 Full product, rendering, gesture, UX, accessibility, and test plan:
 **[FEATURE-TEXT-EFFECTS.md](FEATURE-TEXT-EFFECTS.md)** — **revision 2 (2026-08-10)**, which moves
@@ -1103,15 +1113,19 @@ on" makes unreachable, and it left the overlay uneditable after ENHANCE because 
 
 Stages A–G in the plan; the gate for each is in §11.
 
-- [ ] **Stage A** — one CoreText layout, one master raster, non-overlapping tiles. Prove the
-      partition invariant and Arabic joining before anything else is built on it.
-- [ ] **Stage B** — the shared transform and the export compositor, still headless.
-- [ ] **Stage C** — five zoom-synchronized entrance presets: POP, RISE, TYPE, WORD DROP, FLICKER.
-      Establish generation-time, memory, and GIF-size budgets from this prototype.
-- [ ] **Stage D** — composite text after the existing face → zoom → visual-effect pipeline;
-      `textOverlay == nil` must stay byte-identical.
-- [ ] **Stage E** — repair `regenerateIfNeeded`'s dropped-edit P1 first, on its own commit. Direct
-      manipulation makes it fire constantly instead of occasionally.
+- [x] **Stage A** — *compiled, green.* One CoreText layout, one master raster, non-overlapping tiles.
+      Partition invariant and Arabic joining both proven in `TextLayoutTests`.
+- [x] **Stage B** — *compiled, green.* The shared transform and the export compositor, still headless.
+- [x] **Stage C** — *compiled, green (headless).* Five zoom-synchronized entrance presets: POP, RISE, TYPE,
+      WORD DROP, FLICKER — evaluators verified in `TextAnimationTests`. Generation-time, memory, and
+      GIF-size budgets still need a real GIF (Stage D) and a device visual review (§12.11).
+- [x] **Stage D** — *done, green.* Text composited as stage 4 after the face → zoom → visual-effect
+      pipeline, in both the animated and pause loops. `textOverlay == nil` proven byte-identical
+      (`generateGIF_withNilTextOverlay_isByteIdenticalToOmittingIt`); threaded through
+      `GIFGenerating` and both stubs. The editor still passes `nil` — Stage F wires the real overlay.
+- [x] **Stage E** — *done, green.* `regenerateIfNeeded`'s dropped-edit P1 repaired: a request
+      arriving mid-flight sets `regeneratePending` and is re-fired from every completion path of
+      `regenerateGIF`. This open P1 is now closed.
 - [ ] **Stage F** — first-touch gesture routing and the two-phase editor. The photo pans and zooms
       exactly as under every other category; a gesture starting on the text moves, scales or
       rotates it. Preset carousel → keyboard → DONE → three-row settings panel, as one undo entry.

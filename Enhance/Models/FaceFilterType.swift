@@ -12,7 +12,7 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
     // New face-specific effects
     case heartVignette = "HEART VIGNETTE"
     case heartEyes     = "HEART EYES"
-    case scramble      = "SCRAMBLE"
+    case thirdEye      = "THIRD EYE"
 
     // Visual effects adapted for face
     case fisheye    = "FISHEYE"
@@ -28,7 +28,7 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
 
     /// Effects that only make sense targeting a single face.
     var requiresSingleFace: Bool {
-        self == .rainbow || self == .heartVignette || self == .scramble
+        self == .rainbow || self == .heartVignette || self == .thirdEye
     }
 
     /// Primary slider label.
@@ -39,7 +39,7 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         if let secondary = secondaryLabel {
             params.append(EffectParameter(id: EffectParameter.secondaryID, label: secondary))
         }
-        if self == .lazerEyes {
+        if self == .lazerEyes || self == .thirdEye {
             params.append(EffectParameter(id: "tint", label: "COLOUR", kind: .tintColor))
         }
         return params
@@ -49,6 +49,7 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         switch self {
         case .googlyEyes: return "SIZE"
         case .heartEyes:  return "SIZE"
+        case .thirdEye:   return "SIZE"
         case .handsome:   return "HANDSOMENESS"
         case .ripple:     return "REDNESS"
         default:          return "INTENSITY"
@@ -66,7 +67,7 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         case .heartEyes:      return "SPEED"
         case .rainbow:        return "SPEED"
         case .lensDistortion: return "REACH"
-        case .scramble:       return "SIZE"
+        case .thirdEye:       return "INTENSITY"
         default:              return nil
         }
     }
@@ -92,7 +93,8 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
 
         case .heartVignette: return HeartVignetteEffect(intensity: clamped, size: clampedSecond)
         case .heartEyes:     return HeartEyesEffect(intensity: clamped, speed: clampedSecond)
-        case .scramble:      return FeatureScramblerEffect(size: clampedSecond, intensity: clamped)
+        // Primary slot is SIZE; secondary is INTENSITY (ray count); the picker is the eye colour.
+        case .thirdEye:      return ThirdEyeEffect(size: clamped, rayIntensity: clampedSecond, eyeColor: laserColor)
 
         case .fisheye:    return FaceVisualEffect(effect: FisheyeEffect(intensity: clamped, size: clampedSecond), skipDelay: true)
         case .swirl:      return FaceVisualEffect(effect: SwirlEffect(intensity: clamped), skipDelay: true)

@@ -19,7 +19,7 @@ struct EffectParameterTests {
         .handsome:      ("HANDSOMENESS", nil),
         .heartVignette: ("INTENSITY", "SIZE"),
         .heartEyes:     ("SIZE", "SPEED"),
-        .scramble:      ("INTENSITY", "SIZE"),
+        .thirdEye:      ("SIZE", "INTENSITY"),
         .fisheye:       ("INTENSITY", "SIZE"),
         .swirl:         ("INTENSITY", nil),
         .pixelate:      ("INTENSITY", nil),
@@ -83,13 +83,27 @@ struct EffectParameterTests {
         }
     }
 
-    /// Only LAZER EYES has a colour picker today; this fails loudly if another filter
-    /// claims one without the panel gaining a matching row.
-    @Test func faceFilter_onlyLazerEyesDeclaresAPicker() {
+    /// LAZER EYES and THIRD EYE (both colour-swatch pickers) are the only filters with a
+    /// picker row; this fails loudly if another filter claims one without the panel gaining
+    /// a matching row and a height budget for it.
+    @Test func onlyLazerEyesAndThirdEyeDeclareAPicker() {
+        let expectedPickerOwners: Set<FaceFilterType> = [.lazerEyes, .thirdEye]
         for type in FaceFilterType.allCases {
             let hasPicker = type.parameters.contains { $0.kind != .slider }
-            #expect(hasPicker == (type == .lazerEyes), "\(type.rawValue) picker unexpected")
+            #expect(hasPicker == expectedPickerOwners.contains(type), "\(type.rawValue) picker unexpected")
         }
+    }
+
+    /// THIRD EYE has three rows — SIZE, INTENSITY (ray count), and a COLOUR swatch picker.
+    @Test func thirdEyeDeclaresSizeIntensityAndColour() {
+        let params = FaceFilterType.thirdEye.parameters
+        #expect(params.count == 3)
+        #expect(params.first?.id == EffectParameter.intensityID)
+        #expect(params.first?.label == "SIZE")
+        #expect(params.contains { $0.id == EffectParameter.secondaryID && $0.label == "INTENSITY" })
+        let picker = params.first { $0.kind != .slider }
+        #expect(picker?.kind == .tintColor)
+        #expect(picker?.label == "COLOUR")
     }
 
     // MARK: - Storage keys
@@ -200,6 +214,23 @@ struct EffectParameterTests {
             #expect(pickers.count <= 1, "\(type.rawValue) declares more than one picker")
             #expect((pickers.first != nil) == type.supportsColorPicker, "\(type.rawValue) picker disagrees with colorPickerKind")
         }
+    }
+
+    // MARK: - Panel fit
+
+    /// THIRD EYE's three rows (SIZE + INTENSITY + COLOUR) must not floor-and-overflow on the
+    /// shortest supported panel, which would re-enable the scroll and let it steal slider
+    /// drags. The panel on an iPhone SE 3 is ~190–200pt; at the roomy end a 3-row panel is
+    /// not floored, so rows shrink to fit. (True on-device fit is a QA item.)
+    @Test func panel_threeRowsFitWithoutScrollingOnShortPanel() {
+        typealias L = AppConstants.Layout
+        let available: CGFloat = 200
+        let h = L.parameterRowHeight(forPanelHeight: available, rowCount: 3)
+        // Not clamped to the floor — if it were, the rows would overflow into a scroll.
+        #expect(h > L.parameterRowMinHeight, "3 rows floored at \(available)pt re-enables scroll")
+        // The header counts as one more unit; the whole stack must fit the available height.
+        let stack = CGFloat(3 + 1) * h + AppConstants.Spacing.small * 3 + AppConstants.Spacing.grid * 2
+        #expect(stack <= available + 0.5)
     }
 
     // MARK: - Card sizing
