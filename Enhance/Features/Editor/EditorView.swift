@@ -88,9 +88,11 @@ struct EditorView: View {
 
             if isEnteringText {
                 textEntryOverlay
+                    .transition(.opacity)
                     .zIndex(2)
             }
         }
+        .animation(.easeOut(duration: 0.12), value: isEnteringText)
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + AppConstants.Animation.standard) {
                 withAnimation { viewModel.showControls = true }
@@ -528,62 +530,51 @@ struct EditorView: View {
     /// Phase 1: the keyboard. Seeds the field from the current overlay and focuses it.
     private func openTextEntry() {
         textDraft = viewModel.textOverlay?.text ?? ""
-        withAnimation(.easeInOut(duration: 0.2)) { isEnteringText = true }
+        isEnteringText = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { textFieldFocused = true }
     }
 
-    /// DONE: commit the typed text. An empty or whitespace-only draft leaves no active overlay, so
-    /// `TextOverlay.isActive` keeps it from gating generation or showing RESET.
+    /// Commit the typed text and drop back to direct manipulation on the canvas. Return on the
+    /// keyboard triggers this, so there is no separate button. An empty or whitespace-only draft
+    /// leaves no active overlay — `TextOverlay.isActive` keeps it from gating generation or RESET.
     private func commitTextEntry() {
         textFieldFocused = false
         if var overlay = viewModel.textOverlay {
             overlay.text = textDraft
             viewModel.textOverlay = overlay
         }
-        withAnimation(.easeInOut(duration: 0.2)) { isEnteringText = false }
+        isEnteringText = false
         viewModel.regenerateIfNeeded()
     }
 
-    /// The keyboard phase, presented over the canvas. A multiline field capped at the overlay's
-    /// grapheme-cluster limit, with DONE clearing to phase 2 (direct manipulation on the canvas).
+    /// The keyboard phase, presented over the canvas: a single borderless field. Return commits —
+    /// its keyboard action label reads DONE — so there is no on-screen button to reach for. The
+    /// text just appears on the photo when it is dismissed; the entrance itself is previewed there.
     private var textEntryOverlay: some View {
         ZStack {
-            Color.black.opacity(0.55).ignoresSafeArea()
+            Color.black.opacity(0.5).ignoresSafeArea()
+                .contentShape(Rectangle())
                 .onTapGesture { commitTextEntry() }
 
-            VStack(spacing: 16) {
-                TextField("Type your text", text: $textDraft, axis: .vertical)
-                    .font(.silkscreenButtonLabel)
-                    .foregroundColor(.white)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(1...3)
-                    .focused($textFieldFocused)
-                    .submitLabel(.done)
-                    .padding(16)
-                    .background(
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(Color.white.opacity(0.08))
-                    )
-                    .onChange(of: textDraft) { _, newValue in
-                        if newValue.count > TextOverlay.maxGraphemeClusters {
-                            textDraft = String(newValue.prefix(TextOverlay.maxGraphemeClusters))
-                        }
+            TextField("", text: $textDraft, prompt:
+                        Text("TYPE YOUR TEXT").foregroundColor(.white.opacity(0.4)))
+                .font(.silkscreenButtonLabel)
+                .foregroundColor(.white)
+                .multilineTextAlignment(.center)
+                .tint(.enhanceMint)
+                .focused($textFieldFocused)
+                .submitLabel(.done)
+                .onSubmit { commitTextEntry() }
+                .padding(.horizontal, 40)
+                .onChange(of: textDraft) { _, newValue in
+                    // No newlines — Return commits — and cap at the overlay's grapheme limit.
+                    var cleaned = newValue.replacingOccurrences(of: "\n", with: "")
+                    if cleaned.count > TextOverlay.maxGraphemeClusters {
+                        cleaned = String(cleaned.prefix(TextOverlay.maxGraphemeClusters))
                     }
-
-                Button(action: commitTextEntry) {
-                    Text("DONE")
-                        .font(.silkscreenButtonLabel)
-                        .foregroundColor(Color(red: 0.09, green: 0.09, blue: 0.09))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 52)
-                        .background(SimpleGradientBackground())
-                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                    if cleaned != newValue { textDraft = cleaned }
                 }
-                .buttonStyle(.plain)
-            }
-            .padding(.horizontal, 32)
         }
-        .transition(.opacity)
     }
 
     // MARK: - Pickers
