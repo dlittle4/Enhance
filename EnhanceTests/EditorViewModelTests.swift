@@ -351,8 +351,15 @@ struct EditorViewModelTests {
         vm.generateZoomPreviewImage()
 
         // Polled rather than slept: the build hops to a utility queue and back.
+        //
+        // The budget is deliberately generous. At 2s this failed intermittently — not because the
+        // build never happened, but because several simulators and builds share this machine (four
+        // sessions work this repo in parallel) and a starved utility queue can miss a tight window.
+        // A flaky test is worse than a slow one: it trains you to re-run rather than read. The
+        // assertion is unchanged — the image must still be built — only the patience is longer, and
+        // the loop exits the moment it appears, so the happy path costs the same.
         var built = false
-        for _ in 0..<40 {
+        for _ in 0..<200 {
             if vm.zoomPreviewImage != nil { built = true; break }
             try? await Task.sleep(for: .milliseconds(50))
         }

@@ -7,6 +7,10 @@ struct EditorView: View {
 
     @EnvironmentObject var photoManager: PhotoManager
 
+    /// Looping card previews are decorative motion, so they hold on their settled frame when the
+    /// user has asked the system for less of it.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     /// Phase 1 of the text editor: the keyboard. `textDraft` is the live field, committed to the
     /// overlay on DONE so a cancel can discard cleanly.
     @State private var isEnteringText = false
@@ -363,9 +367,15 @@ struct EditorView: View {
                 },
                 textOverlay: $viewModel.textOverlay,
                 isTextInteractive: viewModel.selectedEffectCategory == .text,
-                onTextGestureBegan: { viewModel.beginTextGesture() },
+                onTextGestureBegan: {
+                    viewModel.noteTextInteraction()
+                    viewModel.beginTextGesture()
+                },
                 onTextGestureEnded: { viewModel.endTextGesture() },
-                onRequestTextEditing: { openTextEntry() },
+                onRequestTextEditing: {
+                    viewModel.noteTextInteraction()
+                    openTextEntry()
+                },
                 onInteraction: { viewModel.noteCanvasInteraction() },
                 onInteractionEnded: { viewModel.commitZoomCardFraming() }
             )
@@ -532,14 +542,41 @@ struct EditorView: View {
             isBlocked: viewModel.isRegenerating,
             size: cardSize,
             background: {
-                EffectCardThumbnail(image: viewModel.textThumbnails[preset],
-                                    isActive: isActive, size: cardSize)
+                textPresetPreview(preset, isActive: isActive, cardSize: cardSize)
             }
         ) {
             HapticService.selection()
             selectTextPreset(preset)
         }
     }
+
+    /// The card's backdrop: the preset's entrance played on a loop.
+    ///
+    /// A still cannot tell these presets apart honestly — POP and SPIN both read as "big text" at
+    /// their peak, and TYPEWRITER *is* its reveal — so the card plays the frames the view model
+    /// pre-rendered. Under Reduce Motion it holds the settled frame instead, and before the frames
+    /// arrive it falls back to the plain thumbnail so the carousel never flashes empty.
+    @ViewBuilder
+    private func textPresetPreview(_ preset: TextAnimationType,
+                                   isActive: Bool,
+                                   cardSize: CGFloat) -> some View {
+        let frames = viewModel.textThumbnailFrames[preset] ?? []
+
+        if frames.isEmpty {
+            EffectCardThumbnail(image: nil, isActive: isActive, size: cardSize)
+        } else if reduceMotion {
+            EffectCardThumbnail(image: frames.last, isActive: isActive, size: cardSize)
+        } else {
+            TimelineView(.animation) { timeline in
+                let elapsed = timeline.date.timeIntervalSinceReferenceDate
+                let index = Int(elapsed * Self.textPreviewFPS) % frames.count
+                EffectCardThumbnail(image: frames[index], isActive: isActive, size: cardSize)
+            }
+        }
+    }
+
+    /// Slow enough to read the reveal, fast enough that the loop does not feel stalled.
+    private static let textPreviewFPS: Double = 12
 
     /// Selecting a preset.
     ///
@@ -1076,10 +1113,17 @@ struct EditorView: View {
                 // exists to prevent.
                 toastLabel(EditorViewModel.zoomHintMessage)
                     .transition(.opacity)
+            } else if viewModel.showsTextHint {
+                // Same one-slot rule as above. Ranked below the zoom hint because the two cannot
+                // both apply — zoom's is `.newImage`-only and pre-generation, this one needs an
+                // existing overlay — but the ordering keeps the invariant obvious.
+                toastLabel(EditorViewModel.textHintMessage)
+                    .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showSaveMessage)
         .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showsZoomHint)
+        .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showsTextHint)
         .frame(maxHeight: .infinity, alignment: .bottom)
         .padding(.bottom, AppConstants.Spacing.grid)
     }

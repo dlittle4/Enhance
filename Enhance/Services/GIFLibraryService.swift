@@ -154,20 +154,20 @@ class GIFLibraryService {
     
     // MARK: - Save
     
-    func saveGifToAlbum(fileURL: URL, isAuthorized: Bool, requestAuth: @escaping (@escaping (Bool) -> Void) -> Void, completion: @escaping (Bool, Error?) -> Void) {
+    func saveGifToAlbum(fileURL: URL, isAuthorized: Bool, requestAuth: @escaping (@escaping (Bool) -> Void) -> Void, completion: @escaping (Bool, String?, Error?) -> Void) {
         guard isAuthorized else {
             requestAuth { [weak self] success in
                 if success {
                     self?.saveGifToAlbum(fileURL: fileURL, isAuthorized: true, requestAuth: requestAuth, completion: completion)
                 } else {
-                    completion(false, NSError(domain: "PhotoLibraryNotAuthorized", code: 1))
+                    completion(false, nil, NSError(domain: "PhotoLibraryNotAuthorized", code: 1))
                 }
             }
             return
         }
         
         guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            completion(false, NSError(domain: "FileNotFound", code: 2, userInfo: [NSLocalizedDescriptionKey: "The GIF file could not be found"]))
+            completion(false, nil, NSError(domain: "FileNotFound", code: 2, userInfo: [NSLocalizedDescriptionKey: "The GIF file could not be found"]))
             return
         }
         
@@ -176,7 +176,7 @@ class GIFLibraryService {
         } else {
             createAlbum { [weak self] newAlbum in
                 guard let self, let newAlbum else {
-                    completion(false, NSError(domain: "AlbumCreationFailed", code: 3))
+                    completion(false, nil, NSError(domain: "AlbumCreationFailed", code: 3))
                     return
                 }
                 self.saveGif(fileURL: fileURL, to: newAlbum, completion: completion)
@@ -212,19 +212,32 @@ class GIFLibraryService {
     
     // MARK: - Private Helpers
     
-    private func saveGif(fileURL: URL, to album: PHAssetCollection, completion: @escaping (Bool, Error?) -> Void) {
+    /// Saves the GIF and reports **which asset it created**.
+    ///
+    /// The identifier matters: per-GIF settings — zoom parameters, the text overlay — are stored
+    /// against it. Before this returned one, a first-time save had no key to file them under, so
+    /// reopening a freshly saved GIF lost its zoom framing and dropped its text entirely.
+    ///
+    /// `placeholderForCreatedAsset.localIdentifier` is valid to read immediately and becomes the
+    /// real asset identifier once the change block commits — the same pattern `createAlbum`
+    /// already uses for collections. Only meaningful when `success` is true.
+    private func saveGif(fileURL: URL, to album: PHAssetCollection, completion: @escaping (Bool, String?, Error?) -> Void) {
+        var createdIdentifier: String?
+
         PHPhotoLibrary.shared().performChanges({
             let request = PHAssetCreationRequest.forAsset()
             request.addResource(with: .photo, fileURL: fileURL, options: PHAssetResourceCreationOptions())
-            
-            if let placeholder = request.placeholderForCreatedAsset,
-               let albumChange = PHAssetCollectionChangeRequest(for: album) {
-                albumChange.addAssets([placeholder] as NSArray)
+
+            if let placeholder = request.placeholderForCreatedAsset {
+                createdIdentifier = placeholder.localIdentifier
+                if let albumChange = PHAssetCollectionChangeRequest(for: album) {
+                    albumChange.addAssets([placeholder] as NSArray)
+                }
             }
         }) { [weak self] success, error in
             DispatchQueue.main.async {
                 if success { self?.fetchMyGifs() }
-                completion(success, error)
+                completion(success, success ? createdIdentifier : nil, error)
             }
         }
     }
