@@ -396,6 +396,18 @@ repairs. Stage B remains:
 
 ### P3 — Polish
 
+- [ ] **`previewProgress` is implemented three times, and two of them are identical.** A card
+      sampled at one shared instant misrepresents any effect that peaks at a different time, so
+      each card-bearing type has grown its own answer:
+      `VisualEffectType.swift:119` and `FaceFilterType.swift:78` are the *same logic with
+      paraphrased comments* (`pixelate → 0.2`, everything else `1.0`), and
+      `TextAnimationType.swift:122` is the same concept with genuinely per-case values.
+      **Both duplicates conform to `ParameterizedEffect`** (`EffectParameter.swift:86`) and nothing
+      else does, so folding them into a protocol default — 1.0, overridden per type — is a few
+      lines rather than a refactor. The text one is legitimately separate; leave it, but have it
+      point at the shared idea.
+      *Who hits this next:* whoever adds an effect that peaks anywhere but full strength. They will
+      edit one enum, ship, and find the other card still wrong. That has now happened twice.
 - [ ] **"NO FACES DETECTED" toast repeats.** `detectFacesIfNeeded` guards on `detectedFaces.isEmpty`
       (`EditorViewModel.swift:346`), which stays true forever when detection legitimately finds
       nothing, so every return to the face tab re-runs detection and re-toasts. Needs a separate
