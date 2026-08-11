@@ -587,6 +587,8 @@ struct EditorView: View {
     /// reopens the keyboard.
     private func selectTextPreset(_ preset: TextAnimationType) {
         viewModel.pushUndo()
+        // Gates the "double tap to edit" hint: it only makes sense once an effect is chosen.
+        viewModel.noteTextPresetChosen()
 
         guard var overlay = viewModel.textOverlay, overlay.isActive else {
             viewModel.textOverlay = TextOverlay.makeDefault(animation: preset)

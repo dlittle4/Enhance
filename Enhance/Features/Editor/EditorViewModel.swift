@@ -1201,8 +1201,10 @@ class EditorViewModel {
             return
         }
         
-        persistZoomParams(for: identifier)
-        persistTextOverlay(for: identifier)
+        // Deliberately *not* persisting against `identifier` here: this path deletes that asset a
+        // line below, so anything written against it is orphaned the moment it lands — it only
+        // accumulates dead UserDefaults keys. The settings are filed against the replacement
+        // asset's identifier in the save completion instead.
         showToast("Updating GIF...")
         
         photoManager.deleteGifAsset(identifier: identifier) { [weak self] success, error in
@@ -1270,16 +1272,28 @@ class EditorViewModel {
         hasUsedTextOverlay = true
     }
 
+    /// Set when the user picks a preset card. Navigation state, like `hasUsedCanvas` — not
+    /// snapshotted, because undo should not resurrect a hint.
+    private(set) var hasChosenTextPreset = false
+
+    func noteTextPresetChosen() { hasChosenTextPreset = true }
+
     /// Tells the user how to get back into the words, now that opening the TEXT tab no longer
     /// throws them into the keyboard.
     ///
-    /// Only worth saying when there is text to edit and the user has not yet discovered the
-    /// gesture; it is silent while the keyboard or the panel owns the screen, since the hint would
-    /// be describing something they are already doing.
+    /// **Waits for a preset to be chosen.** Merely arriving in the carousel is too early: choosing
+    /// an effect is the prerequisite for editing, so a hint about editing greets the user before
+    /// the thing it describes is reachable. After a preset is picked the advice is actionable, and
+    /// it is the moment the keyboard *stops* opening by itself — which is exactly when someone
+    /// would otherwise wonder how to change the words.
+    ///
+    /// Silent while the keyboard or the panel owns the screen, since it would be describing
+    /// something the user is already doing, and retired for good once the text is touched.
     static let textHintMessage = "DOUBLE TAP TO EDIT TEXT"
 
     var showsTextHint: Bool {
         guard selectedEffectCategory == .text else { return false }
+        guard hasChosenTextPreset else { return false }
         guard textOverlay?.isActive == true else { return false }
         guard !hasUsedTextOverlay else { return false }
         guard !isEditingEffect else { return false }
