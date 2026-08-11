@@ -1260,86 +1260,31 @@ Stage C and Stage G both need a device: the preset review and the Silkscreen cri
 
 ---
 
-## 18. Implementation status — Stage A–C handoff
+## 18. Implementation status
 
-> **Compiled and green (2026-08-10).** Stages A–C were written in a Linux cloud session with no
-> Swift toolchain, then verified in Xcode 26.3 on `claude/text-effects-resume-726acc` (merged from
-> `feature/text-overlay-renderer`, `f2c57a5`). They **built clean on the first attempt** — none of
-> the "likely errors" below actually bit — and all 80 text tests pass (full suite 319/0), including
-> the two load-bearing ones: `tiles_partitionTheMasterRaster_withoutOverlapOrLoss` and
-> `arabicJoining_survivesTiling`. **Nothing existing was modified.**
+> **Stages A–F shipped; Stage G (hardening) is the remainder.** Full suite green (330/0) as of
+> 2026-08-11. The A–C handoff note that lived here is deleted: it described getting a
+> never-compiled renderer through its first build, which is long done.
 >
-> The build-error and test-order notes below are kept as the record of what was watched for; they
-> are now history, not a to-do. Delete this whole section once A–C reaches `main`; the rest of this
-> document is the durable spec. The next branch is Stage D (§17 manifest, §7.7).
+> The spec above is the durable design. Where the shipped feature departs from it, the code is
+> right and the prose is historical — those departures are listed below rather than edited into
+> the earlier sections, so the reasoning that produced them stays legible.
 
-### What exists
+### Where the shipped feature departs from this plan
 
-| File | Contents |
-|---|---|
-| `Models/Text/TextLayoutLimits.swift` | §9 in full: rest/hard insets, rubber band, size budget, snap detents with hysteresis. Pure value maths, no UIKit. |
-| `Models/Text/TextOverlay.swift` | §6: the model plus `TextFont`, `TextColorChoice`, `TextDecoration`, `TextAlign`. |
-| `Models/Text/TextAnimationType.swift` | §5 and §7.6: five presets, `granularity`, `peakScale`, `tileStates(at:layout:tuning:)`, `TextTileState`, `TextTileGranularity`. |
-| `Services/Text/TextLayoutEngine.swift` | §7.2–7.3: `makeFrame`, one Core Text pass, the shaping-safe unit merge, caret-based advance ends, `NLTokenizer` word ranges. |
-| `Services/Text/TextRasterizer.swift` | §7.1, §7.5: coverage mask, `CTFrameDraw`, colour fill, integer-seam cutting. |
-| `Services/Text/TextTileCompositor.swift` | §7.6: `TextComposer.transform` and the export compositor. |
-| `EnhanceTests/TextGeometryTests.swift` | §12.8. Pure maths — expect this green first. |
-| `EnhanceTests/TextLayoutTests.swift` | §12.2 partition invariant, §12.3 language correctness, §12.5 resolution independence. |
-| `EnhanceTests/TextAnimationTests.swift` | §12.4 endpoints and transform algebra, determinism, composite endpoints. |
+| Plan | Shipped | Why |
+|---|---|---|
+| §10's three-row panel: COLOR, STYLE, per-preset tunable | **Two rows** — COLOR and the tunable, plus FROM (UP/DOWN) for SLIDE | STYLE cannot work yet. `TextRasterizer` fills one coverage mask with a single colour, so SHADOW renders in the text's own colour and BLOCK fills a plate over the glyphs. `TextDecoration` stays in the model until decoration draws through a second, contrasting fill. |
+| §10: the TEXT category keeps the live canvas after ENHANCE | Live **only while editing** — typing or panel open — handing back to the GIF on confirm | Holding the live canvas permanently meant a generated GIF never appeared in the preview; it was visible only after saving. Positioning still happens with the panel open, which is when it is wanted. |
+| §5's five presets: POP, RISE, TYPE, WORD DROP, FLICKER | POP, **SLIDE**, **TYPEWRITER**, **SPIN**, FLICKER | Device review. RISE and WORD DROP differed only by travel direction, so they folded into SLIDE with a direction toggle; that freed a slot for SPIN. TYPE became TYPEWRITER, and its SPEED control was inverted — higher now means faster. POP's single overshoot became a damped spring, since one soft overshoot read as a swell rather than a bounce. |
+| §6: no recipe persistence | The overlay **is** persisted, per asset identifier | Text is authored rather than chosen from a card, so losing it means retyping. Safe because frame 0 of every entrance is empty, so the source rebuilt from it carries no text and a restored overlay cannot double up with the baked one. Does not yet cover a *first* save — that callback discards the new asset id (same P1 as zoom params). |
 
-### First build — likely errors, in the order they will bite
+### Two traps this feature hit, which generalise
 
-1. **`Sendable` on types holding `CGImage`.** `RasterizedText` and `TextTile` are deliberately
-   *not* marked; if the compiler wants conformance somewhere, add `@unchecked` rather than
-   marking the whole graph.
-2. **Core Text bridging.** `CTFrameGetLines` and `CTLineGetGlyphRuns` are cast `as? [CTLine]` /
-   `as? [CTRun]`; if the SDK disagrees, use `as!` on the `CFArray`.
-3. **`CTRunGetStringIndices` / `CTRunGetPositions` / `CTRunGetGlyphs`.** Already written in the
-   copying form with a preallocated buffer — do not "optimize" to the direct-pointer accessors,
-   which are allowed to return `nil` and would silently drop a run.
-4. **`TextLayoutEngine.font(in:fallback:)`** casts the run's font attribute via `UIFont`. If that
-   cast fails at runtime, emoji and any Silkscreen fallback will be measured with the wrong face
-   and the ink rects will not match what was drawn. Symptom: seams in the wrong places for
-   `"GO 🎉 NOW"` but correct for pure Latin.
-5. **`CGContext(data:…bitmapInfo:)`** takes a `UInt32`; `.rawValue` is already applied.
-6. **`CGImage.cropping(to:)`** returns an optional and is unwrapped per tile.
-
-### Test order, and what a failure means
-
-Run `TextGeometryTests` first: it has no Core Text or Core Graphics surface, so if it fails the
-problem is arithmetic, not API.
-
-Then `TextLayoutTests`. **A failure in `tiles_partitionTheMasterRaster_withoutOverlapOrLoss` or
-`arabicJoining_survivesTiling` is the architecture talking, not a typo.** Re-read §7.1–7.3 before
-touching either test — they are the reason the design is shaped this way, and weakening them
-removes the only thing standing between this and a silent shaping bug. Specifically:
-
-- overlapping tiles mean the seam arithmetic in `TextRasterizer.cut` rounded outward somewhere;
-- coverage short of the master means a line or group was dropped before the bands were built;
-- `arabicJoining_survivesTiling` failing with *equal* ink means something re-shaped a substring in
-  isolation, which is the fatal version of this design.
-
-Then `TextAnimationTests`, then the full suite — nothing existing should move, because nothing
-existing was touched.
-
-### Decisions already taken, so they are not re-litigated
-
-- **The rasterizer draws the frame it measured.** `TextLayoutEngine.makeFrame` is called twice —
-  at scale 1 to measure, at the supersample factor to draw — and the drawing path is `CTFrameDraw`
-  on that frame. An earlier draft positioned glyphs by hand from the measured rects; that is what
-  re-shapes substrings, and it is what §7.2 exists to prevent.
-- **Seams are integers before rects are built.** Rounding each rect with `.integral` rounds
-  outward on both sides of a seam and overlaps neighbours by a pixel.
-- **The coverage mask is a separate step** even though V1 fills it flat, so §16's gradient and
-  sparkle fills stay additive.
-- **FLICKER's scale twitch draws its random value before the branch**, so it does not jump when
-  the flashes stop.
-- **`tileStates` takes a defaulted `tuning:`**, the same trick `VisualEffect` uses for its later
-  overloads, so Stage F can thread the panel's third-row value without changing every call site.
-
-### What is deliberately not built
-
-Stage D (the `GIFGenerating` splice and both stubs), Stage E (the `regeneratePending` repair),
-Stage F (routing, gesture host, TEXT category, two-phase editor, three-row panel), Stage G
-(hardening). Stage D is small and is the natural next branch once A–C is green — but it modifies
-shipped code, which is exactly why it waits for a compiler.
+- **A full-canvas sibling view above the scroll view will swallow every touch.** `TextOverlayHostView`
+  covers the canvas; until it overrode `point(inside:)` to answer only for the text's own rotated
+  box, the photo could not be panned or zoomed *in any category*. UIKit's default hit test walks
+  subviews in reverse order and the topmost full-bounds view wins.
+- **`.whole`-granularity presets are cut as one tile spanning the entire raster.** Anything sizing a
+  hit region, selection box or measurement must use `layout.inkBounds`, never the tiles — measuring
+  tiles reports the whole canvas as "the text".
