@@ -91,9 +91,20 @@ struct FeatureScramblerEffect: FaceEffect {
                 x: lerp(spec.sourceCenter.x, spec.destination.x, t),
                 y: lerp(spec.sourceCenter.y, spec.destination.y, t)
             )
-            // Each copy grows from two-thirds toward its final size as it travels, so it
-            // settles rather than snapping into place.
-            let scale = spec.finalScale * lerp(0.65, 1.0, t)
+            // Each copy grows from its start fraction toward full size over the reveal — a
+            // travelling copy settles as it arrives; a grow-in-place copy emerges from zero.
+            let scale = spec.finalScale * lerp(spec.startScaleFraction, 1.0, t)
+
+            // A glow of light radiates from a glowing placement (THIRD EYE), emerging with it
+            // — composited under the copy so the copy stays crisp with a halo around it.
+            if spec.glows, let eyeBounds = spec.region.sourceBounds(in: face) {
+                let placedRadius = max(eyeBounds.width, eyeBounds.height) * scale
+                result = compositor.radialGlow(
+                    at: center, radius: placedRadius * 2.2,
+                    color: CIColor(red: 1.0, green: 0.93, blue: 0.75, alpha: 0.35 * opacity),
+                    over: result
+                )
+            }
 
             let placement = FaceRegionPlacement(
                 region: spec.region, destinationCenter: center, scale: scale, opacity: opacity
@@ -120,14 +131,16 @@ struct FeatureScramblerEffect: FaceEffect {
 
     /// A patch of skin immediately beside a feature, at the *same* vertical level so it
     /// matches the feature's own lighting on a shaded face (sampling below would pick up the
-    /// darker cheek/chin under top lighting). Samples toward the face centre — the nose
-    /// bridge between the eyes, a cheek beside the mouth — which is reliably skin. Clipped to
+    /// darker cheek/chin under top lighting). Samples *outward* toward the cheek/temple —
+    /// reliably skin and clear of the nose between the eyes. The offset is floored to a
+    /// fraction of the face so a narrow feature (the nose) still clears itself. Clipped to
     /// the image so the average is well-defined.
     private func localSkinRect(for region: FaceRegion, face: DetectedFace, in extent: CGRect) -> CGRect? {
         guard let b = region.sourceBounds(in: face) else { return nil }
-        let toward: CGFloat = b.midX <= face.faceCenter.x ? 1 : -1
-        let cx = b.midX + toward * b.width * 0.85
-        let w = max(4, b.width * 0.45)
+        let outward: CGFloat = b.midX < face.faceCenter.x ? -1 : 1
+        let offset = max(b.width * 0.75, face.faceWidth * 0.13)
+        let cx = b.midX + outward * offset
+        let w = max(4, min(b.width * 0.5, face.faceWidth * 0.12))
         let h = max(4, b.height * 0.6)
         let rect = CGRect(x: cx - w / 2, y: b.midY - h / 2, width: w, height: h)
             .intersection(extent)

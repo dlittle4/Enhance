@@ -19,6 +19,7 @@ enum FaceRegion {
     case leftEye
     case rightEye
     case mouth
+    case nose
 
     /// The region outline, or an empty array when no reliable landmark exists.
     func polygon(in face: DetectedFace) -> [CGPoint] {
@@ -26,6 +27,7 @@ enum FaceRegion {
         case .leftEye:  return face.regions.leftEye
         case .rightEye: return face.regions.rightEye
         case .mouth:    return face.regions.outerLips
+        case .nose:     return face.regions.nose
         }
     }
 
@@ -39,13 +41,14 @@ enum FaceRegion {
             return box
         }
 
-        // Eye fallback from the flat fields. Mouth has none by design.
+        // Eye fallback from the flat fields. Mouth and nose have none by design — an
+        // estimated one is not trustworthy enough to copy.
         switch self {
         case .leftEye:
             return eyeBox(pupil: face.leftPupilCenter, width: face.leftEyeWidth)
         case .rightEye:
             return eyeBox(pupil: face.rightPupilCenter, width: face.rightEyeWidth)
-        case .mouth:
+        case .mouth, .nose:
             return nil
         }
     }

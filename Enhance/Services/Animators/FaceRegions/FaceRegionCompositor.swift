@@ -121,4 +121,28 @@ struct FaceRegionCompositor {
             ])
             .cropped(to: background.extent)
     }
+
+    /// Screen a soft radial glow of light onto the image, brightest at `center` and fading to
+    /// nothing by `radius`. Lazy (a radial gradient + a screen blend), so no `CIContext`.
+    /// Screen lightens without blowing past white, which reads as light radiating outward.
+    func radialGlow(
+        at center: CGPoint,
+        radius: CGFloat,
+        color: CIColor,
+        over background: CIImage
+    ) -> CIImage {
+        guard radius > 1, center.x.isFinite, center.y.isFinite, color.alpha > 0.001,
+              let gradient = CIFilter(name: "CIRadialGradient", parameters: [
+                "inputCenter": CIVector(x: center.x, y: center.y),
+                "inputRadius0": 0,
+                "inputRadius1": radius,
+                "inputColor0": color,
+                "inputColor1": CIColor(red: color.red, green: color.green, blue: color.blue, alpha: 0)
+              ])?.outputImage
+        else { return background }
+
+        return gradient.cropped(to: background.extent)
+            .applyingFilter("CIScreenBlendMode", parameters: [kCIInputBackgroundImageKey: background])
+            .cropped(to: background.extent)
+    }
 }
