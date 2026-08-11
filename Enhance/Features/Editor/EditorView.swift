@@ -185,15 +185,13 @@ struct EditorView: View {
                 parameterRows(for: filter, colorSelection: $viewModel.laserColor)
             }
         case .text:
+            // Two rows for V1: COLOR and the preset's tunable. STYLE (SHADOW/BLOCK/OUTLINE) is
+            // deliberately not shipped yet — the rasterizer fills one coverage mask with a single
+            // colour, so a shadow renders in the text's own colour and a block plate fills solid
+            // over the glyphs. Those decorations need a second, contrasting fill pass before they
+            // are worth a control. `TextDecoration` stays in the model for that work.
             ParameterPickerRow(label: "COLOR") {
                 textColorSwatchContent()
-            }
-            ParameterPickerRow(label: "STYLE") {
-                SegmentedBar(
-                    items: TextDecoration.allCases,
-                    selection: textDecorationBinding,
-                    label: { $0.rawValue }
-                )
             }
             ParameterSliderRow(
                 label: viewModel.textOverlay?.animation.parameterLabel ?? "AMOUNT",
@@ -603,18 +601,6 @@ struct EditorView: View {
             set: { newValue in
                 guard var overlay = viewModel.textOverlay else { return }
                 overlay.color = newValue
-                viewModel.textOverlay = overlay
-                viewModel.regenerateIfNeeded()
-            }
-        )
-    }
-
-    private var textDecorationBinding: Binding<TextDecoration> {
-        Binding(
-            get: { viewModel.textOverlay?.decoration ?? .none },
-            set: { newValue in
-                guard var overlay = viewModel.textOverlay else { return }
-                overlay.decoration = newValue
                 viewModel.textOverlay = overlay
                 viewModel.regenerateIfNeeded()
             }

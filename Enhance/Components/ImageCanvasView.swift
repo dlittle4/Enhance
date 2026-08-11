@@ -370,10 +370,15 @@ final class CanvasContainerView: UIView {
     }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        // Everything that is not a live text gesture goes to the photo, explicitly.
+        //
+        // Never fall through to `super.hitTest` here. The text host is the topmost full-canvas
+        // subview, so the default reverse-order search would hand it every touch and the photo
+        // would stop panning and zooming entirely — in *all* categories, not just TEXT.
         guard textHost.isInteractive,
               let region = textHost.hitRegion,
               let touches = event?.allTouches else {
-            return super.hitTest(point, with: event)
+            return photoTarget(for: point, with: event)
         }
 
         // A fresh sequence — the first (and only) touch just beginning — re-arms the decision. A
@@ -387,9 +392,13 @@ final class CanvasContainerView: UIView {
         case .text:
             return textHost
         case .photo:
-            let inScroll = convert(point, to: scrollView)
-            return scrollView.hitTest(inScroll, with: event) ?? scrollView
+            return photoTarget(for: point, with: event)
         }
+    }
+
+    private func photoTarget(for point: CGPoint, with event: UIEvent?) -> UIView? {
+        let inScroll = convert(point, to: scrollView)
+        return scrollView.hitTest(inScroll, with: event) ?? scrollView
     }
 }
 

@@ -118,7 +118,11 @@ enum TextLayoutEngine {
         guard pointSize > 0 else { return nil }
 
         let font = overlay.font.resolved(pointSize: pointSize)
-        let wrapWidth = TextLayoutLimits.layoutWidth * outputSide * scale
+        // Deliberately far wider than the frame, so growing the text scales it instead of
+        // reflowing it. Wrapping at a fraction of the frame meant a pinch silently broke the
+        // word onto a second line mid-gesture, which is not what "make it bigger" should do.
+        // The block is re-centred on its own ink below, so the oversized path costs nothing.
+        let wrapWidth = TextLayoutLimits.layoutWidth * outputSide * scale * 12
 
         let paragraph = NSMutableParagraphStyle()
         paragraph.alignment = overlay.alignment.nsAlignment

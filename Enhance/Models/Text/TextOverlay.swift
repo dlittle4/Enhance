@@ -74,7 +74,10 @@ struct TextOverlay: Equatable, Sendable {
             font: .silkscreenBold,
             color: .white,
             alignment: .center,
-            decoration: .shadow,
+            // Plain glyphs for V1. SHADOW/BLOCK/OUTLINE are held back until the rasterizer can
+            // draw decoration in a second, contrasting fill rather than through the one colour
+            // mask — today a shadow comes out the same colour as the text.
+            decoration: .none,
             animation: animation,
             seed: seed
         )

@@ -3,14 +3,19 @@ import UIKit
 /// The live, on-canvas representation of the text overlay: a sibling of the zooming photo, not a
 /// subview of it, so the text stays frame-anchored while the photo pans beneath it (§8.2).
 ///
-/// It renders through the shipped `TextTileCompositor` — the very code the exported GIF uses — so
-/// the preview cannot drift from the result. A `CADisplayLink` drives the same `progress` the
-/// generator feeds each frame, looping the chosen entrance so the effect is visible over the photo.
-/// While a gesture is in flight the loop freezes to the settled state, so positioning is steady.
+/// Two rules keep this cheap and out of the photo's way.
 ///
-/// The raster (one Core Text layout) is prepared only when the text's *appearance* changes — string,
-/// font, colour, decoration, size or angle. A pan changes only `center`, which is applied at
-/// composite time, so dragging never re-runs Core Text (§7.5).
+/// **It is transparent to touches outside the text.** `point(inside:)` answers only for the text's
+/// own rotated box, so although the view covers the whole canvas, every other touch falls straight
+/// through to the scroll view underneath and the photo pans and zooms exactly as it always has.
+///
+/// **Gestures are layer transforms, not re-renders.** Dragging and pinching move and scale the
+/// rendered layer; the text is re-composited once, on release. Re-running Core Text and a
+/// full-canvas composite per gesture frame is the per-frame work LEARNINGS 2026-03-13 records as
+/// having killed the old canvas, and it reads as jank.
+///
+/// The editor always shows the text **settled** — the entrance animation belongs to the exported
+/// GIF, not to the editing surface, where motion under a finger just makes placement harder.
 final class TextOverlayHostView: UIView {
 
     // MARK: - Configuration
@@ -18,13 +23,13 @@ final class TextOverlayHostView: UIView {
     /// Side of the square canvas in points (325).
     var canvasSide: CGFloat = 325
 
-    /// Whether the TEXT category is active. Off, the text holds at its settled state and is inert —
-    /// no recognizers, no animation loop — matching how effects display under other categories.
+    /// Whether the TEXT category is active. Off, the text still shows at rest but is inert: the
+    /// recognizers are disabled and `point(inside:)` refuses every touch, so the photo owns the
+    /// whole canvas exactly as under the other categories.
     var isInteractive: Bool = false {
         didSet {
             guard isInteractive != oldValue else { return }
             recognizers.forEach { $0.isEnabled = isInteractive }
-            updateAnimationLoop()
         }
     }
 
@@ -39,29 +44,21 @@ final class TextOverlayHostView: UIView {
 
     private(set) var overlay: TextOverlay?
     private var raster: RasterizedText?
-    /// Key of the appearance the current `raster` was built for, so we re-prepare only when it moves.
+    /// Identifies the appearance the current `raster` was built for, so it is rebuilt only when
+    /// something that changes the *pixels* moves — never on a pure drag.
     private var rasterKey: String?
 
     private let contentLayer = CALayer()
     private let session = TextGestureSession()
 
-    private var displayLink: CADisplayLink?
-    private var loopStart: CFTimeInterval = 0
-    private var isGesturing = false
-
-    /// One entrance plus a hold, in seconds — the preview cadence, independent of the GIF's own
-    /// frame timing. The entrance itself settles by 70% of the moving portion (`entranceWindow`).
-    private let movingDuration: CFTimeInterval = 1.6
-    private let holdDuration: CFTimeInterval = 1.1
-
-    /// Tight text size in points at rest, for the routing hit region.
-    private var restingTextSize: CGSize = .zero
-    /// Live pinch factor during a gesture; baked into `fontSize` on release.
+    /// In-flight gesture deltas, applied as a layer transform and baked into the model on release.
+    private var liveTranslation: CGPoint = .zero
     private var liveScale: CGFloat = 1
 
-    private lazy var recognizers: [UIGestureRecognizer] = []
+    /// Tight text size in points at rest, for the touch region.
+    private var restingTextSize: CGSize = .zero
 
-    private var reduceMotion: Bool { UIAccessibility.isReduceMotionEnabled }
+    private lazy var recognizers: [UIGestureRecognizer] = []
 
     // MARK: - Init
 
@@ -77,22 +74,25 @@ final class TextOverlayHostView: UIView {
             self, selector: #selector(handleResignActive),
             name: UIApplication.willResignActiveNotification, object: nil
         )
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(handleReduceMotionChange),
-            name: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil
-        )
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    deinit {
-        displayLink?.invalidate()
-        NotificationCenter.default.removeObserver(self)
-    }
+    deinit { NotificationCenter.default.removeObserver(self) }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        contentLayer.frame = bounds
+        if session.isActive == false { resetLayerGeometry() }
+    }
+
+    // MARK: - Touch transparency
+
+    /// **The rule that keeps the photo working.** This view is a full-canvas sibling sitting on top
+    /// of the scroll view, so if it claimed its whole bounds it would swallow every touch and the
+    /// photo could never be panned or zoomed again. It answers only for the text itself.
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard isInteractive, let region = hitRegion else { return false }
+        return region.contains(point)
     }
 
     // MARK: - Public API
@@ -104,23 +104,24 @@ final class TextOverlayHostView: UIView {
         guard let overlay = newValue, overlay.isActive else {
             raster = nil
             rasterKey = nil
+            restingTextSize = .zero
             contentLayer.contents = nil
-            updateAnimationLoop()
             return
         }
 
         prepareRasterIfNeeded(for: overlay)
-        renderCurrentFrame()
-        updateAnimationLoop()
+        render()
     }
 
-    /// The overlay's rotated touch target in canvas points, for the container's first-touch routing.
+    /// The overlay's rotated touch target in canvas points, including any in-flight gesture, so the
+    /// region tracks the text while it is being moved or scaled.
     var hitRegion: TextHitRegion? {
         guard let overlay, overlay.isActive, restingTextSize != .zero else { return nil }
         let live = CGSize(width: restingTextSize.width * liveScale,
                           height: restingTextSize.height * liveScale)
         return TextHitRegion(
-            center: CGPoint(x: overlay.center.x * canvasSide, y: overlay.center.y * canvasSide),
+            center: CGPoint(x: overlay.center.x * canvasSide + liveTranslation.x,
+                            y: overlay.center.y * canvasSide + liveTranslation.y),
             renderedSize: live,
             angle: overlay.angle
         )
@@ -131,7 +132,8 @@ final class TextOverlayHostView: UIView {
     private var screenScale: CGFloat { window?.screen.scale ?? UIScreen.main.scale }
 
     private func appearanceKey(for o: TextOverlay) -> String {
-        // Everything the *raster* depends on. Notably not `center` — placement is composite-time.
+        // Everything the raster depends on. Notably not `center`: placement happens at composite
+        // time, so dragging never invalidates the raster.
         "\(o.text)|\(o.font.rawValue)|\(o.color.rawValue)|\(o.decoration.rawValue)"
             + "|\(o.alignment.rawValue)|\(o.fontSize)|\(o.angle)|\(o.animation.granularity)"
             + "|\(Int(canvasSide))|\(Int(screenScale))"
@@ -140,55 +142,69 @@ final class TextOverlayHostView: UIView {
     private func prepareRasterIfNeeded(for overlay: TextOverlay) {
         let key = appearanceKey(for: overlay)
         guard key != rasterKey else { return }
-        let pixelSide = canvasSide * screenScale
-        raster = TextRasterizer.prepare(overlay: overlay, pixelSide: pixelSide)
+        raster = TextRasterizer.prepare(overlay: overlay, pixelSide: canvasSide * screenScale)
         rasterKey = raster == nil ? nil : key
         restingTextSize = raster.map(tightTextSize(in:)) ?? .zero
     }
 
-    /// Composites the text over a transparent canvas at `progress`, exactly as the GIF generator
-    /// does, and hands the result to the layer. Cheap enough to run per display-link frame.
-    private func render(progress: CGFloat) {
+    /// Composites the settled text over a transparent canvas, through the same compositor the GIF
+    /// generator uses, so the preview cannot drift from the export.
+    private func render() {
         guard let overlay, let raster,
               let base = Self.transparentImage(side: Int((canvasSide * screenScale).rounded())) else {
             contentLayer.contents = nil
             return
         }
-        // The pinch preview scales font size live without re-laying-out; fold it in here.
-        var shown = overlay
-        shown.fontSize = overlay.fontSize * liveScale
-        let composited = TextTileCompositor.composite(raster, overlay: shown, progress: progress, over: base)
+        let composited = TextTileCompositor.composite(raster, overlay: overlay, progress: 1, over: base)
 
         CATransaction.begin()
-        CATransaction.setDisableActions(true) // no implicit 0.25s crossfade between frames
+        CATransaction.setDisableActions(true) // implicit CALayer animations would smear this
         contentLayer.contents = composited
         contentLayer.contentsScale = screenScale
-        contentLayer.frame = bounds
+        resetLayerGeometry()
         CATransaction.commit()
     }
 
-    /// Renders whatever the current moment calls for: the looping entrance while idle and
-    /// interactive, or the settled state while gesturing, inert, or under Reduce Motion.
-    private func renderCurrentFrame() {
-        render(progress: currentProgress())
+    /// Back to the plain full-canvas layer: the composited image already carries the text's
+    /// position, so at rest the layer is identity.
+    private func resetLayerGeometry() {
+        contentLayer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        contentLayer.bounds = CGRect(origin: .zero, size: bounds.size)
+        contentLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)
+        contentLayer.setAffineTransform(.identity)
     }
 
-    private func currentProgress() -> CGFloat {
-        guard isInteractive, !isGesturing, !reduceMotion, displayLink != nil else { return 1 }
-        let elapsed = CACurrentMediaTime() - loopStart
-        let cycle = movingDuration + holdDuration
-        let t = elapsed.truncatingRemainder(dividingBy: cycle)
-        return t < movingDuration ? CGFloat(t / movingDuration) : 1
+    /// Moves and scales the already-rendered layer for an in-flight gesture. The anchor is moved to
+    /// the text's own position first, so a pinch grows the text about itself rather than about the
+    /// middle of the canvas.
+    private func applyLiveTransform() {
+        guard let overlay else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        contentLayer.anchorPoint = CGPoint(x: overlay.center.x, y: overlay.center.y)
+        contentLayer.bounds = CGRect(origin: .zero, size: bounds.size)
+        contentLayer.position = CGPoint(
+            x: overlay.center.x * canvasSide + liveTranslation.x,
+            y: overlay.center.y * canvasSide + liveTranslation.y
+        )
+        contentLayer.setAffineTransform(CGAffineTransform(scaleX: liveScale, y: liveScale))
+        CATransaction.commit()
     }
 
+    /// The text's own size in points, from the layout's ink bounds.
+    ///
+    /// **Not** from the tiles: a `.whole`-granularity preset (POP, RISE, FLICKER) is cut as a single
+    /// tile spanning the entire raster, so measuring tiles reported the whole canvas as "the text".
+    /// The touch region then covered everything, every touch in the TEXT category routed to the
+    /// overlay, and the photo could not be pinched or panned at all.
+    ///
+    /// `inkBounds` is in the layout's own pixel space, whose side is `raster.pixelSide`, so one
+    /// factor converts it to canvas points regardless of granularity or supersampling.
     private func tightTextSize(in raster: RasterizedText) -> CGSize {
-        let union = raster.tiles
-            .filter { $0.origin == .cut }
-            .map(\.pixelRect)
-            .reduce(CGRect.null) { $0.union($1) }
-        guard !union.isNull else { return .zero }
-        let toPoints = canvasSide / (raster.pixelSide * raster.supersample)
-        return CGSize(width: union.width * toPoints, height: union.height * toPoints)
+        let ink = raster.layout.inkBounds
+        guard ink.width > 0, ink.height > 0, raster.pixelSide > 0 else { return .zero }
+        let toPoints = canvasSide / raster.pixelSide
+        return CGSize(width: ink.width * toPoints, height: ink.height * toPoints)
     }
 
     private static func transparentImage(side: Int) -> CGImage? {
@@ -199,31 +215,6 @@ final class TextOverlayHostView: UIView {
         ) else { return nil }
         return ctx.makeImage()
     }
-
-    // MARK: - Animation loop
-
-    private var shouldAnimate: Bool {
-        isInteractive && !isGesturing && !reduceMotion
-            && (overlay?.isActive ?? false) && raster != nil
-    }
-
-    private func updateAnimationLoop() {
-        if shouldAnimate {
-            if displayLink == nil {
-                loopStart = CACurrentMediaTime()
-                let link = CADisplayLink(target: self, selector: #selector(tick))
-                link.preferredFrameRateRange = CAFrameRateRange(minimum: 24, maximum: 60, preferred: 30)
-                link.add(to: .main, forMode: .common)
-                displayLink = link
-            }
-        } else {
-            displayLink?.invalidate()
-            displayLink = nil
-            renderCurrentFrame() // settle
-        }
-    }
-
-    @objc private func tick() { render(progress: currentProgress()) }
 
     // MARK: - Gestures
 
@@ -243,33 +234,42 @@ final class TextOverlayHostView: UIView {
         }
     }
 
-    private func beginGesture() {
-        session.begin { self.onGestureBegan?() }
-        if !isGesturing { isGesturing = true; updateAnimationLoop() }
-    }
+    private func beginGesture() { session.begin { self.onGestureBegan?() } }
 
+    /// Bakes whatever the gesture produced into the model, re-renders once, and closes the session
+    /// on the last recognizer to lift.
     private func endGesture() {
-        session.end { self.onGestureEnded?() }
-        if session.isActive == false, isGesturing {
-            isGesturing = false
-            updateAnimationLoop() // resume the entrance loop, restarting from the top
-            loopStart = CACurrentMediaTime()
+        session.end {
+            guard var current = self.overlay else { self.onGestureEnded?(); return }
+
+            if self.liveTranslation != .zero {
+                current.center.x = min(1, max(0, current.center.x + self.liveTranslation.x / self.canvasSide))
+                current.center.y = min(1, max(0, current.center.y + self.liveTranslation.y / self.canvasSide))
+            }
+            if self.liveScale != 1 {
+                let lineCount = self.raster?.layout.lineCount ?? 1
+                let maxSize = TextLayoutLimits.maxFontSize(lineCount: lineCount)
+                current.fontSize = min(maxSize, max(TextLayoutLimits.minFontSize,
+                                                    current.fontSize * self.liveScale))
+            }
+
+            self.liveTranslation = .zero
+            self.liveScale = 1
+            self.overlay = current
+            self.prepareRasterIfNeeded(for: current)
+            self.render()
+            self.onOverlayChanged?(current)
+            self.onGestureEnded?()
         }
     }
 
     @objc private func handlePan(_ g: UIPanGestureRecognizer) {
-        guard var current = overlay else { return }
         switch g.state {
         case .began:
             beginGesture()
         case .changed:
-            let t = g.translation(in: self)
-            g.setTranslation(.zero, in: self)
-            current.center.x = min(1, max(0, current.center.x + t.x / canvasSide))
-            current.center.y = min(1, max(0, current.center.y + t.y / canvasSide))
-            overlay = current
-            render(progress: 1)
-            onOverlayChanged?(current)
+            liveTranslation = g.translation(in: self)
+            applyLiveTransform()
         case .ended, .cancelled, .failed:
             endGesture()
         default: break
@@ -277,23 +277,13 @@ final class TextOverlayHostView: UIView {
     }
 
     @objc private func handlePinch(_ g: UIPinchGestureRecognizer) {
-        guard var current = overlay else { return }
         switch g.state {
         case .began:
             beginGesture()
         case .changed:
             liveScale = g.scale
-            render(progress: 1) // live font scale folded into render, no re-layout
+            applyLiveTransform()
         case .ended, .cancelled, .failed:
-            let lineCount = raster?.layout.lineCount ?? 1
-            let maxSize = TextLayoutLimits.maxFontSize(lineCount: lineCount)
-            current.fontSize = min(maxSize, max(TextLayoutLimits.minFontSize,
-                                                current.fontSize * liveScale))
-            liveScale = 1
-            overlay = current
-            prepareRasterIfNeeded(for: current)
-            render(progress: 1)
-            onOverlayChanged?(current)
             endGesture()
         default: break
         }
@@ -305,19 +295,18 @@ final class TextOverlayHostView: UIView {
         case .began:
             beginGesture()
         case .changed:
-            current.angle = g.rotation + (overlay?.angle ?? 0)
-            // Re-prepare so the composite reflects the new angle; short strings make this cheap.
-            overlay = current
-            prepareRasterIfNeeded(for: current)
-            render(progress: 1)
+            // Rotation changes the raster (the glyphs are drawn at the resting angle), so it is
+            // committed continuously rather than transformed — it is also the rarest gesture.
+            current.angle += g.rotation
             g.rotation = 0
-            onOverlayChanged?(current)
-        case .ended, .cancelled, .failed:
-            let snapped = TextLayoutLimits.snapAngle(current.angle, current: nil).angle
-            current.angle = snapped
             overlay = current
             prepareRasterIfNeeded(for: current)
-            render(progress: 1)
+            render()
+        case .ended, .cancelled, .failed:
+            current.angle = TextLayoutLimits.snapAngle(current.angle, current: nil).angle
+            overlay = current
+            prepareRasterIfNeeded(for: current)
+            render()
             onOverlayChanged?(current)
             endGesture()
         default: break
@@ -329,16 +318,17 @@ final class TextOverlayHostView: UIView {
     }
 
     @objc private func handleResignActive() {
-        session.abort { self.onGestureEnded?() }
-        liveScale = 1
-        isGesturing = false
-        updateAnimationLoop()
+        session.abort {
+            self.liveTranslation = .zero
+            self.liveScale = 1
+            self.render()
+            self.onGestureEnded?()
+        }
     }
-
-    @objc private func handleReduceMotionChange() { updateAnimationLoop() }
 }
 
 extension TextOverlayHostView: UIGestureRecognizerDelegate {
+    /// Pan, pinch and rotate on the text run together — the sticker idiom of dragging while pinching.
     func gestureRecognizer(_ g: UIGestureRecognizer,
                            shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         recognizers.contains(g) && recognizers.contains(other)
