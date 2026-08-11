@@ -18,13 +18,14 @@ Each step should feel fast, tactile, and visually satisfying.
 
 ## Pick up here
 
-**State:** `main` has LENS (Phase 17h) and **Feature Scrambler V1 — THIRD EYE (Phase 17i)**,
-pushed to `origin/main`. Unit suite green. The session's pattern is to commit on the branch and
-fast-forward `main` at each green stage, so Xcode always sees a working build.
+**State:** `main` has LENS (Phase 17h) and **THIRD EYE (Phase 17i)**, pushed to `origin/main`.
+Unit suite green. The session's pattern is to commit on the branch and fast-forward `main` at each
+green stage, so Xcode always sees a working build.
 
-THIRD EYE's on-device pass is confirmed (2026-08-10) — V1 fully done. **Scrambler Stage E** (the
-MOUTH EYES / EYE MOUTH / SHUFFLE layout pack) is also shipped; only device QA on those three new
-layouts remains (THIRD EYE is already device-confirmed).
+THIRD EYE is device-confirmed and done (2026-08-10). Note that Phase 17i **began** as Feature
+Scrambler: the MOUTH EYES / EYE MOUTH / NOSE SWAP / SHUFFLE layout pack shipped, was reviewed on
+device, and was then deliberately deleted — only THIRD EYE was worth keeping.
+[FEATURE-SCRAMBLER.md](FEATURE-SCRAMBLER.md) is historical; Phase 17i below is current.
 
 **Next:** step 5 below — Phase 17f (control audit) is the smallest, then Gallery Stage B.
 
@@ -93,14 +94,13 @@ assumption turned out to be false. Rationale in "Why this order" below.
       infrastructure. Rendered on the reference photo and inspected: radial prismatic dispersion,
       centre-clean, REACH confines it to an edge fringe at 0 and fills the frame at 1. 216 tests.
 
-**4 — Feature Scrambler (Phase 17i). ✓ V1 + layout pack done 2026-08-10.**
+**4 — THIRD EYE (Phase 17i). ✓ Done 2026-08-10.**
 
-- [x] Shipped THIRD EYE (V1) then the Stage E layout pack (MOUTH EYES / EYE MOUTH / SHUFFLE).
-      Copies features to wrong positions over the zoom with a `smoothstep` settle; single-face;
-      INTENSITY + SIZE + LAYOUT (three-row panel). Left behind the reusable landmark compositor
-      (`FaceRegion` / `FaceRegionMaskBuilder` / `FaceRegionCompositor`), the `FaceRegions` +
-      `LandmarkQuality` model, `ScrambleLayout`, and a general `EffectParameter.Kind.preset`.
-      **THIRD EYE device-confirmed; the three new layouts still need a device pass.**
+- [x] An eye grows out of the forehead over the zoom, radiating spinning shafts of light.
+      Single-face; SIZE + INTENSITY (ray count) + COLOUR. Left behind the reusable landmark
+      compositor (`FaceRegion` / `FaceRegionMaskBuilder` / `FaceRegionCompositor`) and the
+      `FaceRegions` + `LandmarkQuality` model. Device-confirmed.
+      **Began as Feature Scrambler — the layout pack shipped and was then deleted; see 17i.**
 
 **5 — Then, in rough value order.**
 
@@ -150,10 +150,10 @@ rendering frames and inspecting them, which cannot catch everything.
       per frame and confirm it moves monotonically with the pan.
 - [ ] **DITHER legibility after GIF palettisation.** Does the stipple survive the 256-colour
       quantisation, or read as noise? If it needs help, the SCALE slider is the first lever.
-- [x] **THIRD EYE (Feature Scrambler V1)** — device pass confirmed 2026-08-10, looks good. The
-      deep edge cases (4× 12-frame floor across Zoom In/Out/Pulse; the one-eye profile fallback;
-      the animal fallback) were not each individually exercised and can be spot-checked if a report
-      comes in — padding 0.35 / feather 0.55 remain the seam/halo levers.
+- [x] **THIRD EYE** — device-confirmed 2026-08-10 over several passes, each feeding a tuning
+      correction back into the glow constants. The deep edge cases (4× 12-frame floor across
+      Zoom In/Out/Pulse; the one-eye profile fallback; the animal/estimated-landmark fallback)
+      were not each individually exercised and can be spot-checked if a report comes in.
 - [ ] **20-item effects carousel** — scroll feel, and whether entering the IMAGE tab stutters
       while 11 thumbnails render (was 8 before the new effects).
 - [ ] **GRADIENT colour wells** — the three system wells show Apple's spectrum ring; confirmed
@@ -913,17 +913,42 @@ Despite the name, the effect is not geometric distortion: it is radial prismatic
 also ships in both carousels and is linear rather than radial — and whether "LENS" or "PRISM"
 describes it more honestly than "LENS DISTORTION".
 
-### Phase 17i: Feature Scrambler ✓ — THIRD EYE (V1) + layout pack (Stage E) shipped 2026-08-10
+### Phase 17i: THIRD EYE ✓ shipped 2026-08-10 (began as Feature Scrambler)
 
-> Full specification in **[FEATURE-SCRAMBLER.md](FEATURE-SCRAMBLER.md)**. This section records
-> the review outcome, the re-scope, and what V1 actually shipped.
+> **What shipped is one effect, not the Scrambler.** [FEATURE-SCRAMBLER.md](FEATURE-SCRAMBLER.md)
+> is now historical: it specifies a layout pack that was built, reviewed on device, and then
+> **deliberately deleted**. Read it for the compositor design, not for current behaviour.
 
-Copies eyes and mouth to deliberately wrong positions. The engineering design is sound — Core
-Image compositing rather than a kernel, a reusable region compositor as the strategic payload,
-and a Stage A prototype rendered *through GIF encoding* before any real work, which is exactly
-the lesson EDGES and the black band taught.
+**The arc.** The plan was face-region rearrangement: copy eyes and mouth to wrong positions,
+with THIRD EYE as V1 and a MOUTH EYES / EYE MOUTH / SHUFFLE layout pack behind it. All of that
+shipped — plus NOSE SWAP and a four-way SHUFFLE — and then, on review, only THIRD EYE was worth
+keeping. The rest was cut on 2026-08-10 along with `ScrambleLayout`, the LAYOUT preset row, and
+`EffectParameter.Kind.preset`. Implementations are in the history around `580bf83`…`cab247c` if
+a layout is ever wanted back.
 
-**Shipped THIRD EYE as V1 — no layout picker.**
+**What that leaves.** `ThirdEyeEffect` + `FaceFilterType.thirdEye`, single-face, three rows:
+SIZE, INTENSITY (number of light rays), and a COLOUR swatch that tints the eye. An eye grows out
+of the forehead in place over the reveal — scale 0 → full, `smoothstep`, no travel — radiating
+spinning shafts of light. The real eyes stay: it is an addition, not a swap, so nothing is healed.
+
+**The light is built from discrete analytic shapes, the way `LazerEyesEffect` builds its glow,
+and that is load-bearing.** The first version streaked `CIRandomGenerator` noise with `CIZoomBlur`
+(the LENS mechanism). It read as mush, and no amount of contrast fixed it: a blur *averages
+neighbouring values into a continuous wash*, so the shafts can never fully separate again. Each
+shaft is now its own radial gradient squashed into a thin bar and rotated into place, layered over
+core + bloom sprites and composited **additively** — clean edges at any length, punchy rather than
+milky. INTENSITY maps to a real count (4–11 spokes = 8–22 visible rays). Still lazy, still
+deterministic.
+
+**Tuning history worth keeping** (each was a device-QA correction, in order): the ray range was far
+too hot, so the old *minimum* became the new maximum; the glow was too bright and hazy, so the core
+was dimmed and tightened and the reach cut; and the core is deliberately not white, because a
+blown-out centre washes the chosen colour straight back out of the eye. The ray colour is still
+hardcoded warm gold — driving it from the COLOUR pick (as LAZER EYES does) is the obvious next
+polish.
+
+**The groundwork below survived the cut** and is the real payload — `FaceRegions`,
+`LandmarkQuality`, and the `FaceRegion*` compositor now support any future region effect.
 
 - [x] **Stage B — landmark groundwork.** `FaceRegions` (eye/lip/nose polygons) + `LandmarkQuality`
       added to `DetectedFace`, defaulted so the many memberwise-init call sites stayed source-
@@ -935,56 +960,22 @@ the lesson EDGES and the black band taught.
       mask), `FaceRegionCompositor` (crop → clamp → mask → transform → composite, extent-preserving,
       no `CIContext`/`createCGImage`). Colored-fixture tests prove sampled pixels land at the
       destination. This is the strategic payload the whole feature existed to leave behind.
-- [x] **Stage D — THIRD EYE vertical slice.** `FeatureScramblerEffect` + `FaceFilterType.scramble`,
-      INTENSITY + SIZE via the existing `secondaryID` convention (two rows, fits SE 3),
-      `requiresSingleFace`. Timeline reveal `0.15→0.75` with a single `smoothstep` settle,
-      deterministic (no `frameIndex`, no unseeded randomness). Intensity 0 is an exact no-op; any
-      positive value keeps the tuned opacity floor. Parity table updated. Padding/feather/placement
-      constants locked after visual QA on a real photo.
+- [x] **The effect.** `ThirdEyeEffect` + `FaceFilterType.thirdEye`. SIZE (primary slot) +
+      INTENSITY (`secondaryID`, ray count) + a `.tintColor` COLOUR picker — three rows, fits SE 3.
+      `requiresSingleFace`. Reveal `0.15→0.75`, `smoothstep`, deterministic (no `frameIndex`, no
+      unseeded randomness), so it assembles monotonically under Zoom In, Zoom Out, and Pulse alike.
+- [x] **The light.** `FaceRegionCompositor.radialLight` — core + bloom sprites and N squashed-gradient
+      shafts, rotated about the eye and composited additively. See the note above on why this is
+      analytic rather than noise-based; that is the one decision here worth not re-litigating.
 - [x] **Stage C2** (face-effect render perf prerequisite) was already done — see "Next up" step 1.
-- [x] **Stage D2 — device pass confirmed 2026-08-10.** Looks good on device; no crawling, seams,
-      or stale preview reported. Deep-matrix edge cases (4× 12-frame floor, animal fallback) can be
-      spot-checked opportunistically but are no longer blocking.
+- [x] **Device QA.** Confirmed on device across several passes, each of which fed a tuning
+      correction back into the constants. No crawling, seams, or stale preview.
+- [ ] **Ray colour follows the COLOUR pick.** Currently hardcoded warm gold while the eye tints —
+      LAZER EYES tints its whole glow, which is part of why it reads as cohesive. Small, obvious.
+- [ ] **Deep edge cases**, opportunistic: the 4× 12-frame floor, and the animal/estimated-landmark
+      fallback (THIRD EYE works from a pupil + eye width, so it should degrade rather than vanish).
 
-**Stage E — layout pack ✓ shipped 2026-08-10 (pending device QA on the new layouts).** MOUTH EYES,
-EYE MOUTH, and SHUFFLE behind a preset-row picker.
-
-- [x] **`ScrambleLayout` enum** owns per-layout availability and placement specs. THIRD EYE grows an
-      eye out of the forehead in place (source == destination, scale 0 → full) radiating warm
-      god-ray beams — coarse contrasty `CIRandomGenerator` noise streaked into rays by `CIZoomBlur`
-      (a smooth core alone gives no rays), shaped by a radial falloff and screen-blended, plus a
-      bright central glow — rather than travelling from the real eye; EYE MOUTH enlarges an eye onto the
-      mouth; MOUTH EYES copies the mouth onto both eyes; NOSE SWAP swaps nose ↔ mouth; SHUFFLE is a
-      four-way cycle (left eye→right, right eye→nose, nose→mouth, mouth→left). Feature-to-feature
-      placements fit *within* the destination — the smaller of the width/height ratios, so a tall
-      nose does not balloon when it lands on a wide mouth — modulated by SIZE.
-      `FeatureScramblerEffect` iterates the specs, sampling every placement from the original so a
-      swap is a true swap. Nose layouts gate on precise landmarks (`FaceRegion.nose`), like the
-      mouth ones.
-- [x] **Skin heal so features move, not stack.** Before compositing a moved feature, the layout
-      covers the feature it *replaces* with skin sampled from just beside it (same vertical level,
-      toward the face centre — the nose bridge / cheek — so it matches local shading rather than one
-      global tone). THIRD EYE heals nothing (the real eyes stay); EYE MOUTH heals the mouth; MOUTH
-      EYES heals both eyes; SHUFFLE heals all three. Fully lazy (`CIAreaAverage`). A moved feature
-      still carries a soft patch of its *source* skin — subtle on real faces, only obvious on an
-      extreme tone gradient; tighten placement padding/feather if a real photo shows a halo.
-- [x] **INTENSITY dropped.** The effect only reads well at full strength, so it always renders
-      opaque and the slider is gone. The panel is **two rows** — SIZE (the single slider, in the
-      primary slot) + LAYOUT — which fits SE 3 with room to spare
-      (`panel_threeRowsFitWithoutScrollingOnShortPanel` still guards the 3-row general case).
-      LAYOUT is a new `EffectParameter.Kind.preset` backed by a **dedicated typed `scrambleLayout`**
-      on the view model *and* `EditorSnapshot` — never a numeric-store case index. Captured, restored,
-      and reset with the rest of the snapshot.
-- [x] **Availability + normalization.** Mouth layouts need precise lips; swaps need both eyes; a
-      profile face degrades to THIRD EYE / EYE MOUTH. The preset row shows only available layouts,
-      and `toggleFaceSelection` collapses a stored layout the new face can't support to THIRD EYE
-      (no hidden invalid layout). `onlyLazerEyesAndScrambleDeclareAPicker` updated for the new owner.
-- [ ] **Device QA on the new layouts (Stage E's D2).** THIRD EYE is device-confirmed; MOUTH EYES /
-      EYE MOUTH / NOSE SWAP / SHUFFLE verified only by rendered fixtures. Watch feature-fit scale on
-      real faces (especially the nose, which is narrow-tall and 3D — nostril shadows may read oddly),
-      the SHUFFLE cycle reading clearly, the skin heal matching real skin, and the two-row panel.
-
-Free requirements noted during the port: pause frames already reuse one rendered image, so
+Free requirements confirmed along the way: pause frames already reuse one rendered image, so
 "byte-stable" needs nothing from the effect; and the `scaled()` enumeration test knows
 `normalizedBoundingBox` is deliberately unscaled.
 
