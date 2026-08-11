@@ -189,10 +189,22 @@ struct EditorView: View {
                 parameterRows(for: filter, colorSelection: $viewModel.laserColor)
             }
         case .text:
-            // The three-row TEXT panel (COLOR, STYLE, per-preset tunable) lands in a later
-            // Stage F step. The TEXT category is not yet reachable from the category bar, so
-            // this branch does not render at runtime.
-            EmptyView()
+            ParameterPickerRow(label: "COLOR") {
+                textColorSwatchContent()
+            }
+            ParameterPickerRow(label: "STYLE") {
+                SegmentedBar(
+                    items: TextDecoration.allCases,
+                    selection: textDecorationBinding,
+                    label: { $0.rawValue }
+                )
+            }
+            ParameterSliderRow(
+                label: viewModel.textOverlay?.animation.parameterLabel ?? "AMOUNT",
+                value: textTuningBinding,
+                onCommit: { viewModel.regenerateIfNeeded() },
+                valueText: "\(Int((viewModel.textOverlay?.tuning ?? 0.5) * 100))"
+            )
         case .zoomEffects:
             // Built directly rather than through `parameterRows`. Speed and pause are
             // *output* settings that shape the whole GIF, not per-effect parameters —
@@ -534,17 +546,25 @@ struct EditorView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { textFieldFocused = true }
     }
 
-    /// Commit the typed text and drop back to direct manipulation on the canvas. Return on the
-    /// keyboard triggers this, so there is no separate button. An empty or whitespace-only draft
-    /// leaves no active overlay — `TextOverlay.isActive` keeps it from gating generation or RESET.
+    /// Phase-1 DONE (Return on the keyboard): commit the typed text and advance to phase 2, the
+    /// settings panel. An empty or whitespace-only draft is treated as "never mind" — the overlay
+    /// is discarded and the session ends without a panel.
     private func commitTextEntry() {
         textFieldFocused = false
+        isEnteringText = false
+
+        guard !textDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            viewModel.textOverlay = nil
+            return
+        }
+
         if var overlay = viewModel.textOverlay {
             overlay.text = textDraft
             viewModel.textOverlay = overlay
         }
-        isEnteringText = false
         viewModel.regenerateIfNeeded()
+        // Phase 2: COLOR / STYLE / the preset tunable. CONFIRM closes the visit as one undo entry.
+        viewModel.beginEditing()
     }
 
     /// The keyboard phase, presented over the canvas: a single borderless field. Return commits —
@@ -574,6 +594,73 @@ struct EditorView: View {
                     }
                     if cleaned != newValue { textDraft = cleaned }
                 }
+        }
+    }
+
+    // MARK: - Text settings panel bindings
+
+    /// Panel controls edit the overlay in place. No per-change `pushUndo` here: the whole visit is
+    /// one edit session (beginEditing → CONFIRM), so `commitEditing` records a single undo entry.
+    private var textColorBinding: Binding<TextColorChoice> {
+        Binding(
+            get: { viewModel.textOverlay?.color ?? .white },
+            set: { newValue in
+                guard var overlay = viewModel.textOverlay else { return }
+                overlay.color = newValue
+                viewModel.textOverlay = overlay
+                viewModel.regenerateIfNeeded()
+            }
+        )
+    }
+
+    private var textDecorationBinding: Binding<TextDecoration> {
+        Binding(
+            get: { viewModel.textOverlay?.decoration ?? .none },
+            set: { newValue in
+                guard var overlay = viewModel.textOverlay else { return }
+                overlay.decoration = newValue
+                viewModel.textOverlay = overlay
+                viewModel.regenerateIfNeeded()
+            }
+        )
+    }
+
+    /// The preset's single tunable. Updates the overlay live so the canvas preview reflects it as
+    /// the knob moves; the GIF regenerates on drag-end via the row's `onCommit`.
+    private var textTuningBinding: Binding<Double> {
+        Binding(
+            get: { Double(viewModel.textOverlay?.tuning ?? 0.5) },
+            set: { newValue in
+                guard var overlay = viewModel.textOverlay else { return }
+                overlay.tuning = CGFloat(newValue)
+                viewModel.textOverlay = overlay
+            }
+        )
+    }
+
+    /// Colour swatches for the text overlay — the same shape as `colorSwatchContent`, over the
+    /// semantic `TextColorChoice` palette. A faint ring keeps white and black legible on the panel.
+    private func textColorSwatchContent() -> some View {
+        HStack(spacing: 0) {
+            ForEach(TextColorChoice.allCases) { color in
+                Spacer(minLength: 0)
+                Button {
+                    HapticService.light()
+                    textColorBinding.wrappedValue = color
+                } label: {
+                    Circle()
+                        .fill(color.swiftUIColor)
+                        .frame(width: 26, height: 26)
+                        .overlay(Circle().stroke(.white.opacity(0.25), lineWidth: 1))
+                        .overlay(
+                            Circle()
+                                .stroke(textColorBinding.wrappedValue == color ? mintGreen : .clear, lineWidth: 2)
+                                .frame(width: 32, height: 32)
+                        )
+                }
+                .buttonStyle(.plain)
+                Spacer(minLength: 0)
+            }
         }
     }
 

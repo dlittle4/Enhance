@@ -77,13 +77,13 @@ enum TextTileCompositor {
     static func composite(_ raster: RasterizedText,
                           overlay: TextOverlay,
                           progress: CGFloat,
-                          tuning: CGFloat = 0.5,
                           over base: CGImage) -> CGImage {
         let width = base.width, height = base.height
         guard width > 0, height > 0 else { return base }
 
+        // The preset's tunable rides on the overlay, so the preview and the GIF read the same value.
         let states = overlay.animation.tileStates(at: progress, layout: raster.layout,
-                                                  tuning: tuning)
+                                                  tuning: overlay.tuning)
         guard !states.isEmpty else { return base }
 
         guard let context = CGContext(

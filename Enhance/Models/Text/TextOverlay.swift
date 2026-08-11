@@ -42,6 +42,13 @@ struct TextOverlay: Equatable, Sendable {
     /// frame loop would break both, quietly.
     var seed: UInt64
 
+    /// The active preset's single tunable control, `0…1` — BOUNCE, DISTANCE, SPEED, STAGGER or
+    /// INTENSITY depending on the animation (see `TextAnimationType.parameterLabel`). Carried on the
+    /// overlay so it flows to the preview and the GIF together and is snapshotted with undo. Default
+    /// gives every preset the balanced curve `tileStates` assumes. `0.5` is deliberately the middle
+    /// of the range so an untouched slider sits centred.
+    var tuning: CGFloat = 0.5
+
     /// The editor's input cap. Three rendered lines is a field-sizing guideline, not a renderer
     /// constraint — the layout engine will wrap to as many lines as the size demands.
     static let maxGraphemeClusters = 120
