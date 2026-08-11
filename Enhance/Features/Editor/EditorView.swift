@@ -521,6 +521,7 @@ struct EditorView: View {
         ) { preset in
             textPresetCard(preset, cardSize: cardSize)
         }
+        .onAppear { viewModel.generateTextThumbnails() }
     }
 
     private func textPresetCard(_ preset: TextAnimationType, cardSize: CGFloat) -> some View {
@@ -531,7 +532,8 @@ struct EditorView: View {
             isBlocked: viewModel.isRegenerating,
             size: cardSize,
             background: {
-                EffectCardThumbnail(image: nil, isActive: isActive, size: cardSize)
+                EffectCardThumbnail(image: viewModel.textThumbnails[preset],
+                                    isActive: isActive, size: cardSize)
             }
         ) {
             HapticService.selection()
@@ -539,17 +541,26 @@ struct EditorView: View {
         }
     }
 
-    /// Creates the overlay on first selection (or swaps the animation on later ones), then opens
-    /// the keyboard so the first thing the user does is type.
+    /// Selecting a preset.
+    ///
+    /// **Only the first selection opens the keyboard**, because that is the only time there is
+    /// nothing to type over. Once words exist, tapping another card is a request to change the
+    /// *effect*, not to retype — so it swaps the animation and opens the settings panel, exactly as
+    /// tapping a card does in every other category. Double-tapping the text on the canvas is what
+    /// reopens the keyboard.
     private func selectTextPreset(_ preset: TextAnimationType) {
         viewModel.pushUndo()
-        if var overlay = viewModel.textOverlay {
-            overlay.animation = preset
-            viewModel.textOverlay = overlay
-        } else {
+
+        guard var overlay = viewModel.textOverlay, overlay.isActive else {
             viewModel.textOverlay = TextOverlay.makeDefault(animation: preset)
+            openTextEntry()
+            return
         }
-        openTextEntry()
+
+        overlay.animation = preset
+        viewModel.textOverlay = overlay
+        viewModel.regenerateIfNeeded()
+        viewModel.beginEditing()
     }
 
     /// Phase 1: the keyboard. Seeds the field from the current overlay and focuses it.

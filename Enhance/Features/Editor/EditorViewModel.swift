@@ -510,6 +510,7 @@ class EditorViewModel {
         previewSourceCGImage = nil
         effectThumbnails = [:]
         faceFilterThumbnails = [:]
+        textThumbnails = [:]
         thumbnailSourceCGImage = nil
         selectedFaceFilter = nil
         selectedFaceIndex = nil
@@ -685,6 +686,43 @@ class EditorViewModel {
             DispatchQueue.main.async {
                 self.effectThumbnails = results
             }
+        }
+    }
+
+    /// Card thumbnails for the text presets: the photo with a placeholder word on it, each caught
+    /// mid-entrance so the card shows what the preset *does* rather than five identical stills.
+    ///
+    /// Rendered through `TextTileCompositor`, the same code the GIF uses, so a card cannot promise
+    /// something the export does not deliver. `previewProgress` is per preset because the presets
+    /// peak at different moments — a single progress value would catch SPIN mid-turn but
+    /// TYPEWRITER either blank or finished.
+    var textThumbnails: [TextAnimationType: UIImage] = [:]
+
+    func generateTextThumbnails() {
+        guard textThumbnails.isEmpty else { return }
+        guard let source = image ?? sourceImage else { return }
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self, let thumb = self.getThumbnailSourceCGImage(from: source) else { return }
+
+            let side = CGFloat(min(thumb.width, thumb.height))
+            var results: [TextAnimationType: UIImage] = [:]
+
+            for preset in TextAnimationType.allCases {
+                var overlay = TextOverlay.makeDefault(animation: preset, text: "TEXT", seed: 7)
+                // Larger than the editor default: the card is a fraction of the canvas, and text at
+                // 0.12 of it is unreadable at card size.
+                overlay.fontSize = 0.22
+                guard let raster = TextRasterizer.prepare(overlay: overlay, pixelSide: side) else {
+                    continue
+                }
+                let composed = TextTileCompositor.composite(
+                    raster, overlay: overlay, progress: preset.previewProgress, over: thumb
+                )
+                results[preset] = UIImage(cgImage: composed)
+            }
+
+            DispatchQueue.main.async { self.textThumbnails = results }
         }
     }
 
@@ -945,6 +983,11 @@ class EditorViewModel {
                 // Without this retry the cards stayed blank until the user switched tabs
                 // and came back, which re-fired the onAppear.
                 self.generateZoomPreviewImage()
+                // Same retry reason as the zoom preview above: for an existing GIF the source
+                // lands after the carousel has already asked for its thumbnails.
+                if self.selectedEffectCategory == .text {
+                    self.generateTextThumbnails()
+                }
 
                 if self.selectedEffectCategory == .faceFilters {
                     self.detectFacesIfNeeded()

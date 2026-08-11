@@ -114,6 +114,21 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
     /// Whether this preset exposes the UP/DOWN direction control.
     var usesDirection: Bool { self == .slide }
 
+    /// Where in the entrance a card thumbnail should be sampled.
+    ///
+    /// Per preset because they peak at different moments: catching TYPEWRITER at the same instant
+    /// as SPIN would show it either blank or already finished, neither of which says "typewriter".
+    /// All are inside the entrance window, so every card is caught mid-motion rather than settled.
+    var previewProgress: CGFloat {
+        switch self {
+        case .pop:        return 0.16   // just past the overshoot, at its largest
+        case .slide:      return 0.28   // mid-cascade, some words still travelling
+        case .typewriter: return 0.34   // partway through the reveal, cursor showing
+        case .spin:       return 0.24   // mid-turn, clearly rotated
+        case .flicker:    return 0.22   // inside a flash rather than a gap
+        }
+    }
+
     /// Stable storage key component for the tunable. Must not change once shipped — values are
     /// keyed on it, and renaming one silently resets that control to its default.
     var parameterID: String { "textAnimation" }
