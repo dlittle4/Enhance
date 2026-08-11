@@ -174,11 +174,12 @@ struct FaceRegionCompositor {
                 .cropped(to: extent)
         }
 
-        // 1. Bright central glow (opaque black → warm centre so screen only lightens).
+        // 1. Central glow. Deliberately not pure white — a blown-out core washes the colour
+        // straight back out of a tinted third eye.
         var result = background
         if let core = CIFilter(name: "CIRadialGradient", parameters: [
             "inputCenter": c, "inputRadius0": coreRadius * 0.15, "inputRadius1": coreRadius * 1.3,
-            "inputColor0": CIColor.white,
+            "inputColor0": CIColor(red: 0.55, green: 0.55, blue: 0.55, alpha: 1),
             "inputColor1": CIColor(red: 0, green: 0, blue: 0, alpha: 1)
         ])?.outputImage {
             result = screen(core, over: result)
@@ -187,20 +188,33 @@ struct FaceRegionCompositor {
         // 2. Radial beams: coarse contrasty noise, rotated about the eye (so the beams can
         // spin), coarsened by density (finer = more beams), streaked out, and faded by a
         // radial falloff. Rotating the noise rotates the resulting rays.
+        //
+        // The density range is deliberately gentle. An earlier mapping bottomed out at
+        // `0.30 · coreRadius` blocks and that *lowest* setting was already as busy as anyone
+        // wanted, so it is now the ceiling: the slider runs 0.60 → 0.30, and the beams
+        // themselves are dimmed and faded further at the low end.
         let density = max(0, min(1, rayDensity))
-        let blockScale = max(3, coreRadius * (0.30 - 0.24 * density))  // more density → finer → more rays
+        let blockScale = max(3, coreRadius * (0.60 - 0.30 * density))  // more density → finer → more rays
         let spin = CGAffineTransform(translationX: center.x, y: center.y)
             .rotated(by: rayAngle)
             .translatedBy(x: -center.x, y: -center.y)
         let noise = CIFilter(name: "CIRandomGenerator")!.outputImage!
             .transformed(by: spin)
             .applyingFilter("CIColorControls", parameters: [
-                kCIInputSaturationKey: 0.0, kCIInputContrastKey: 2.6, kCIInputBrightnessKey: -0.28
+                kCIInputSaturationKey: 0.0, kCIInputContrastKey: 2.2, kCIInputBrightnessKey: -0.46
             ])
             .applyingFilter("CIPixellate", parameters: [
                 "inputCenter": c, "inputScale": blockScale
             ])
             .applyingFilter("CIZoomBlur", parameters: ["inputCenter": c, "inputAmount": max(1, rayAmount)])
+            // Fade the whole beam layer at low density too, so the bottom of the slider is
+            // a hint of light rather than a fainter starburst.
+            .applyingFilter("CIColorMatrix", parameters: [
+                "inputRVector": CIVector(x: 0.45 + 0.55 * density, y: 0, z: 0, w: 0),
+                "inputGVector": CIVector(x: 0, y: 0.45 + 0.55 * density, z: 0, w: 0),
+                "inputBVector": CIVector(x: 0, y: 0, z: 0.45 + 0.55 * density, w: 0),
+                "inputAVector": CIVector(x: 0, y: 0, z: 0, w: 1)
+            ])
 
         if let falloff = CIFilter(name: "CIRadialGradient", parameters: [
             "inputCenter": c, "inputRadius0": coreRadius * 0.2, "inputRadius1": coreRadius * 3.2,
