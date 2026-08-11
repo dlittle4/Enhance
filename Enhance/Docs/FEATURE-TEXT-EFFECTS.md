@@ -1272,6 +1272,14 @@ Stage C and Stage G both need a device: the preset review and the Silkscreen cri
 
 ### Where the shipped feature departs from this plan
 
+> **These migrate to [HISTORY.md](HISTORY.md) when Stage G closes.** Per the placement rule in that
+> file's header, a departure lives in the feature doc only while the feature is in flight and the
+> reader who needs it is whoever is working on it; once shipped, the audience becomes whoever
+> wonders a year later why the code has this shape, and they will not open a feature plan. Anything
+> here that outgrows this feature — as the two canvas traps did — belongs in
+> [LEARNINGS.md](LEARNINGS.md) instead. The test is *name who hits this next*: if the only person
+> you can name is working on text overlays, it stays here.
+
 | Plan | Shipped | Why |
 |---|---|---|
 | §10's three-row panel: COLOR, STYLE, per-preset tunable | **Two rows** — COLOR and the tunable, plus FROM (UP/DOWN) for SLIDE | STYLE cannot work yet. `TextRasterizer` fills one coverage mask with a single colour, so SHADOW renders in the text's own colour and BLOCK fills a plate over the glyphs. `TextDecoration` stays in the model until decoration draws through a second, contrasting fill. |
