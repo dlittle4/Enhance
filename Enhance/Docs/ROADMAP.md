@@ -949,10 +949,13 @@ EYE MOUTH, and SHUFFLE behind a preset-row picker.
 
 - [x] **`ScrambleLayout` enum** owns per-layout availability and placement specs. THIRD EYE copies
       one eye to the forehead (V1 mapping preserved exactly); EYE MOUTH enlarges an eye onto the
-      mouth; MOUTH EYES copies the mouth onto both eyes; SHUFFLE is a three-way cycle
-      (left eye→right, right eye→mouth, mouth→left). Feature-to-feature placements scale to fit the
-      destination feature, modulated by SIZE. `FeatureScramblerEffect` iterates the specs, sampling
-      every placement from the original so a swap is a true swap.
+      mouth; MOUTH EYES copies the mouth onto both eyes; NOSE SWAP swaps nose ↔ mouth; SHUFFLE is a
+      four-way cycle (left eye→right, right eye→nose, nose→mouth, mouth→left). Feature-to-feature
+      placements fit *within* the destination — the smaller of the width/height ratios, so a tall
+      nose does not balloon when it lands on a wide mouth — modulated by SIZE.
+      `FeatureScramblerEffect` iterates the specs, sampling every placement from the original so a
+      swap is a true swap. Nose layouts gate on precise landmarks (`FaceRegion.nose`), like the
+      mouth ones.
 - [x] **Skin heal so features move, not stack.** Before compositing a moved feature, the layout
       covers the feature it *replaces* with skin sampled from just beside it (same vertical level,
       toward the face centre — the nose bridge / cheek — so it matches local shading rather than one
@@ -972,8 +975,9 @@ EYE MOUTH, and SHUFFLE behind a preset-row picker.
       and `toggleFaceSelection` collapses a stored layout the new face can't support to THIRD EYE
       (no hidden invalid layout). `onlyLazerEyesAndScrambleDeclareAPicker` updated for the new owner.
 - [ ] **Device QA on the new layouts (Stage E's D2).** THIRD EYE is device-confirmed; MOUTH EYES /
-      EYE MOUTH / SHUFFLE verified only by rendered fixtures. Watch feature-fit scale on real faces,
-      the SHUFFLE cycle reading clearly, and the three-row panel not scrolling on a physical SE 3.
+      EYE MOUTH / NOSE SWAP / SHUFFLE verified only by rendered fixtures. Watch feature-fit scale on
+      real faces (especially the nose, which is narrow-tall and 3D — nostril shadows may read oddly),
+      the SHUFFLE cycle reading clearly, the skin heal matching real skin, and the two-row panel.
 
 Free requirements noted during the port: pause frames already reuse one rendered image, so
 "byte-stable" needs nothing from the effect; and the `scaled()` enumeration test knows

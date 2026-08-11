@@ -42,7 +42,7 @@ struct FeatureScramblerTests {
             leftEye: eyePolygon(cx: 100, cy: 190, rx: 26, ry: 15),
             rightEye: eyePolygon(cx: 200, cy: 190, rx: 26, ry: 15),
             outerLips: eyePolygon(cx: 150, cy: 120, rx: 34, ry: 14),
-            innerLips: [], nose: []
+            innerLips: [], nose: eyePolygon(cx: 150, cy: 155, rx: 10, ry: 18)
         )
         return DetectedFace(
             boundingBox: CGRect(x: 70, y: 80, width: 160, height: 160),
@@ -281,19 +281,21 @@ struct FeatureScramblerTests {
     }
 
     @Test func layoutAvailability_oneEyePlusMouthAllowsEyeMouthNotSwaps() {
-        let face = makeOneEyeMouthFace()
+        let face = makeOneEyeMouthFace()  // one eye, mouth, no nose
         #expect(ScrambleLayout.thirdEye.isAvailable(for: face))
         #expect(ScrambleLayout.eyeMouth.isAvailable(for: face))
         #expect(!ScrambleLayout.mouthEyes.isAvailable(for: face), "needs both eyes")
-        #expect(!ScrambleLayout.shuffle.isAvailable(for: face), "needs both eyes")
+        #expect(!ScrambleLayout.shuffle.isAvailable(for: face), "needs both eyes and a nose")
+        #expect(!ScrambleLayout.noseSwap.isAvailable(for: face), "needs a nose")
     }
 
     @Test func placements_countMatchesLayout() {
         let face = makePreciseFace()
         #expect(ScrambleLayout.thirdEye.placements(for: face, size: 0.5).count == 1)
         #expect(ScrambleLayout.eyeMouth.placements(for: face, size: 0.5).count == 1)
+        #expect(ScrambleLayout.noseSwap.placements(for: face, size: 0.5).count == 2)
         #expect(ScrambleLayout.mouthEyes.placements(for: face, size: 0.5).count == 2)
-        #expect(ScrambleLayout.shuffle.placements(for: face, size: 0.5).count == 3)
+        #expect(ScrambleLayout.shuffle.placements(for: face, size: 0.5).count == 4)
     }
 
     @Test func placements_emptyWhenLayoutUnavailable() {
@@ -331,8 +333,9 @@ struct FeatureScramblerTests {
     @Test func healRegions_matchWhatEachLayoutReplaces() {
         #expect(ScrambleLayout.thirdEye.healRegions().isEmpty)
         #expect(ScrambleLayout.eyeMouth.healRegions() == [.mouth])
+        #expect(ScrambleLayout.noseSwap.healRegions() == [.nose, .mouth])
         #expect(ScrambleLayout.mouthEyes.healRegions().count == 2)
-        #expect(ScrambleLayout.shuffle.healRegions().count == 3)
+        #expect(ScrambleLayout.shuffle.healRegions().count == 4)
     }
 
     @Test func compositor_fillRegionCoversTheOriginalFeature() {

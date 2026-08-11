@@ -767,7 +767,8 @@ struct EditorViewModelTests {
         }
         let regions = FaceRegions(
             leftEye: poly(x - 40, 190), rightEye: poly(x + 40, 190),
-            outerLips: withLips ? poly(x, 120) : [], innerLips: [], nose: []
+            outerLips: withLips ? poly(x, 120) : [], innerLips: [],
+            nose: withLips ? poly(x, 155) : []
         )
         return DetectedFace(
             boundingBox: CGRect(x: x - 80, y: 80, width: 160, height: 160),

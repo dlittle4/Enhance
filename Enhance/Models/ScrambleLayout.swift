@@ -20,23 +20,27 @@ enum ScrambleLayout: String, CaseIterable, Identifiable, Hashable {
     case thirdEye  = "THIRD EYE"
     case mouthEyes = "MOUTH EYES"
     case eyeMouth  = "EYE MOUTH"
+    case noseSwap  = "NOSE SWAP"
     case shuffle   = "SHUFFLE"
 
     var id: String { rawValue }
 
-    /// Whether this layout can be built from the face's landmarks. Mouth-based layouts need
-    /// precise lips (an estimated mouth is not trustworthy enough to copy), and swaps need
-    /// both eyes — a profile face with one eye falls back to THIRD EYE / EYE MOUTH only.
+    /// Whether this layout can be built from the face's landmarks. Mouth- and nose-based
+    /// layouts need those precise landmarks (an estimated one is not trustworthy enough to
+    /// copy); swaps need both eyes — a profile face with one eye falls back to THIRD EYE /
+    /// EYE MOUTH only.
     func isAvailable(for face: DetectedFace) -> Bool {
         let hasLeft = FaceRegion.leftEye.isAvailable(in: face)
         let hasRight = FaceRegion.rightEye.isAvailable(in: face)
         let hasMouth = FaceRegion.mouth.isAvailable(in: face)
+        let hasNose = FaceRegion.nose.isAvailable(in: face)
 
         switch self {
         case .thirdEye:  return hasLeft || hasRight
         case .eyeMouth:  return (hasLeft || hasRight) && hasMouth
+        case .noseSwap:  return hasNose && hasMouth
         case .mouthEyes: return hasLeft && hasRight && hasMouth
-        case .shuffle:   return hasLeft && hasRight && hasMouth
+        case .shuffle:   return hasLeft && hasRight && hasMouth && hasNose
         }
     }
 
@@ -48,8 +52,9 @@ enum ScrambleLayout: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .thirdEye:  return []
         case .eyeMouth:  return [.mouth]
+        case .noseSwap:  return [.nose, .mouth]
         case .mouthEyes: return [.leftEye, .rightEye]
-        case .shuffle:   return [.leftEye, .rightEye, .mouth]
+        case .shuffle:   return [.leftEye, .rightEye, .nose, .mouth]
         }
     }
 
@@ -90,15 +95,29 @@ enum ScrambleLayout: String, CaseIterable, Identifiable, Hashable {
                           fitting: .rightEye, in: face, size: size)
             ]
 
+        case .noseSwap:
+            guard let noseCenter = FaceRegion.nose.sourceCenter(in: face),
+                  let mouthCenter = FaceRegion.mouth.sourceCenter(in: face) else { return [] }
+            // Swap the nose and the mouth.
+            return [
+                placement(from: .nose, at: noseCenter, to: mouthCenter,
+                          fitting: .mouth, in: face, size: size),
+                placement(from: .mouth, at: mouthCenter, to: noseCenter,
+                          fitting: .nose, in: face, size: size)
+            ]
+
         case .shuffle:
             guard let leftCenter = FaceRegion.leftEye.sourceCenter(in: face),
                   let rightCenter = FaceRegion.rightEye.sourceCenter(in: face),
+                  let noseCenter = FaceRegion.nose.sourceCenter(in: face),
                   let mouthCenter = FaceRegion.mouth.sourceCenter(in: face) else { return [] }
-            // A three-way cycle: left eye → right, right eye → mouth, mouth → left eye.
+            // A four-way cycle: left eye → right, right eye → nose, nose → mouth, mouth → left.
             return [
                 placement(from: .leftEye, at: leftCenter, to: rightCenter,
                           fitting: .rightEye, in: face, size: size),
-                placement(from: .rightEye, at: rightCenter, to: mouthCenter,
+                placement(from: .rightEye, at: rightCenter, to: noseCenter,
+                          fitting: .nose, in: face, size: size),
+                placement(from: .nose, at: noseCenter, to: mouthCenter,
                           fitting: .mouth, in: face, size: size),
                 placement(from: .mouth, at: mouthCenter, to: leftCenter,
                           fitting: .leftEye, in: face, size: size)
@@ -108,15 +127,20 @@ enum ScrambleLayout: String, CaseIterable, Identifiable, Hashable {
 
     // MARK: - Geometry
 
-    /// A feature-to-feature placement scaled so the copy roughly fills the destination
-    /// feature, with SIZE modulating around that fit.
+    /// A feature-to-feature placement scaled so the copy fits *within* the destination
+    /// feature, with SIZE modulating around that fit. Uses the smaller of the width and
+    /// height ratios (uniform scale keeps the copy's own aspect): a wide mouth and a tall
+    /// nose have very different aspect ratios, so fitting by width alone would balloon the
+    /// nose into a blob when it lands on the mouth.
     private func placement(
         from region: FaceRegion, at sourceCenter: CGPoint, to destination: CGPoint,
         fitting destRegion: FaceRegion, in face: DetectedFace, size: CGFloat
     ) -> ScramblePlacementSpec {
-        let srcW = region.sourceBounds(in: face)?.width ?? 1
-        let destW = destRegion.sourceBounds(in: face)?.width ?? srcW
-        let fit = srcW > 0 ? destW / srcW : 1
+        let src = region.sourceBounds(in: face) ?? .zero
+        let dest = destRegion.sourceBounds(in: face) ?? src
+        let fitW = src.width > 0 ? dest.width / src.width : 1
+        let fitH = src.height > 0 ? dest.height / src.height : 1
+        let fit = max(0.01, min(fitW, fitH))
         return ScramblePlacementSpec(
             region: region, sourceCenter: sourceCenter, destination: destination,
             finalScale: fit * (0.7 + size * 0.6)
