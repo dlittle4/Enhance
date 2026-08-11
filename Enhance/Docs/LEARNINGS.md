@@ -290,7 +290,11 @@ Files moved to Components: `GIFPreviewView`, `ShareSheet`, `ImageCanvasView`, `Z
 
 **Fix:** Replaced `assign(to:)` with explicit `sink` subscriptions that assign the value manually: `photoLibrary.$hasMorePhotos.sink { [weak self] value in self?.hasMorePhotos = value }`. The property setter on `@Published` triggers `objectWillChange`, causing view updates.
 
-**Rule:** When forwarding `@Published` values between `ObservableObject`s, use `sink` with explicit assignment instead of `assign(to:)`. The `assign(to:)` operator bypasses the `objectWillChange` publisher, silently breaking SwiftUI reactivity.
+**Rule:** When forwarding `@Published` values between `ObservableObject`s, use `sink` with explicit assignment instead of `assign(to:on:)` — the key-path overload. It writes straight to the target's storage, bypassing `objectWillChange`, and it also retains the target.
+
+> **Narrowed 2026-08-11.** This rule originally said "`assign(to:)`" without qualification, and the codebase has quietly contradicted it ever since: `PhotoManager.swift:24-29` forwards six properties with `assign(to: &$…)` and the gallery updates correctly. The two overloads are not the same thing. `assign(to: &$published)` republishes *through* the `@Published` wrapper and does fire `objectWillChange` — it exists precisely for this forwarding case. `assign(to:on:)` is the one that bypasses.
+>
+> The 2026-03-08 bug was real, but the diagnosis generalised from the wrong overload. Kept rather than deleted because the `assign(to:on:)` half is still true and still worth avoiding. ROADMAP previously tracked this as an unresolved P3 contradiction; it is now closed.
 
 ---
 
@@ -1282,3 +1286,51 @@ disagree the moment the user zooms. An effect being "conceptually attached to th
 not a reason to skip this; the preview cannot render a frame-anchored effect, so image-anchored
 is the only choice that stays consistent. FISHEYE and SWIRL still skip it and have the same
 latent mismatch — acceptable only because their radius is smaller and less dramatic than LENS.
+
+---
+
+## 2026-08-10: Light and structure cannot be built from smeared noise
+
+**Problem:** THIRD EYE's god-rays were built by streaking `CIRandomGenerator` noise with
+`CIZoomBlur` — the same mechanism LENS uses for chromatic dispersion. The result read as mush.
+Raising contrast, tightening the blur, and adjusting the threshold all failed to separate it into
+distinct shafts.
+
+**Root cause:** a blur *averages neighbouring values into a continuous wash*. Once adjacent
+samples have been mixed, no later operation can recover which contributions came from where — so
+discrete shafts can never fully re-separate. The failure is structural, not a matter of tuning,
+which is why every tuning attempt failed.
+
+**Fix:** build each shaft as its own shape — a radial gradient squashed into a thin bar, rotated
+into place about the eye, layered over core and bloom sprites, composited **additively**. This is
+how `LazerEyesEffect` already built its glow. Clean edges at any length, punchy rather than milky,
+and INTENSITY maps to a real count (4–11 spokes = 8–22 visible rays). Still lazy, still
+deterministic — no `frameIndex`, no unseeded randomness.
+
+**Rule:** when an effect needs *discrete structure* — rays, shafts, cell walls, hatch lines,
+caustic ridges — compose it from analytic shapes and blend them additively. Reach for noise plus
+blur only when the goal genuinely is a continuous wash. Applies directly to the Hatching, Slice
+Shift, Pixel Stretch and Water Caustic candidates in EFFECTS.md; it is also the reason Water
+Caustic cannot be faked with stock filters.
+
+---
+
+## 2026-08-10: Non-`Double` effect parameters need a typed home, never a case index
+
+**Problem:** the parameter store is `parameterValues: [String: Double]`, keyed
+`"<namespace>|<effect>|<paramID>"`. It cannot hold an enum, a colour, or anything else non-numeric,
+and the obvious workaround — store the enum's case index as a `Double` — is a trap.
+
+**Root cause:** a case index is positional. Reordering or inserting a case silently reinterprets
+every previously stored value, and because the store is keyed by string the mismatch surfaces as a
+*wrong setting*, not as a decode error. Nothing fails loudly.
+
+**Fix:** follow what `tintColor`, `gradientStops` and `laserColor` already do — a dedicated typed
+property on `EditorViewModel` **and** a matching field on `EditorSnapshot` so undo/redo round-trips
+it. `EffectParameter.Kind` gains a case, and `EditorView.parameterRows`' switch is exhaustive, so
+the compiler forces every site to be updated.
+
+**Rule:** `parameterValues` is for scalars a slider produces. Anything else gets a typed property
+plus an `EditorSnapshot` field. Never a case index. Relevant to the PIXELATE SHAPE and HALFTONE
+style candidates in the control audit — a worked example (built for layouts, then deleted) is in
+commit `580bf83`.
