@@ -187,9 +187,14 @@ class EditorViewModel {
         case .zoomEffects:   return 3
         case .visualEffects: return selectedVisualEffect?.parameters.count ?? 0
         case .faceFilters:   return selectedFaceFilter?.parameters.count ?? 0
-        // COLOR and the per-preset tunable, plus DIRECTION for the presets that travel. STYLE is
-        // held back until decoration renders correctly.
-        case .text:          return (textOverlay?.animation.usesDirection == true) ? 3 : 2
+        // FILL, the swatches it selects between, and the per-preset tunable — plus FROM for the
+        // presets that travel. STYLE is held back until decoration renders correctly.
+        //
+        // Four rows is over the budget §1a is deciding: the arithmetic there says four rows need
+        // 234pt against an SE 3 panel of ~190–200pt, so SLIDE overflows into a scroll on the
+        // shortest device, where a slider drag scrolls the panel instead of moving the knob
+        // (LEARNINGS 2026-08-08). Only SLIDE is affected, and only on that device class.
+        case .text:          return (textOverlay?.animation.usesDirection == true) ? 4 : 3
         }
     }
 

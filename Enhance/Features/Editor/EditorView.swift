@@ -199,8 +199,21 @@ struct EditorView: View {
             // colour, so a shadow renders in the text's own colour and a block plate fills solid
             // over the glyphs. Those decorations need a second, contrasting fill pass before they
             // are worth a control. `TextDecoration` stays in the model for that work.
-            ParameterPickerRow(label: "COLOR") {
-                textColorSwatchContent()
+            ParameterPickerRow(label: "FILL") {
+                SegmentedBar(
+                    items: TextFillMode.allCases,
+                    selection: textFillModeBinding,
+                    label: { $0.rawValue }
+                )
+            }
+            // Unlabelled: the FILL row above already names what these are, and a second label
+            // would repeat it while stealing width from the swatches.
+            ParameterPickerRow(label: "") {
+                if viewModel.textOverlay?.fillMode == .gradient {
+                    textGradientSwatchContent()
+                } else {
+                    textColorSwatchContent()
+                }
             }
             if viewModel.textOverlay?.animation.usesDirection == true {
                 ParameterPickerRow(label: "FROM") {
@@ -674,6 +687,82 @@ struct EditorView: View {
                 viewModel.regenerateIfNeeded()
             }
         )
+    }
+
+    /// Solid colour or gradient. Both choices persist independently, so toggling back returns the
+    /// colour or the gradient the user last picked rather than resetting it.
+    private var textFillModeBinding: Binding<TextFillMode> {
+        Binding(
+            get: { viewModel.textOverlay?.fillMode ?? .color },
+            set: { newValue in
+                guard var overlay = viewModel.textOverlay else { return }
+                overlay.fillMode = newValue
+                viewModel.textOverlay = overlay
+                viewModel.regenerateIfNeeded()
+            }
+        )
+    }
+
+    /// The gradient's two endpoints, as native colour wells — the same affordance the Gradient Map
+    /// effect uses. Written straight onto the overlay; the model stores components rather than
+    /// `Color`, so undo and persistence still work (see `TextGradient`).
+    private var textGradientStartBinding: Binding<Color> {
+        Binding(
+            get: { viewModel.textOverlay?.gradient.startColor ?? TextGradient.default.startColor },
+            set: { newValue in
+                guard var overlay = viewModel.textOverlay else { return }
+                overlay.gradient.startColor = newValue
+                viewModel.textOverlay = overlay
+                // A colour well emits on every drag frame of the system wheel, so this coalesces
+                // rather than kicking off a regeneration per frame.
+                viewModel.scheduleRegenerate()
+            }
+        )
+    }
+
+    private var textGradientMidBinding: Binding<Color> {
+        Binding(
+            get: { viewModel.textOverlay?.gradient.midColor ?? TextGradient.default.midColor },
+            set: { newValue in
+                guard var overlay = viewModel.textOverlay else { return }
+                overlay.gradient.midColor = newValue
+                viewModel.textOverlay = overlay
+                viewModel.scheduleRegenerate()
+            }
+        )
+    }
+
+    private var textGradientEndBinding: Binding<Color> {
+        Binding(
+            get: { viewModel.textOverlay?.gradient.endColor ?? TextGradient.default.endColor },
+            set: { newValue in
+                guard var overlay = viewModel.textOverlay else { return }
+                overlay.gradient.endColor = newValue
+                viewModel.textOverlay = overlay
+                viewModel.scheduleRegenerate()
+            }
+        )
+    }
+
+    /// Three wells, left to right along the ramp — the same three-stop shape as the Gradient Map
+    /// effect's row. The colours in the wells are the preview; the canvas shows the real result.
+    ///
+    /// Zeroed spacing and `minLength: 0` for the same reason `colorSwatchContent` documents: a bare
+    /// `Spacer` carries its own intrinsic minimum *on top of* the stack spacing, which on a 4.7"
+    /// screen pushed that row past both edges of the display.
+    private func textGradientSwatchContent() -> some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            ColorPicker("", selection: textGradientStartBinding, supportsOpacity: false)
+                .labelsHidden()
+            Spacer(minLength: 0)
+            ColorPicker("", selection: textGradientMidBinding, supportsOpacity: false)
+                .labelsHidden()
+            Spacer(minLength: 0)
+            ColorPicker("", selection: textGradientEndBinding, supportsOpacity: false)
+                .labelsHidden()
+            Spacer(minLength: 0)
+        }
     }
 
     /// SLIDE's entry edge. "UP" means the text travels up into place from below.

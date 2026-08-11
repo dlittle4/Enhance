@@ -136,6 +136,10 @@ final class TextOverlayHostView: UIView {
         // time, so dragging never invalidates the raster.
         "\(o.text)|\(o.font.rawValue)|\(o.color.rawValue)|\(o.decoration.rawValue)"
             + "|\(o.alignment.rawValue)|\(o.fontSize)|\(o.angle)|\(o.animation.granularity)"
+            // The fill is baked into the master, so both parts of it must invalidate the cache.
+            // Omitting them left the canvas showing the old colour while the panel said otherwise —
+            // the raster was correct, it just was never rebuilt.
+            + "|\(o.fillMode.rawValue)|\(o.gradient.start)|\(o.gradient.mid)|\(o.gradient.end)"
             + "|\(Int(canvasSide))|\(Int(screenScale))"
     }
 
