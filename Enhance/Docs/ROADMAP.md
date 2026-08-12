@@ -53,9 +53,7 @@ is no in-flight work anywhere, so nothing below is owned by another session.
    reconstruction. Check its row count against §1a first: four sliders plus a picker.
 
 **CI shipped on 2026-08-12** (§1b) and now guards `EnhanceTests` on every push to `main` and every
-PR. **Watch the first real run**: it has been validated locally and its scripts were tested
-including their failure paths, but no run has yet happened on GitHub's hardware, where the Xcode
-version and available simulator runtimes both differ from this machine.
+PR. **First run was green** — 392 passed / 0 failed in 6m21s.
 
 *(§1e, §2d control audit, and SLICE SHIFT are also done. HATCHING skipped and BOKEH declined, both
 on the user's call — §2a is empty, so nothing further is buildable from stock filters alone.)*
@@ -147,10 +145,16 @@ for the timing tell.
       `xcodebuild test`, on pushes to `main`, all PRs, and manual dispatch. Lint still follows
       later, with the token migration. Three things in it are load-bearing and should not be
       "simplified" away:
-      - **The simulator is resolved at run time**, not hardcoded. Runner images change device names
-        and runtime versions without notice, so `-destination 'name=iPhone 16,OS=18.2'` is a
-        scheduled outage; the workflow picks the newest available iPhone with iOS ≥ 18.2 (the
-        deployment target) and fails loudly, printing every runtime, when there is none.
+      - **The simulator is resolved at run time**, not hardcoded. The workflow picks the newest
+        available iPhone with iOS ≥ 18.2 (the deployment target) and fails loudly, printing every
+        runtime, when there is none. **The first run proved this was not over-engineering**: the
+        runner has **Xcode 16.4** — two majors behind the 26.3 on the dev machine — and its
+        runtimes are 18.5, 18.6, 26.0, 26.1, 26.2. **There is no iOS 18.2 runtime on the runner at
+        all**, so the conventional `-destination 'name=iPhone 16,OS=18.2'` would have failed on
+        the very first run. It selected an iPhone 17 Pro on iOS 26.2.
+        *Worth knowing:* the suite passes under both Xcode 16.4 and 26.3, but that two-major gap is
+        a standing source of "green locally, red in CI" and the reverse. Check the toolchain line
+        in the run log before assuming a CI-only failure is a real regression.
       - **`-scheme Enhance` is mandatory.** The project also shipped an `Enhance 1` scheme —
         byte-identical except that it declared *no testables*, so a run under it would have
         reported success having executed **zero tests**. It was unreferenced and present since the

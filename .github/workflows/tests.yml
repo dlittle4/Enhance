@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Show toolchain
         run: |
@@ -97,9 +97,11 @@ jobs:
 
       - name: Upload results
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: test-results
+          # Two paths, one of which (.xcresult) is a directory bundle — so the default zipping
+          # is what we want here. v7's `archive: false` handles a single file only.
           path: |
             TestResults.xcresult
             xcodebuild.log
