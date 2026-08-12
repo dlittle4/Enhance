@@ -46,12 +46,11 @@ sees a working build.
 
 **The next three things, in order:**
 
-1. **Decide the panel row budget** (§1a) — it blocks the entire control audit, and the currently
-   enforced cap permits layouts that cannot render on any supported device.
-2. **CI running the test suite** (§1b) — four sessions work this repo in parallel with no
-   automated gate.
-3. **Pick an effect from §2a** — SLICE SHIFT and HATCHING are both ready and need no new
-   infrastructure. (BOKEH was declined on 2026-08-11; don't lead with it.)
+1. **The control audit** (§2d) — eight of the nine hidden parameters fit the panel as it stands.
+   No panel work is wanted; three rows is the ceiling and the audit lives inside it.
+2. **Then the new effects** (§2a) — SLICE SHIFT and HATCHING, both ready, no new infrastructure.
+   (BOKEH was declined on 2026-08-11; don't lead with it.)
+3. **CI running the test suite** (§1b) — four sessions share this repo with no automated gate.
 
 > **A note on trusting this file.** A 2026-08-11 sweep checked every load-bearing claim against the
 > code and found six wrong — one of which actively instructed a future session to revert a repaired
@@ -72,56 +71,38 @@ render cost was filed as a P2 nit, then continuous speed shipped and
 `frameCount = max(12, Int(1/speed/0.04))` turned ~25 frames into 100 at 0.25× — the same bug, four
 times worse, and by then gating two features.
 
-### 1a. Decide the panel row budget → blocks the whole control audit (§2d)
+### 1a. The panel row budget — a constraint, not a task ✓ closed
 
-`EffectParameterTests` enforces `parameters.count <= 5`. **That cap is unreachable.** Computed from
-`PanelMetrics.swift:35-41` (grid 16, small 8, floor 34pt, cap 44pt), the panel height needed before
-rows floor and overflow:
+**No panel changes are wanted.** *(User's call, 2026-08-11.)* Raising the panel's height, lowering
+the 34pt floor, and capping effects at three rows were all considered and **all declined** — the
+panel works, and the control audit fits inside it. This section stays only to record the ceiling
+everything else must respect.
 
-| rows | minimum panel height |
-|---|---|
-| 3 | **192pt** |
-| 4 | **234pt** |
-| 5 | **276pt** |
+Computed from `PanelMetrics.swift:35-41` (grid 16, small 8, floor 34pt, cap 44pt), the panel height
+needed before rows floor and the content overflows:
 
-The SE 3 panel is ~190–200pt (`EffectParameterTests.swift:222`).
+| rows | minimum panel height | on an SE 3 (~190pt) |
+|---|---|---|
+| 3 | 192pt | **fits — verified on device 2026-08-11** |
+| 4 | 234pt | does not fit |
+| 5 | 276pt | does not fit |
 
-- **4 rows cannot fit an SE 3 at all** — and several control-audit items add a fourth row.
-- **5 rows needs ~76pt more than the shortest device has.** The assertion protects nothing.
-- **3 rows is fine — checked on device 2026-08-11.** THIRD EYE's SIZE / INTENSITY / COLOUR panel
-  renders correctly on an SE 3, with the rows visibly compressed toward the floor rather than
-  clipped: `PanelMetrics` shrinking them to fit is the mechanism working, not failing. An earlier
-  version of this entry predicted an overflow from the 192pt threshold against the test's
-  "~190–200pt" note. **That note was an estimate, not a measurement, and the prediction was wrong** —
-  recorded because the reasoning looked sound and still produced a false alarm.
+**The working ceiling is three rows.** Four will not render on the shortest supported device, so
+`parameters.count <= 5` remains an assertion that permits layouts nothing can display — left as-is
+deliberately, since nothing is allowed to reach it.
 
-Overflow re-enables the `ScrollView` (`EffectDetailPanel.swift:53`), where
-`DragGesture(minimumDistance: 0)` (`ParameterSliderRow.swift:95`) loses to the scroll and a slider
-drag scrolls the panel instead. That mechanism is correctly documented at
-`EffectDetailPanel.swift:45-52` and `PanelMetrics.swift:5-10` — it was only the *cost estimate* in
-the old Phase 17f that was wrong.
+Two things to respect rather than fix:
 
-**Row count is no longer fixed per effect.** *(2026-08-11, from the text-overlay session.)* TEXT's
-`editingRowCount` returns **2 normally and 3 when the preset uses the direction toggle** (SLIDE), so
-a category can change its row count without the user changing effect. The whole budget model above
-assumes rows are a property of the selected effect; they are not. **Consequence: capping at three
-puts TEXT exactly at the ceiling**, and any future per-preset control pushes it over without anyone
-touching the panel code. Whatever lever is chosen has to survive a row count that varies at runtime.
-
-- [x] ~~Confirm on an SE 3 whether THIRD EYE's three rows already overflow.~~ **They don't** —
-      checked 2026-08-11. Nothing is broken today; this is about the fourth row, not the third.
-- [ ] **Pick a lever**: raise the panel's height allocation, lower the 34pt floor, or cap effects at
-      three rows and treat a fourth as a design change. Then make the assertion match the lever
-      instead of the current fiction. Must survive a row count that varies at runtime (see above).
-- [ ] 🔍 **Check whether a slider still drags when the rows *are* floored.** The one part of the
-      chain nobody has verified: overflow enables the `ScrollView`, and the two code comments
-      describing what happens next **contradict each other** —
-      `PanelMetrics.swift:5-10` says `DragGesture(minimumDistance: 0)` *loses* to the scroll, while
-      `EffectDetailPanel.swift:45-52` says it *beats* the scroll and then concludes the drag scrolls
-      anyway. They agree on the outcome and disagree on the reason, so at least one was reasoned
-      rather than measured. Worth settling before the fourth row makes it reachable.
-- [ ] Extend the guard test across the real range (190pt as well as 200pt) and across row counts,
-      so the cap and the geometry cannot drift apart again.
+- **Row count is not fixed per effect.** TEXT's `editingRowCount` returns 2 normally and 3 with
+  SLIDE's direction toggle, so a category can change row count at runtime. TEXT is therefore
+  *already at the ceiling*, and any future per-preset control there overflows without anyone
+  touching panel code.
+- **The gesture conflict is unverified and now unreachable.** If rows ever do floor, the
+  `ScrollView` turns on and competes with `DragGesture(minimumDistance: 0)`
+  (`ParameterSliderRow.swift:95`). The two code comments describing what happens next contradict
+  each other on which gesture wins — `PanelMetrics.swift:5-10` says the drag loses,
+  `EffectDetailPanel.swift:45-52` says it wins and then concludes it scrolls anyway. Nothing can
+  reach it at three rows, so it stays a curiosity unless a fourth row is ever wanted.
 
 ### 1b. CI running the test suite → protects every parallel session
 
@@ -265,22 +246,39 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
 - [ ] **Hatching line styles** — wave, zigzag, concentric. Arbitrary substitutions into the `sin`
       argument, with no stock equivalent. The straight-line version in §2a needs none of this.
 
-### 2d. Control audit — blocked on §1a
+### 2d. Control audit — **next up**, and it fits
 
 Nine shipped effects collapse independent qualities into one INTENSITY slider, or hardcode a value
 a user would reasonably want to change. Candidates are named with file and value in
 [EFFECTS.md → Control audit](EFFECTS.md#control-audit--effects-with-hidden-parameters).
 
-**This is not the cheap item it was billed as.** Each *is* a small data change — declare the
-parameter, thread it through `init` — but the ones that add a fourth row cannot render on an SE 3.
-Split accordingly:
+**Eight of the nine fit inside the verified three-row ceiling** — checked against each effect's
+current row count, not assumed. An earlier version of this section called most of them blocked;
+that was written while three rows was still believed marginal.
 
-- [ ] **Fits today (adds no fourth row):** MOTION BLUR (ANGLE — a directional blur whose direction
-      is hardcoded to 45°), SWIRL (SIZE — a straight parity gap, since FISHEYE already exposes it),
-      CHROMA SHIFT (ANGLE), RAINBOW (SPEED, which the face variant already has).
-- [ ] **Needs §1a resolved first:** DITHER (LEVELS + MONO), HALFTONE (SHARPNESS + ANGLE, both
-      already supported by `CICMYKHalftone`), HEAT HAZE (FREQUENCY + SPEED), GRADIENT (MIDPOINT),
-      PIXELATE (SHAPE — `CIHexagonalPixellate` makes hex nearly free).
+| effect | rows now | adds | after |
+|---|---|---|---|
+| MOTION BLUR | 1 | ANGLE | 2 |
+| SWIRL | 1 | SIZE | 2 |
+| CHROMA SHIFT | 1 | ANGLE | 2 |
+| RAINBOW | 1 | SPEED | 2 |
+| PIXELATE | 1 | SHAPE | 2 |
+| HALFTONE | 1 | SHARPNESS + ANGLE | 3 |
+| HEAT HAZE | 1 | FREQUENCY + SPEED | 3 |
+| GRADIENT | 2 | MIDPOINT | 3 |
+| **DITHER** | 2 | LEVELS + MONO | **4 — over** |
+
+- [ ] **The eight that fit**, in rough value order: MOTION BLUR (ANGLE — a directional blur whose
+      direction is hardcoded to 45°), SWIRL (SIZE — a parity gap, FISHEYE already exposes it),
+      HALFTONE (SHARPNESS + ANGLE, both already supported by `CICMYKHalftone`), CHROMA SHIFT
+      (ANGLE), HEAT HAZE (FREQUENCY + SPEED), GRADIENT (MIDPOINT), RAINBOW (SPEED, which the face
+      variant already has), PIXELATE (SHAPE — `CIHexagonalPixellate` makes hex nearly free).
+- [ ] **PIXELATE's SHAPE is not a `Double`** and must not be stored as a case index — typed property
+      on the view model plus an `EditorSnapshot` field, per LEARNINGS 2026-08-10. It is the only one
+      of the eight that is more than a slider.
+- [ ] **DITHER: ship LEVELS, defer MONO.** LEVELS is the one that decouples posterisation depth from
+      dither amplitude, which is the actual complaint; MONO is a look, and a fourth row cannot
+      render. Revisit only if the panel ceiling ever moves.
 - [ ] Prefer **splitting coupled qualities** over inventing new ones. Most of these are one slider
       driving two independent things; separating them makes currently-unreachable looks reachable
       without changing what the effect is.
