@@ -606,6 +606,54 @@ struct EditorViewModelTests {
         #expect(vm.canUndo == false)
     }
 
+    // MARK: - Live canvas vs rendered GIF
+
+    /// The regression this pins: the face tab held the live canvas unconditionally while
+    /// `updateCombinedPreview` cleared the preview because a GIF existed, so after ENHANCE the
+    /// canvas showed the raw, un-zoomed, un-effected photo. Two defensible rules, one contradiction
+    /// — so there is now a single property and these assert it directly.
+    @Test func wantsLiveCanvas_onFaceTab_onlyWhileThePanelIsOpen() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedEffectCategory = .faceFilters
+
+        #expect(!vm.wantsLiveCanvas, "with the panel closed the GIF owns the canvas")
+
+        vm.selectedFaceFilter = .lazerEyes
+        vm.beginEditing()
+        #expect(vm.wantsLiveCanvas, "face boxes must be tappable while a filter is being chosen")
+
+        vm.commitEditing()
+        #expect(!vm.wantsLiveCanvas, "confirming hands the canvas back to the GIF")
+    }
+
+    @Test func wantsLiveCanvas_onTextTab_coversTypingAndThePanel() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedEffectCategory = .text
+        #expect(!vm.wantsLiveCanvas)
+
+        vm.isEnteringText = true
+        #expect(vm.wantsLiveCanvas, "the keyboard phase edits the photo, not the GIF")
+        vm.isEnteringText = false
+
+        vm.textOverlay = activeOverlay()
+        vm.beginEditing()
+        #expect(vm.wantsLiveCanvas, "the settings panel is where the text is positioned")
+        vm.commitEditing()
+        #expect(!vm.wantsLiveCanvas)
+    }
+
+    /// Categories with nothing to position on the canvas never take it from the GIF.
+    @Test func wantsLiveCanvas_onZoomAndImageTabs_isNeverTrue() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        for category in [EffectCategory.zoomEffects, .visualEffects] {
+            vm.selectedEffectCategory = category
+            vm.selectedVisualEffect = .chromaShift
+            vm.beginEditing()
+            #expect(!vm.wantsLiveCanvas, "\(category.rawValue) has nothing to position")
+            vm.commitEditing()
+        }
+    }
+
     // MARK: - Text overlay persistence
 
     /// Text is authored, not chosen from a card, so losing it on a round trip means retyping it.

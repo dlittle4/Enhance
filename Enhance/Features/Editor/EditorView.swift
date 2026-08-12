@@ -11,9 +11,9 @@ struct EditorView: View {
     /// user has asked the system for less of it.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// Phase 1 of the text editor: the keyboard. `textDraft` is the live field, committed to the
-    /// overlay on DONE so a cancel can discard cleanly.
-    @State private var isEnteringText = false
+    /// Phase 1 of the text editor: `textDraft` is the live field, committed to the overlay on
+    /// DONE so a cancel can discard cleanly. Whether the keyboard is up lives on the view model,
+    /// because `wantsLiveCanvas` depends on it and that answer must be shared.
     @State private var textDraft = ""
     @FocusState private var textFieldFocused: Bool
 
@@ -95,13 +95,13 @@ struct EditorView: View {
             // covered by the keyboard, which is what a text-entry sheet should do.
             .ignoresSafeArea(.keyboard, edges: .bottom)
 
-            if isEnteringText {
+            if viewModel.isEnteringText {
                 textEntryOverlay
                     .transition(.opacity)
                     .zIndex(2)
             }
         }
-        .animation(.easeOut(duration: 0.12), value: isEnteringText)
+        .animation(.easeOut(duration: 0.12), value: viewModel.isEnteringText)
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + AppConstants.Animation.standard) {
                 withAnimation { viewModel.showControls = true }
@@ -328,24 +328,11 @@ struct EditorView: View {
 
     // MARK: - Canvas
 
-    /// Whether the canvas shows the editable photo rather than the rendered GIF.
-    ///
-    /// FACE FILTERS always needs it, to hit-test face boxes. TEXT needs it **only while the user is
-    /// actually editing** — typing, or with the settings panel open, which is when the text is
-    /// dragged and scaled. Once the visit is confirmed the GIF takes the canvas back, so ENHANCE
-    /// shows the rendered result like every other category. Keeping the live canvas up permanently
-    /// under TEXT meant a generated GIF never appeared in the preview at all.
-    private var wantsLiveCanvas: Bool {
-        if viewModel.selectedEffectCategory == .faceFilters { return true }
-        return viewModel.selectedEffectCategory == .text
-            && (isEnteringText || viewModel.isEditingEffect)
-    }
-
     private var canvasSection: some View {
         ZStack {
             switch viewModel.content {
             case .existingGif(let url, _, _):
-                if wantsLiveCanvas, let source = viewModel.sourceImage {
+                if viewModel.wantsLiveCanvas, let source = viewModel.sourceImage {
                     liveCanvas(image: source)
                 } else {
                     borderedCanvas {
@@ -356,7 +343,7 @@ struct EditorView: View {
                 }
 
             case .newImage(let image):
-                if viewModel.isSplit, let gifURL = viewModel.generatedGifURL, !wantsLiveCanvas {
+                if viewModel.isSplit, let gifURL = viewModel.generatedGifURL, !viewModel.wantsLiveCanvas {
                     borderedCanvas {
                         GIFPreviewView(url: gifURL, isPlaying: viewModel.isPlaying, playbackSpeed: viewModel.playbackSpeed)
                             .frame(width: canvasSize, height: canvasSize)
@@ -628,7 +615,7 @@ struct EditorView: View {
     /// Phase 1: the keyboard. Seeds the field from the current overlay and focuses it.
     private func openTextEntry() {
         textDraft = viewModel.textOverlay?.text ?? ""
-        isEnteringText = true
+        viewModel.isEnteringText = true
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { textFieldFocused = true }
     }
 
@@ -637,7 +624,7 @@ struct EditorView: View {
     /// is discarded and the session ends without a panel.
     private func commitTextEntry() {
         textFieldFocused = false
-        isEnteringText = false
+        viewModel.isEnteringText = false
 
         guard !textDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             viewModel.textOverlay = nil

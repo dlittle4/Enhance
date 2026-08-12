@@ -131,6 +131,31 @@ class EditorViewModel {
     /// part of `EditorSnapshot` — undo should not teleport between panels.
     var isEditingEffect = false
 
+    /// True while the text keyboard is up. Lives here rather than in the view because
+    /// `wantsLiveCanvas` needs it, and that answer has to be one the model and the view share.
+    var isEnteringText = false
+
+    /// Whether the canvas shows the editable photo instead of the rendered GIF.
+    ///
+    /// **One answer, consulted by both sides.** This used to be a view-local computed property
+    /// while `updateCombinedPreview` made its own decision from a bare `isSplit`, and the two
+    /// disagreed: the view chose the live canvas for the face tab while the model concluded no
+    /// preview was needed because a GIF existed, so the canvas rendered the raw, un-zoomed photo
+    /// with no effect on it. Both rules were defensible alone, which is exactly why the fix is to
+    /// stop having two of them.
+    ///
+    /// Live only while a category is actually being *edited*. FACE FILTERS needs it so face boxes
+    /// are tappable and the effect is visible while a filter is being chosen; TEXT needs it while
+    /// typing or positioning. Once the panel is confirmed, the GIF takes the canvas back and
+    /// ENHANCE shows the rendered result, as every other category does.
+    var wantsLiveCanvas: Bool {
+        switch selectedEffectCategory {
+        case .faceFilters: return isEditingEffect
+        case .text:        return isEnteringText || isEditingEffect
+        default:           return false
+        }
+    }
+
     /// True for the span of a direct-manipulation gesture on the text overlay (drag, pinch,
     /// rotate — possibly several at once). Global undo/redo are disabled while it is set, the
     /// same way `isEditingEffect` disables them, so an undo mid-drag cannot fight the gesture.
@@ -213,6 +238,10 @@ class EditorViewModel {
         guard hasEditableSelection else { return }
         editEntrySnapshot = currentSnapshot()
         isEditingEffect = true
+        // Opening the panel can flip `wantsLiveCanvas`, and the live canvas is only worth showing
+        // with a preview on it — otherwise the face tab renders the raw photo. Refreshing here is
+        // what keeps the two in step at the moment the canvas swaps.
+        updateCombinedPreview()
     }
 
     /// Discards everything changed since the panel opened. Pushes no undo entry — from
@@ -239,6 +268,8 @@ class EditorViewModel {
         }
         editEntrySnapshot = nil
         isEditingEffect = false
+        // Confirming hands the canvas back to the GIF, so the static preview is no longer wanted.
+        updateCombinedPreview()
     }
 
     /// Opens a direct-manipulation gesture session, capturing the pre-gesture state. Called from
@@ -856,7 +887,10 @@ class EditorViewModel {
             return
         }
 
-        if isSplit, case .newImage = content {
+        // Once a GIF exists it should be on screen, not a stale static preview — *unless* the
+        // canvas is showing the live photo, in which case the preview is what makes the effect
+        // visible. Consulting the shared property is what keeps this in step with the view.
+        if isSplit, case .newImage = content, !wantsLiveCanvas {
             previewImage = nil
             return
         }
