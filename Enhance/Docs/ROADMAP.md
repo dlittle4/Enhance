@@ -46,14 +46,13 @@ always sees a working build. **As of 2026-08-12 every side branch is at or behin
 is no in-flight work anywhere, so nothing below is owned by another session.
 
 **Next up: Riso Print** (§2c) — the highest-value effect left, and a port from source
-(`reference/riso-print.wgsl`) rather than a reconstruction. Two things to do before writing
-any math:
+(`reference/riso-print.wgsl`) rather than a reconstruction.
 
-1. **Check its row count against §1a.** It needs four sliders plus a picker, and fits the
-   three-row ceiling only by reusing `GradientStops` for its three spot colours.
-2. **Read EFFECTS.md on colour space and the ROI callback.** The gate proved the pipeline, not the
-   math — a correct port still looks wrong if it ignores that kernels run in *linear* sRGB while
-   constants sampled from a reference are sRGB.
+**Row count is no longer a question** — the panel scrolls and that is accepted (§1a, user's call
+2026-08-12), so the parameters can be whatever the effect actually needs. The one thing to read
+first is **EFFECTS.md on colour space and the ROI callback**: the gate proved the pipeline, not the
+math, and a correct port still looks wrong if it ignores that kernels run in *linear* sRGB while
+constants sampled from a reference are sRGB.
 
 **CI shipped on 2026-08-12** (§1b) and guards `EnhanceTests` on every push to `main` and every PR;
 first run green, 392 passed in 6m21s. **The kernel gate passed the same day** (§1c), so Water
@@ -118,6 +117,13 @@ the 34pt floor, and capping effects at three rows were all considered and **all 
 rows is the comfortable ceiling and effects should aim for it; a fourth row is a UX judgement, not
 a blocker.
 
+**That judgement has now been exercised: the scroll is acceptable.** *(User's call, 2026-08-12,
+made for Riso Print but stated generally — "the row count is fine because the panel can scroll".)*
+So **row count is no longer a design constraint on new effects**, and an effect should not contort
+its parameters to fit three rows. The evidence backing this is in the correction above: four rows
+ship today in text overlays' SLIDE preset and the slider drag still beats the `ScrollView` on an
+SE 3. Aim for three because it is nicer, not because four is forbidden.
+
 One thing to respect rather than fix: **row count is not fixed per effect.** TEXT's
 `editingRowCount` varies with the selected preset, so a category can change row count at runtime
 without the user changing effect — which is how it reached four rows in the first place.
@@ -173,9 +179,18 @@ for the timing tell.
 - [ ] Sweep the suite for other wall-clock assumptions now that CI exists — the 154s/258s one was
       found by accident, so it is unlikely to be the only one.
 
-*Local baseline at the time of writing, for comparison against the first CI run:* `EnhanceTests`
-is **391 passed / 0 failed in ~44s** on an iPhone 17 Pro simulator (tests run parallelised, so the
-per-test times in the log are clones' wall-clock, not CPU).
+*Local baseline, for comparison against CI:* `EnhanceTests` is **~44s** on an iPhone 17 Pro
+simulator (tests run parallelised, so the per-test times in the log are clones' wall-clock, not
+CPU — they cannot be used to attribute a slowdown to a specific test).
+
+- [ ] **Watch the CI wall-clock; it is not yet stable.** Three runs so far: **348s, 298s, 727s**.
+      The jump is inside the *testing* phase (652s of the third run), not the build — the
+      `*.ci.metal` rule costs about 2.5s, and the four tests it added cost about 1s locally, where
+      total time did not move at all (391 → 396 tests, ~44s either way). So it reads as runner
+      variance rather than a regression, **but one data point cannot separate those**, and this is
+      the section that exists because timing assumptions rot under load. If it stays above ~10
+      minutes, profile before adding anything else to the suite;
+      `GIFGeneratorTests/generateGIF_withVisualEffect_returnsData` is the first place to look.
 
 ### 1c. CIKernel de-risking gate ✓ passed 2026-08-12 → Riso Print, Water Caustic, Hatching styles unblocked
 
@@ -323,9 +338,12 @@ space and ROI notes before starting any of them — the gate proved the pipeline
 
 - [ ] **Riso Print** — the most distinctive look available, and the best fit for the pixel-art
       identity. The original WGSL is in hand at `reference/riso-print.wgsl`; port from that, not
-      from prose. Tonal-band separation, not CMYK. It fits the parameter budget only by reusing
-      `GradientStops` for its three spot colours — **re-check that against §1a before starting**,
-      since it needs four sliders plus a picker.
+      from prose. Tonal-band separation, not CMYK.
+      **Row count is settled and is not a constraint** *(user's call, 2026-08-12 — see §1a)*: four
+      sliders plus a picker may simply scroll. Reusing `GradientStops` for the three spot colours
+      is still worth considering **on its own merits** — three related colours is what that control
+      already expresses — but it is no longer a squeeze to fit a budget, and it should not be
+      adopted if it makes the effect harder to use.
 - [ ] **Water Caustic** — *reclassified 2026-08-11.* Core Image has no caustic and no
       Worley/Voronoi generator. `CICrystallize` makes Voronoi-ish cells but exposes no seed or
       phase, so it cannot flow across frames, and blurred noise is ruled out by the smeared-noise
