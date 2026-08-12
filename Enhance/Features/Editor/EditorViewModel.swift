@@ -194,7 +194,7 @@ class EditorViewModel {
         // 234pt against an SE 3 panel of ~190–200pt, so SLIDE overflows into a scroll on the
         // shortest device, where a slider drag scrolls the panel instead of moving the knob
         // (LEARNINGS 2026-08-08). Only SLIDE is affected, and only on that device class.
-        case .text:          return (textOverlay?.animation.usesDirection == true) ? 4 : 3
+        case .text:          return (textOverlay?.animation.usesFromRow == true) ? 4 : 3
         }
     }
 

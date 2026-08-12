@@ -53,6 +53,10 @@ struct TextOverlay: Equatable, Sendable, Codable {
     /// switching away and back remembers the choice.
     var slideDirection: TextSlideDirection = .up
 
+    /// Where GRID starts filling from. Ignored by the other presets, but stored so switching away
+    /// and back remembers the choice.
+    var gridOrigin: TextGridOrigin = .top
+
     /// Whether the glyphs are filled with one colour or a gradient.
     ///
     /// Both fills are stored, not just the active one, so toggling FILL back and forth returns to

@@ -167,7 +167,8 @@ enum TextTileCompositor {
                 // Per-copy choreography, composed on top of the tile's own state. The preset owns
                 // both halves; the compositor only multiplies them together.
                 let copy = overlay.animation.tiledCopyState(normalizedRow: repeat_.row,
-                                                            at: progress, tuning: overlay.tuning)
+                                                            at: progress, tuning: overlay.tuning,
+                                                            origin: overlay.gridOrigin)
                 let alpha = state.alpha * copy.alpha
                 guard alpha > 0.001 else { continue }
 

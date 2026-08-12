@@ -215,11 +215,21 @@ struct EditorView: View {
                     textColorSwatchContent()
                 }
             }
+            // One slot, two possible controls: SLIDE picks a travel direction, GRID picks the
+            // origin its fill spreads from. They never both apply.
             if viewModel.textOverlay?.animation.usesDirection == true {
                 ParameterPickerRow(label: "FROM") {
                     SegmentedBar(
                         items: TextSlideDirection.allCases,
                         selection: textDirectionBinding,
+                        label: { $0.rawValue }
+                    )
+                }
+            } else if viewModel.textOverlay?.animation.usesGridOrigin == true {
+                ParameterPickerRow(label: "FROM") {
+                    SegmentedBar(
+                        items: TextGridOrigin.allCases,
+                        selection: textGridOriginBinding,
                         label: { $0.rawValue }
                     )
                 }
@@ -772,6 +782,19 @@ struct EditorView: View {
             set: { newValue in
                 guard var overlay = viewModel.textOverlay else { return }
                 overlay.slideDirection = newValue
+                viewModel.textOverlay = overlay
+                viewModel.regenerateIfNeeded()
+            }
+        )
+    }
+
+    /// Where GRID's fill starts — top, bottom, or opening outward from the middle.
+    private var textGridOriginBinding: Binding<TextGridOrigin> {
+        Binding(
+            get: { viewModel.textOverlay?.gridOrigin ?? .top },
+            set: { newValue in
+                guard var overlay = viewModel.textOverlay else { return }
+                overlay.gridOrigin = newValue
                 viewModel.textOverlay = overlay
                 viewModel.regenerateIfNeeded()
             }

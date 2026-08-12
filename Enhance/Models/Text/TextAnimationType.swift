@@ -29,6 +29,32 @@ enum TextSlideDirection: String, CaseIterable, Identifiable, Hashable, Sendable,
     var startSign: CGFloat { self == .up ? 1 : -1 }
 }
 
+/// Where GRID starts filling from.
+///
+/// Deliberately not folded into `TextSlideDirection`. That one is a *travel* direction — which edge
+/// a moving block enters from — while this is a *fill origin*, the seed of a wipe across copies
+/// that never move as a group. One enum covering both would have cases meaningless to half its
+/// users, and `.center` has no sensible reading as a travel direction at all.
+enum TextGridOrigin: String, CaseIterable, Identifiable, Hashable, Sendable, Codable {
+    case top    = "TOP"
+    case bottom = "BOTTOM"
+    case center = "CENTER"
+
+    var id: String { rawValue }
+
+    /// How far into the wipe a row at `normalizedRow` (0 top, 1 bottom) should start, `0…1`.
+    func delay(forRow normalizedRow: CGFloat) -> CGFloat {
+        let row = min(1, max(0, normalizedRow))
+        switch self {
+        case .top:    return row
+        case .bottom: return 1 - row
+        // Rows nearest the middle go first and the fill opens outward in both directions, so the
+        // distance from centre *is* the delay — doubled, since that distance only reaches 0.5.
+        case .center: return min(1, abs(row - 0.5) * 2)
+        }
+    }
+}
+
 /// How many copies of the block the compositor draws, and along which axes.
 ///
 /// A property of the *preset*, not the layout: TICKER needs a horizontal run so the band reads as
@@ -162,8 +188,14 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
         return max(0.03, inkHeight + (0.14 - 0.10 * t))
     }
 
-    /// Whether this preset exposes the UP/DOWN direction control.
+    /// Whether this preset exposes the UP/DOWN travel control.
     var usesDirection: Bool { self == .slide }
+
+    /// Whether this preset exposes the TOP/BOTTOM/CENTER fill-origin control.
+    var usesGridOrigin: Bool { self == .grid }
+
+    /// Whether the panel shows a FROM row at all — either control occupies the same slot.
+    var usesFromRow: Bool { usesDirection || usesGridOrigin }
 
     /// Where in the entrance a card thumbnail should be sampled.
     ///
@@ -372,19 +404,20 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
     /// - Parameter normalizedRow: 0 at the topmost copy, 1 at the bottom.
     /// - Returns: alpha to multiply into the tile's own, and a translation to add.
     func tiledCopyState(normalizedRow: CGFloat, at progress: CGFloat,
-                        tuning: CGFloat = 0.5) -> TextTileState {
+                        tuning: CGFloat = 0.5,
+                        origin: TextGridOrigin = .top) -> TextTileState {
         guard self == .grid else { return .resting }
 
         let p = min(1, max(0, progress))
         let q = min(1, p / Self.entranceWindow)
         guard q < 1 else { return .resting }
 
-        // Rows arrive top to bottom, each one a little after the row above it, so the matrix
-        // fills downward and is complete by the end of the entrance.
-        let row = min(1, max(0, normalizedRow))
+        // Rows arrive in the order the origin dictates — down from the top, up from the bottom, or
+        // outward from the middle — and the wipe finishes by the end of the entrance either way.
         let spread: CGFloat = 0.55
         let window = max(0.0001, 1 - spread)
-        let local = min(1, max(0, (q - spread * row) / window))
+        let delay = origin.delay(forRow: normalizedRow)
+        let local = min(1, max(0, (q - spread * delay) / window))
         let eased = textEaseOut(local)
 
         return TextTileState(alpha: eased, scaleDelta: 1, rotationDelta: 0,
