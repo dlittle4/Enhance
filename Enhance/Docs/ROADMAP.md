@@ -45,21 +45,20 @@ plan. The pattern is to commit on a branch and fast-forward `main` at each green
 always sees a working build. **As of 2026-08-12 every side branch is at or behind `main`** — there
 is no in-flight work anywhere, so nothing below is owned by another session.
 
-**The next three things, in order:**
+**The next two things, in order:**
 
-1. **CI running the test suite** (§1b) — now the best-evidenced item here, and confirmed not started:
-   there is no `.github` directory at all, guarding **337 test functions across 19 files**. Two
-   separate infrastructure failures masqueraded as code failures on 2026-08-11, and five simulator
-   deaths in one day; both are invisible to a local run someone decides to trust. *One snag when
-   wiring it up: `xcodebuild -list` reports two schemes, `Enhance` and `Enhance 1`. Pin the right
-   one or CI may build the stray.*
-2. **The kernel de-risking gate** (§1c) — about an hour, and it unblocks all three remaining
+1. **The kernel de-risking gate** (§1c) — about an hour, and it unblocks all three remaining
    effects. The risk is the build rule reaching `Pixellate.metal`, not the effect math.
-3. **Then Riso Print** (§2c) — the highest-value effect left, and a port from source rather than a
+2. **Then Riso Print** (§2c) — the highest-value effect left, and a port from source rather than a
    reconstruction. Check its row count against §1a first: four sliders plus a picker.
 
-*(§1e, §2d control audit, and SLICE SHIFT are done. HATCHING skipped and BOKEH declined, both on the
-user's call — §2a is empty, so nothing further is buildable from stock filters alone.)*
+**CI shipped on 2026-08-12** (§1b) and now guards `EnhanceTests` on every push to `main` and every
+PR. **Watch the first real run**: it has been validated locally and its scripts were tested
+including their failure paths, but no run has yet happened on GitHub's hardware, where the Xcode
+version and available simulator runtimes both differ from this machine.
+
+*(§1e, §2d control audit, and SLICE SHIFT are also done. HATCHING skipped and BOKEH declined, both
+on the user's call — §2a is empty, so nothing further is buildable from stock filters alone.)*
 
 > **A note on trusting this file.** A 2026-08-11 sweep checked every load-bearing claim against the
 > code and found six wrong — one of which actively instructed a future session to revert a repaired
@@ -138,15 +137,37 @@ sharing one machine is exactly the environment where a timing assumption rots**,
 this by reading the test — they found it by tripping over it. A runner with a known load profile is
 where that belongs.
 
-- [ ] **Split test-only CI out and do it now** — a macOS runner on `xcodebuild test`. Lint follows
-      later, with the token migration.
 **And a second instance the same day**: a run reported 165 failures *at exactly 0.000 seconds each*,
 which was the test host dying rather than any code change — five simulator deaths in one day. Both
 failure modes are invisible to a local run that someone decides to trust. See LEARNINGS 2026-08-11
 for the timing tell.
 
-- [ ] Sweep the suite for other wall-clock assumptions once CI exists — this one was found by
-      accident, so it is unlikely to be the only one.
+- [x] ~~**Split test-only CI out and do it now**~~ — **shipped 2026-08-12**,
+      [`.github/workflows/tests.yml`](../../.github/workflows/tests.yml). A `macos-15` runner on
+      `xcodebuild test`, on pushes to `main`, all PRs, and manual dispatch. Lint still follows
+      later, with the token migration. Three things in it are load-bearing and should not be
+      "simplified" away:
+      - **The simulator is resolved at run time**, not hardcoded. Runner images change device names
+        and runtime versions without notice, so `-destination 'name=iPhone 16,OS=18.2'` is a
+        scheduled outage; the workflow picks the newest available iPhone with iOS ≥ 18.2 (the
+        deployment target) and fails loudly, printing every runtime, when there is none.
+      - **`-scheme Enhance` is mandatory.** The project also shipped an `Enhance 1` scheme —
+        byte-identical except that it declared *no testables*, so a run under it would have
+        reported success having executed **zero tests**. It was unreferenced and present since the
+        first push; **deleted in the same commit**, but pin the scheme regardless.
+      - **A dead-host diagnostic.** On failure the workflow checks whether *every* failure took
+        0.000s and, if so, says so — that is the second incident above, and read as a code failure
+        it sends someone hunting a regression that does not exist.
+- [ ] **Promote `EnhanceUITests` into the gate.** Deliberately excluded for now: it contains a
+      launch-*performance* measurement and a screenshot capture, both timing- and
+      rendering-sensitive on a shared runner — the exact class of assumption this section says rots
+      under load. It needs a known-good baseline first, or it just teaches everyone to ignore red.
+- [ ] Sweep the suite for other wall-clock assumptions now that CI exists — the 154s/258s one was
+      found by accident, so it is unlikely to be the only one.
+
+*Local baseline at the time of writing, for comparison against the first CI run:* `EnhanceTests`
+is **391 passed / 0 failed in ~44s** on an iPhone 17 Pro simulator (tests run parallelised, so the
+per-test times in the log are clones' wall-clock, not CPU).
 
 ### 1c. CIKernel de-risking gate → blocks Riso Print, Water Caustic, Hatching styles
 

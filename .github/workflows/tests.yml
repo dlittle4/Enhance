@@ -1,0 +1,112 @@
+name: Tests
+
+# ROADMAP §1b. Test-only on purpose: the SwiftLint rules in DESIGN_SYSTEM.md §3a assume the
+# colour literals are already gone, so lint follows the token migration (§1d) rather than
+# blocking on it. Running `xcodebuild test` carries no such dependency.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A superseded run tells you nothing, and the whole point of this gate is a *known* load profile —
+# two runs of the same branch competing for one runner is the exact condition that produced the
+# 154s/258s flake documented in ROADMAP §1b.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: Unit tests
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes | grep -i ios || true
+
+      # Device names and runtime versions differ between runner images and move without notice,
+      # so a hardcoded `-destination 'name=iPhone 16,OS=18.2'` is a scheduled outage. Resolve a
+      # concrete UDID at run time instead, and fail loudly — with the full runtime list — rather
+      # than letting xcodebuild pick something surprising.
+      - name: Select a simulator
+        id: sim
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available --json | python3 -c '
+          import json, re, sys
+          devices = json.load(sys.stdin)["devices"]
+          best = None
+          for runtime, devs in devices.items():
+              m = re.search(r"iOS-(\d+)-(\d+)", runtime)
+              if not m:
+                  continue
+              version = (int(m.group(1)), int(m.group(2)))
+              # IPHONEOS_DEPLOYMENT_TARGET is 18.2; anything older cannot install the app.
+              if version < (18, 2):
+                  continue
+              for dev in devs:
+                  if dev.get("isAvailable") and "iPhone" in dev["name"]:
+                      cand = (version, dev["name"], dev["udid"])
+                      if best is None or cand[0] > best[0]:
+                          best = cand
+          if best is None:
+              sys.exit(1)
+          print(best[2])
+          ') || {
+            echo "::error::No available iPhone simulator with iOS >= 18.2 (the deployment target)."
+            xcrun simctl list runtimes
+            exit 1
+          }
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices available | grep "$UDID"
+
+      # `-scheme Enhance` is not optional. The project also ships an `Enhance 1` scheme that is
+      # identical except that it declares NO testables — running the suite under it would report
+      # success having executed zero tests, which is worse than no CI at all.
+      - name: Run EnhanceTests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project Enhance.xcodeproj \
+            -scheme Enhance \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -only-testing:EnhanceTests \
+            -resultBundlePath TestResults.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            | tee xcodebuild.log
+
+      # ROADMAP §1b / LEARNINGS 2026-08-11: a run once reported 165 failures at exactly 0.000
+      # seconds each. That is the test host dying, not a broken diff — and read as a code failure
+      # it sends someone hunting a regression that does not exist. Name it when it happens.
+      - name: Diagnose a dead test host
+        if: failure()
+        run: |
+          ZERO=$(grep -c "' failed on .*(0\.000 seconds)" xcodebuild.log || true)
+          TOTAL=$(grep -c "' failed on " xcodebuild.log || true)
+          echo "failures: $TOTAL (of which zero-duration: $ZERO)"
+          if [ "$TOTAL" -gt 10 ] && [ "$ZERO" = "$TOTAL" ]; then
+            echo "::warning::All $TOTAL failures took 0.000s — this is a dead test host, not a code regression. Re-run before investigating the diff."
+          fi
+
+      - name: Upload results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            TestResults.xcresult
+            xcodebuild.log
+          retention-days: 7
+
+  # EnhanceUITests is deliberately NOT part of the gate yet. It contains a launch-performance
+  # measurement and a screenshot capture, both of which are timing- and rendering-sensitive on a
+  # shared runner — exactly the class of assumption ROADMAP §1b says rots under load. Wiring it in
+  # as a required check before it has a known-good baseline would just teach everyone to ignore red.
+  # Tracked as the §1b follow-up: sweep the suite for wall-clock assumptions, then promote this.
