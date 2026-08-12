@@ -104,6 +104,16 @@ Narrower counts, for the specific Phase 1 swaps:
 There is a Figma spec sheet — **Enhance — Design Tokens** — carrying the colour variables, the
 Silkscreen text styles, the radius scale, the shipped components and the open questions.
 
+> **Build the screens by looking at the app, not by reading the source.** The first pass at the
+> Screens page was rebuilt from `EditorView.swift` and got five things wrong, four of which only
+> became visible next to a real screenshot: the confirm affordance is an `icon-check` image and
+> not text; the panel title is `silkscreenButtonLabel`, not `silkscreenTitle`; all three
+> `ParameterPickerRow` kinds were missing; the slider rows had no trailing step dots; and —
+> structurally — **the detail panel *replaces* the category tabs, carousel and ENHANCE button
+> rather than sitting below them.** `EditorView` branches on `isEditingEffect`, so those are two
+> mutually exclusive states, and a spec sheet showing them stacked describes a screen that cannot
+> exist. Effect cards also floor near 64pt on an SE 3, not the 110pt the code's constant suggests.
+
 **Swift is the source of truth; Figma is derived.** That direction is deliberate: a derived file
 cannot drift, whereas two authored copies always will. Edits made in Figma are *proposals* — change
 the value there, then change `Design/Colors.swift` to match, then re-run the sync.
