@@ -235,7 +235,9 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       is phase-aligned to `contentOrigin`, so the preview and the export agree under zoom and the
       bands stay pinned to the subject as the animation pans.
       Soft band edges were deliberately skipped — a gradient mask per band roughly triples the
-      node count, and the hard cut suits the look. 🔍 Not yet seen on device.
+      node count, and the hard cut suits the look.
+      **Confirmed on an iPhone SE 3, 2026-08-11** — approved as-is, no tuning pass needed, and the
+      three-row panel fits without scrolling.
 - [ ] **HATCHING (straight lines)** — `CILineScreen` / `CIHatchedScreen` take angle and width
       directly, which is closer than the `CIEdgeWork` route EFFECTS.md suggests. Three screens at
       15°/45°/75°, each masked by a luminance band, composited with darken. Grid effect: needs
