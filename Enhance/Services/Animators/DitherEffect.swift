@@ -3,11 +3,15 @@ import CoreImage
 /// Ordered dithering with hard posterisation — the retro stipple that pairs with the
 /// app's Silkscreen pixel-art identity.
 ///
-/// - `intensity` drives dither amplitude and how far the image is posterised.
+/// - `intensity` drives dither amplitude.
 /// - `size` sets the dither cell size, i.e. how chunky the stipple reads.
+/// - `levels` sets how far the image posterises at full strength, independently of
+///   amplitude. These were one slider: `levels = 12 - 9 * amount` meant you could not
+///   have heavy stipple at many levels, or light stipple at few.
 struct DitherEffect: VisualEffect {
     private let clamped: CGFloat
     private let baseCell: CGFloat
+    private let deepestLevels: CGFloat
 
     /// Sanity bound on cell size in output pixels. Deliberately generous: at the top of
     /// the SCALE range and full zoom the honest cell size is ~96px, and clamping below
@@ -15,10 +19,15 @@ struct DitherEffect: VisualEffect {
     /// effect exists to avoid.
     private static let maxCell: CGFloat = 96
 
-    init(intensity: Double = 0.5, size: Double = 0.5) {
+    init(intensity: Double = 0.5, size: Double = 0.5, levels: Double = 0.5) {
         self.clamped = CGFloat(max(0, min(1, intensity)))
         // 1pt is native-resolution dither (finest); 8pt is heavily blocky.
         self.baseCell = 1.0 + 7.0 * CGFloat(max(0, min(1, size)))
+        // Geometric, like the ZOOM speed slider, so equal travel means equal ratio and
+        // the low end has usable resolution. The midpoint is 3, which is what this
+        // effect posterised to at full strength before LEVELS existed.
+        let p = CGFloat(max(0, min(1, levels)))
+        self.deepestLevels = max(2.0, min(12.0, 3.0 * pow(16.0, p - 0.5)))
     }
 
     func apply(to image: CIImage, progress: CGFloat, frameIndex: Int) -> CIImage {
@@ -36,11 +45,11 @@ struct DitherEffect: VisualEffect {
         let amount = clamped * t
         guard amount > 0.01 else { return image }
 
-        // Posterise hard — down to 3 levels at full strength. GIF output is already
-        // 256-colour palettised with its own dithering, so a gentle pass gets swamped
-        // and reads as "slightly noisy" rather than as a deliberate look. A large
-        // dither amplitude against few levels is what survives that.
-        let levels = 12.0 - 9.0 * amount
+        // Ramp from an unposterised 12 down to whatever LEVELS asks for, so the effect
+        // still arrives with the zoom. GIF output is already 256-colour palettised with
+        // its own dithering, so a gentle pass gets swamped and reads as "slightly noisy"
+        // rather than as a deliberate look — which is why the default lands at 3.
+        let levels = 12.0 - (12.0 - deepestLevels) * amount
 
         // Scale the cell with the zoom so the stipple stays the same size relative to
         // the subject rather than to the output frame.

@@ -89,6 +89,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "SIZE"))
         case .dither:
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "SCALE"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "LEVELS"))
         case .lensDistortion:
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "REACH"))
         case .motionBlur:
@@ -103,6 +104,10 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
         case .heatHaze:
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "FREQUENCY"))
             params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "SPEED"))
+        case .rainbow:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "SPEED"))
+        case .gradientMap:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "MIDPOINT"))
         default:
             break
         }
@@ -154,14 +159,18 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
         case .fisheye:      return FisheyeEffect(intensity: clamped, size: max(0, min(1, options.size)))
         case .swirl:        return SwirlEffect(intensity: clamped, size: max(0, min(1, options.size)))
         case .pixelate:     return PixelateEffect(intensity: clamped)
-        case .rainbow:      return RainbowGradientEffect(intensity: clamped)
+        case .rainbow:      return RainbowGradientEffect(intensity: clamped, speed: max(0, min(1, options.size)))
         case .heatHaze:     return HeatHazeEffect(intensity: clamped,
                                                   frequency: max(0, min(1, options.size)),
                                                   speed: max(0, min(1, options.tertiary)))
         case .motionBlur:   return MotionBlurEffect(intensity: clamped, angle: max(0, min(1, options.size)))
-        case .gradientMap:  return GradientMapEffect(intensity: clamped, stops: options.gradientStops)
+        case .gradientMap:  return GradientMapEffect(intensity: clamped,
+                                                     stops: options.gradientStops,
+                                                     midpoint: max(0, min(1, options.size)))
         case .coloredEdges: return ColoredEdgesEffect(intensity: clamped, color: options.tintColor)
-        case .dither:       return DitherEffect(intensity: clamped, size: max(0, min(1, options.size)))
+        case .dither:       return DitherEffect(intensity: clamped,
+                                                size: max(0, min(1, options.size)),
+                                                levels: max(0, min(1, options.tertiary)))
 
         case .monotone:     return MonotoneEffect(intensity: clamped)
         case .duotone:      return DuotoneEffect(intensity: clamped, color: options.tintColor)

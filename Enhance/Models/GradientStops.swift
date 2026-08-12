@@ -26,9 +26,14 @@ struct GradientStops: Equatable {
 
     /// A canonical, hashable key for cube memoisation. Deliberately derived from the
     /// resolved RGB rather than the `Color` values, whose equality is opaque.
-    var cacheKey: CubeKey {
+    var cacheKey: CubeKey { cacheKey(exponent: 1) }
+
+    /// The cube is a function of the stop colours *and* the luminance gamma the effect
+    /// applies before looking a colour up, so both belong in the key. See
+    /// `GradientMapEffect.cube(for:exponent:)`.
+    func cacheKey(exponent: Float) -> CubeKey {
         let stops = resolved
-        return CubeKey(components: stops.flatMap { [Float($0.rgb.r), Float($0.rgb.g), Float($0.rgb.b)] })
+        return CubeKey(components: stops.flatMap { [Float($0.rgb.r), Float($0.rgb.g), Float($0.rgb.b)] } + [exponent])
     }
 
     /// The ramp colour at `t`, linearly interpolated between bracketing stops.

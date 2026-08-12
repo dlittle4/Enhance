@@ -754,7 +754,11 @@ struct EditorViewModelTests {
         vm.selectedEffectCategory = .visualEffects
         vm.selectedVisualEffect = .dither
         #expect(vm.editingTitle == "DITHER")
-        #expect(vm.editingParameters.map(\.id) == [EffectParameter.intensityID, EffectParameter.sizeID])
+        // INTENSITY / SCALE / LEVELS — LEVELS was split out of INTENSITY in the control
+        // audit, so this list is three long rather than two.
+        #expect(vm.editingParameters.map(\.id) == [
+            EffectParameter.intensityID, EffectParameter.sizeID, EffectParameter.tertiaryID
+        ])
 
         vm.selectedEffectCategory = .faceFilters
         vm.selectedFaceFilter = .lazerEyes

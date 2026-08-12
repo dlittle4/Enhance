@@ -668,6 +668,103 @@ struct VisualEffectTests {
                 "at frame 0 the phase is zero regardless of speed")
     }
 
+    // MARK: - Control audit: DITHER LEVELS, RAINBOW SPEED, GRADIENT MIDPOINT
+
+    @Test func dither_defaultLevels_reproducesTheShippedPosterisation() throws {
+        let input = gradientTestImage()
+        let ctx = CIContext()
+        func png(_ e: DitherEffect) throws -> Data {
+            let out = e.apply(to: input, progress: 1.0, frameIndex: 0)
+            let cg = try #require(ctx.createCGImage(out, from: out.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+        #expect(try png(DitherEffect(intensity: 1.0, size: 0.6, levels: 0.5))
+                == png(DitherEffect(intensity: 1.0, size: 0.6)),
+                "levels 0.5 must still bottom out at the 3 levels that shipped")
+    }
+
+    /// The point of splitting LEVELS out of INTENSITY: heavy stipple at many levels, and
+    /// light stipple at few, were both unreachable when one slider drove both.
+    @Test func dither_levelsIsIndependentOfIntensity() throws {
+        let input = gradientTestImage()
+        let ctx = CIContext()
+        func png(_ intensity: Double, _ levels: Double) throws -> Data {
+            let out = DitherEffect(intensity: intensity, size: 0.6, levels: levels)
+                .apply(to: input, progress: 1.0, frameIndex: 0)
+            let cg = try #require(ctx.createCGImage(out, from: out.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+        #expect(try png(1.0, 0.0) != png(1.0, 1.0),
+                "at fixed amplitude, LEVELS must still change the posterisation")
+        #expect(try png(0.4, 0.9) != png(1.0, 0.9),
+                "at fixed levels, INTENSITY must still change the stipple")
+    }
+
+    @Test func rainbow_defaultSpeed_reproducesTheShippedRate() throws {
+        let input = gradientTestImage()
+        let ctx = CIContext()
+        func png(_ e: RainbowGradientEffect, frame: Int) throws -> Data {
+            let out = e.apply(to: input, progress: 1.0, frameIndex: frame)
+            let cg = try #require(ctx.createCGImage(out, from: out.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+        #expect(try png(RainbowGradientEffect(intensity: 0.8, speed: 0.5), frame: 9)
+                == png(RainbowGradientEffect(intensity: 0.8), frame: 9))
+    }
+
+    @Test func rainbow_speedChangesHowFarTheRingsHaveTravelled() throws {
+        let input = gradientTestImage()
+        let ctx = CIContext()
+        func png(_ speed: Double, frame: Int) throws -> Data {
+            let out = RainbowGradientEffect(intensity: 0.8, speed: speed)
+                .apply(to: input, progress: 1.0, frameIndex: frame)
+            let cg = try #require(ctx.createCGImage(out, from: out.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+        #expect(try png(0.0, frame: 8) != png(1.0, frame: 8))
+        #expect(try png(0.0, frame: 0) == png(1.0, frame: 0),
+                "frame 0 has no phase to scale, whatever the speed")
+    }
+
+    @Test func gradientMap_defaultMidpoint_reproducesTheShippedRamp() throws {
+        let input = gradientTestImage()
+        let ctx = CIContext()
+        func png(_ e: GradientMapEffect) throws -> Data {
+            let out = e.apply(to: input, progress: 1.0, frameIndex: 0)
+            let cg = try #require(ctx.createCGImage(out, from: out.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+        #expect(try png(GradientMapEffect(intensity: 1.0, stops: .default, midpoint: 0.5))
+                == png(GradientMapEffect(intensity: 1.0, stops: .default)),
+                "midpoint 0.5 must solve to an exponent of 1, i.e. the identity")
+    }
+
+    /// The cube is memoised on the stop colours. A midpoint changes the cube's contents
+    /// without changing any stop, so a key that ignored it would serve a stale cube for
+    /// every midpoint after the first — the effect would silently stop responding.
+    @Test func gradientMap_midpointIsNotSwallowedByTheCubeCache() throws {
+        let input = gradientTestImage()
+        let ctx = CIContext()
+        func png(_ midpoint: Double) throws -> Data {
+            let out = GradientMapEffect(intensity: 1.0, stops: .default, midpoint: midpoint)
+                .apply(to: input, progress: 1.0, frameIndex: 0)
+            let cg = try #require(ctx.createCGImage(out, from: out.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+        // Deliberately renders the default first, so a colour-only key would already be
+        // warm and would return that cube for both of the next two.
+        _ = try png(0.5)
+        #expect(try png(0.05) != png(0.5), "a low midpoint must lift the shadows")
+        #expect(try png(0.95) != png(0.5), "a high midpoint must deepen them")
+        #expect(try png(0.05) != png(0.95))
+    }
+
+    @Test func gradientMap_cacheKeyDistinguishesExponents() {
+        let stops = GradientStops.default
+        #expect(stops.cacheKey(exponent: 1) != stops.cacheKey(exponent: 2))
+        #expect(stops.cacheKey(exponent: 1) == stops.cacheKey)
+    }
+
     private func gradientTestImage() -> CIImage {
         CIImage(color: .white)
             .cropped(to: CGRect(x: 0, y: 0, width: 96, height: 96))
