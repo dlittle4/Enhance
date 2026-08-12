@@ -1,7 +1,13 @@
 # Design System — audit and phased plan
 
-> Status: **proposed**. No code migrated yet. This document is the plan of record for turning
-> Enhance's partial design layer into a real, enforceable design system.
+> Status: **Phase 1 shipped 2026-08-12.** Phases 2-3 remain proposed. This document is the plan of
+> record for turning Enhance's partial design layer into a real, enforceable design system.
+>
+> **Phase 1 found four errors in this plan**, every one of which would have been a silent visual
+> change rather than a build failure. They are written up at each affected step below, and the
+> pattern is worth carrying into Phase 2: *measure the literal before swapping it*. A token
+> migration is only safe when the token provably equals what it replaces, and four of these did
+> not.
 >
 > Companion docs: [FEATURE-THEMES.md](FEATURE-THEMES.md) (the light/dark + colour-scheme feature
 > that sits *on top* of this work), [LEARNINGS.md](LEARNINGS.md) (rules discovered the hard way),
@@ -134,13 +140,22 @@ literal→token swaps. No new primitives, no feature-file restructuring.
 
 **1b — route shared components through the tokens (1:1, no visual delta)**
 
-- `Components/ParameterSliderRow.swift:87` `0x120E0A` → `.onAccent`; `:86` inline font → `.silkscreenControl` (verify Bold vs Regular — see risk).
+- `Components/ParameterSliderRow.swift:87` `0x120E0A` → `.onAccent`; `:86` inline font →
+  **`.silkscreenControlEmphasis`**, *not* `.silkscreenControl`. The "verify Bold vs Regular" note
+  was right to exist: the knob is **Bold** 13 and `silkscreenControl` is Regular 13, so the swap
+  as written would have de-emphasised the one number the user reads while dragging. ✓ done
 - `Components/EffectCardView.swift:92` `0x323232` → `.surfaceActive`, `white.opacity(0.04)` → `.hairline`.
 - `Components/EffectDetailPanel.swift:61` `0x1C1815` → `.surfacePanel`; `:84` inline font → `.silkscreenTitle`.
 - `Components/SegmentedBar.swift:41/45/53` radius → `.card`; selected green → `.segmentSelected`.
 - `Components/BottomSheet.swift:41/46` inline fonts → `.silkscreenSectionTitle` / `.silkscreenTitle`.
 - `Components/GifGridItem.swift:52/54/59`, `Components/ShowcaseCarousel.swift:103` radius → `.card`; `ShowcaseCarousel.swift:155` spring → `Motion.carousel`.
-- `Design/ButtonModifiers.swift:11/33`, `Components/AppButton.swift:43` springs → `Motion.press`.
+- `Design/ButtonModifiers.swift:11/33`, `Components/AppButton.swift:43` springs → `Motion.press`. ✓ done
+- `Components/AppButton.swift:36` → `.buttonSecondary`, `Components/GifBadge.swift:13` →
+  `.badgeGreen`. ✓ done — the two per-call-site greens the audit flagged.
+- **`Components/AppButton.swift:29` was left alone.** The plan maps its `Color(red: 0.09, …)`
+  foreground to `.onAccent`, but 0.09 grey is ≈ `0x171717` and `onAccent` is `0x120E0A` — a
+  neutral dark grey against a warm near-black. The app has *two* different "dark content on a
+  light fill" colours; converging them is a design decision, not a Phase 1 swap.
 
 **Dependencies:** none — self-contained, mergeable alone.
 

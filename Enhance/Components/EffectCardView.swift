@@ -89,7 +89,7 @@ struct EffectCardThumbnail: View {
         } else {
             // A photo with no faces, where a face-effect thumbnail would be meaningless.
             Rectangle()
-                .fill(isActive ? Color(hex: 0x323232) : Color.white.opacity(0.04))
+                .fill(isActive ? Color.surfaceActive : Color.hairline)
         }
     }
 }

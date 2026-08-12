@@ -83,8 +83,8 @@ struct ParameterSliderRow: View {
                     .frame(width: knobSize, height: knobSize)
                     .overlay(
                         Text(valueText ?? "\(EffectParameter.displayValue(value))")
-                            .font(.custom("Silkscreen-Bold", size: 13))
-                            .foregroundColor(Color(hex: 0x120E0A))
+                            .font(.silkscreenControlEmphasis)
+                            .foregroundColor(.onAccent)
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
                     )

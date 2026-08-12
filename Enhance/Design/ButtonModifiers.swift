@@ -8,7 +8,7 @@ struct EnhanceButtonPressAnimationModifier: ViewModifier {
             .scaleEffect(isPressed ? 0.90 : 1.0)
             .brightness(isPressed ? 0.15 : 0)
             .opacity(1.0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isPressed)
+            .animation(Motion.press, value: isPressed)
             .buttonStyle(PlainButtonStyle())
             .simultaneousGesture(
                 DragGesture(minimumDistance: 0)
@@ -30,7 +30,7 @@ struct EnhancePressButtonStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.90 : 1.0)
             .brightness(configuration.isPressed ? 0.15 : 0)
-            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: configuration.isPressed)
+            .animation(Motion.press, value: configuration.isPressed)
     }
 }
 

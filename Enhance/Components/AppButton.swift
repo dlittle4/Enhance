@@ -33,14 +33,14 @@ struct AppButton: View {
                     noBackground ? AnyView(Color.clear) :
                         useGradientBackground ? 
                             AnyView(SimpleGradientBackground()) : 
-                            AnyView(Color(red: 0.20, green: 0.411, blue: 0.298))
+                            AnyView(Color.buttonSecondary)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: noBackground ? 0 : 100, style: .continuous))
         }
         .enhanceButtonAnimation()
         .disabled(isDisabled)
         .onChange(of: text) { _, newValue in
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
+            withAnimation(Motion.press) {
                 animatedText = newValue
             }
         }

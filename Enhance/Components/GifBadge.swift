@@ -10,7 +10,7 @@ struct GifBadge: View {
             .padding(.vertical, 3)
             .background(
                 RoundedRectangle(cornerRadius: 4, style: .continuous)
-                    .fill(Color(red: 0, green: 0.51, blue: 0.298).opacity(0.8))
+                    .fill(Color.badgeGreen.opacity(0.8))
             )
             .padding(6)
     }

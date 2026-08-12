@@ -38,11 +38,11 @@ struct SegmentedBar<T: Hashable>: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: rowHeight)
                         .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(isSelected ? Color(red: 100/255, green: 148/255, blue: 122/255).opacity(0.7) : Color.clear)
+                            RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous)
+                                .fill(isSelected ? Color.segmentSelected.opacity(0.7) : Color.clear)
                         )
                         .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous)
                                 .stroke(isSelected ? mintGreen : .clear, lineWidth: 2)
                         )
                 }
@@ -50,7 +50,7 @@ struct SegmentedBar<T: Hashable>: View {
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous)
                 .fill(Color.white.opacity(0.04))
         )
     }

@@ -49,14 +49,14 @@ struct GifGridItem: View {
             }
             .aspectRatio(1, contentMode: .fit)
             .background(Color.black.opacity(0.2))
-            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous)
                     .strokeBorder(Color.enhanceMint, lineWidth: 4)
                     .opacity(isSelected ? 1 : 0)
             )
             .shadow(color: Color(white: 0.12, opacity: 0.15), radius: 22, x: 0, y: 22)
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
         }
         .buttonStyle(GifGridItemButtonStyle())
         .simultaneousGesture(

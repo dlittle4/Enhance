@@ -58,7 +58,7 @@ struct EffectDetailPanel<Rows: View>: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: AppConstants.Layout.panelCornerRadius, style: .continuous)
-                .fill(Color(hex: 0x1C1815))
+                .fill(Color.surfacePanel)
         )
     }
 
@@ -81,7 +81,7 @@ struct EffectDetailPanel<Rows: View>: View {
                 } label: {
                     // Matches the editor's existing "X" close treatment.
                     Text("<")
-                        .font(.custom("Silkscreen-Regular", size: 24))
+                        .font(.silkscreenTitle)
                         .foregroundColor(.white)
                         .frame(width: 44, height: 44)
                 }

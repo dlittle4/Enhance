@@ -100,7 +100,7 @@ struct ShowcaseCarousel: View {
 
                     itemView(for: items[wrapped])
                         .frame(width: size, height: size)
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
                         .position(x: xPos, y: geo.size.height / 2)
                         .zIndex(10 - absDistance)
                         .onTapGesture {
@@ -152,7 +152,7 @@ struct ShowcaseCarousel: View {
                     target = position.rounded()
                 }
 
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                withAnimation(Motion.carousel) {
                     position = target
                 }
 

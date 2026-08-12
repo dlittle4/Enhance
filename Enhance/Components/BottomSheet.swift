@@ -38,12 +38,12 @@ struct BottomSheet<Content: View>: View {
     private var header: some View {
         HStack {
             Text(title)
-                .font(.custom("Silkscreen-Bold", size: 16))
+                .font(.silkscreenSectionTitle)
                 .foregroundColor(.white)
             Spacer()
             Button { isPresented = false } label: {
                 Text("X")
-                    .font(.custom("Silkscreen-Regular", size: 24))
+                    .font(.silkscreenTitle)
                     .foregroundColor(.white)
             }
         }
