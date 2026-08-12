@@ -349,21 +349,47 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
     /// The block repeated across and down the frame until it reads as texture rather than a
     /// headline.
     ///
-    /// Every copy shares one state, which is deliberate: `tileStates` describes what a *tile* does,
-    /// and the repeats are a compositing concern, so per-copy timing would put animation logic in
-    /// the compositor and give the preview and the export two places to disagree. The matrix
-    /// therefore materialises as a whole — fading up while settling from slightly small, which
-    /// reads as the pattern resolving rather than as one word arriving.
-    ///
-    /// DENSITY packs the copies closer as it rises; see `repeatStep` and `rowStep`.
+    /// This returns only the *envelope* every copy shares — a fast fade that exists to honour the
+    /// empty-first-frame contract, plus the settle from slightly small. The choreography that makes
+    /// the matrix fill downward is per copy, in `tiledCopyState`, because a row's timing depends on
+    /// where that row sits and `tileStates` has no idea how many copies the compositor will draw.
     private func gridStates(q: CGFloat, slots: Int, tuning: CGFloat) -> [TextTileState] {
         guard q < 1 else { return Array(repeating: .resting, count: slots) }
 
         let eased = textEaseOut(q)
-        let state = TextTileState(alpha: textEaseOut(min(1, q / 0.6)),
-                                  scaleDelta: max(0.05, 0.88 + 0.12 * eased),
+        let state = TextTileState(alpha: textEaseOut(min(1, q / 0.05)),
+                                  scaleDelta: max(0.05, 0.9 + 0.1 * eased),
                                   rotationDelta: 0, translationDelta: .zero)
         return Array(repeating: state, count: slots)
+    }
+
+    /// Extra state for one *copy* of a tiled preset, composed on top of `tileStates`.
+    ///
+    /// Exists so per-copy choreography stays in the preset rather than migrating into the
+    /// compositor. That boundary matters: the compositor draws both the live preview and the
+    /// exported GIF, so any timing it owned would be timing the two could disagree about.
+    ///
+    /// - Parameter normalizedRow: 0 at the topmost copy, 1 at the bottom.
+    /// - Returns: alpha to multiply into the tile's own, and a translation to add.
+    func tiledCopyState(normalizedRow: CGFloat, at progress: CGFloat,
+                        tuning: CGFloat = 0.5) -> TextTileState {
+        guard self == .grid else { return .resting }
+
+        let p = min(1, max(0, progress))
+        let q = min(1, p / Self.entranceWindow)
+        guard q < 1 else { return .resting }
+
+        // Rows arrive top to bottom, each one a little after the row above it, so the matrix
+        // fills downward and is complete by the end of the entrance.
+        let row = min(1, max(0, normalizedRow))
+        let spread: CGFloat = 0.55
+        let window = max(0.0001, 1 - spread)
+        let local = min(1, max(0, (q - spread * row) / window))
+        let eased = textEaseOut(local)
+
+        return TextTileState(alpha: eased, scaleDelta: 1, rotationDelta: 0,
+                             // A short drop into place, so a row arrives rather than blinking on.
+                             translationDelta: CGPoint(x: 0, y: -0.03 * (1 - eased)))
     }
 
     /// A news band scrolling right to left.
