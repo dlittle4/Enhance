@@ -16,6 +16,9 @@ struct EffectParameter: Identifiable, Hashable {
         case tintColor
         /// The three gradient stop colour wells.
         case gradientStops
+        /// PIXELATE's cell shape. A picker rather than a slider because the value is a
+        /// `PixelShape`, not a scalar — see that type for why it is not a case index.
+        case pixelShape
     }
 
     /// Stable key for value storage. Must not change once shipped — values are keyed
@@ -47,6 +50,20 @@ struct EffectParameter: Identifiable, Hashable {
     /// The secondary spatial control — fisheye radius, dither cell size. Named for the
     /// same reason: it maps to `EffectOptions.size`.
     static let sizeID = "size"
+
+    /// A visual effect's *third* slider slot, for effects that expose two secondary
+    /// qualities — HALFTONE's SHARPNESS + ANGLE, HEAT HAZE's FREQUENCY + SPEED.
+    ///
+    /// Named for the slot rather than any one meaning, for the same reason as
+    /// `secondaryID` below: it maps verbatim to `EffectOptions.tertiary`, and no single
+    /// word is honest across every effect that uses it. Note `sizeID` is already in this
+    /// position — the second slot is labelled SIZE, REACH, SCALE, ANGLE or FREQUENCY
+    /// depending on the effect, and only its *storage key* says "size".
+    ///
+    /// Three sliders plus a picker would be four rows, which does not render on the
+    /// shortest supported device — see ROADMAP §1a. Effects using this slot must have no
+    /// picker.
+    static let tertiaryID = "tertiary"
 
     /// A face filter's second control slot.
     ///

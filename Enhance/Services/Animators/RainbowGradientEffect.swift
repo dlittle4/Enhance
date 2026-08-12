@@ -3,11 +3,17 @@ import UIKit
 
 /// Radial rainbow rings that pulse outward from the center of the image.
 /// Intensity controls overlay opacity.
+///
+/// - `speed` is how fast the rings travel outward. The *face* variant of this effect has
+///   always had a speed control; the image variant did not, which was a plain parity gap.
 public struct RainbowGradientEffect: VisualEffect {
     private let maxOpacity: CGFloat
+    private let speedScale: CGFloat
 
-    public init(intensity: Double = 0.5) {
+    public init(intensity: Double = 0.5, speed: Double = 0.5) {
         self.maxOpacity = max(0.1, 0.5 * CGFloat(intensity))
+        // 0.5 leaves the rate exactly as it shipped.
+        self.speedScale = 0.25 + 1.5 * CGFloat(max(0, min(1, speed)))
     }
 
     public func apply(to image: CIImage, progress: CGFloat, frameIndex: Int) -> CIImage {
@@ -27,7 +33,8 @@ public struct RainbowGradientEffect: VisualEffect {
             width: Int(extent.width),
             height: Int(extent.height),
             center: CGPoint(x: center.x - extent.origin.x, y: extent.height - (center.y - extent.origin.y)),
-            frameIndex: frameIndex
+            frameIndex: frameIndex,
+            speedScale: speedScale
         ) else { return image }
 
         var gradient = CIImage(cgImage: gradientCG)
@@ -47,7 +54,7 @@ public struct RainbowGradientEffect: VisualEffect {
         return gradient.composited(over: image).cropped(to: extent)
     }
 
-    private func renderRadialRainbow(width: Int, height: Int, center: CGPoint, frameIndex: Int) -> CGImage? {
+    private func renderRadialRainbow(width: Int, height: Int, center: CGPoint, frameIndex: Int, speedScale: CGFloat) -> CGImage? {
         let size = CGSize(width: width, height: height)
         UIGraphicsBeginImageContextWithOptions(size, true, 1.0)
         guard let ctx = UIGraphicsGetCurrentContext() else {
@@ -93,7 +100,7 @@ public struct RainbowGradientEffect: VisualEffect {
 
         let maxRadius = sqrt(pow(CGFloat(width), 2) + pow(CGFloat(height), 2)) / 2
         let cycleRadius = maxRadius / CGFloat(reps)
-        let pulseSpeed: CGFloat = cycleRadius / 20.0
+        let pulseSpeed: CGFloat = cycleRadius / 20.0 * speedScale
         let phase = (CGFloat(frameIndex) * pulseSpeed).truncatingRemainder(dividingBy: cycleRadius)
 
         let totalGradientRadius = maxRadius * CGFloat(reps)

@@ -13,13 +13,23 @@ enum EffectPickerKind {
 /// so `type.effect()` stays valid.
 struct EffectOptions {
     var size: Double = 0.5
+    /// Third slider slot — see `EffectParameter.tertiaryID`. Only effects declaring three
+    /// sliders read it.
+    var tertiary: Double = 0.5
     var tintColor: LaserColor = .red
     var gradientStops: GradientStops = .default
+    var pixelShape: PixelShape = .square
 
-    init(size: Double = 0.5, tintColor: LaserColor = .red, gradientStops: GradientStops = .default) {
+    init(size: Double = 0.5,
+         tertiary: Double = 0.5,
+         tintColor: LaserColor = .red,
+         gradientStops: GradientStops = .default,
+         pixelShape: PixelShape = .square) {
         self.size = size
+        self.tertiary = tertiary
         self.tintColor = tintColor
         self.gradientStops = gradientStops
+        self.pixelShape = pixelShape
     }
 }
 
@@ -38,6 +48,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     case gradientMap   = "GRADIENT"
     case coloredEdges  = "EDGES"
     case dither        = "DITHER"
+    case sliceShift    = "SLICE SHIFT"
 
     // MARK: - Retired
     // Hidden from the picker but kept compiled and tested — see `retired` below.
@@ -82,8 +93,30 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "SIZE"))
         case .dither:
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "SCALE"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "LEVELS"))
         case .lensDistortion:
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "REACH"))
+        case .motionBlur:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "ANGLE"))
+        case .swirl:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "SIZE"))
+        case .chromaShift:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "ANGLE"))
+        case .halftone:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "SHARPNESS"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "ANGLE"))
+        case .heatHaze:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "FREQUENCY"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "SPEED"))
+        case .rainbow:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "SPEED"))
+        case .gradientMap:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "MIDPOINT"))
+        case .pixelate:
+            params.append(EffectParameter(id: "shape", label: "SHAPE", kind: .pixelShape))
+        case .sliceShift:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "SIZE"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "JITTER"))
         default:
             break
         }
@@ -127,18 +160,29 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
         let clamped = max(0, min(1, intensity))
 
         switch self {
-        case .chromaShift:  return ChromaticAberrationEffect(intensity: clamped)
+        case .chromaShift:  return ChromaticAberrationEffect(intensity: clamped, angle: max(0, min(1, options.size)))
         case .lensDistortion: return LensDistortionEffect(intensity: clamped, reach: max(0, min(1, options.size)))
-        case .halftone:     return HalftoneEffect(intensity: clamped)
+        case .halftone:     return HalftoneEffect(intensity: clamped,
+                                                  sharpness: max(0, min(1, options.size)),
+                                                  angle: max(0, min(1, options.tertiary)))
         case .fisheye:      return FisheyeEffect(intensity: clamped, size: max(0, min(1, options.size)))
-        case .swirl:        return SwirlEffect(intensity: clamped)
-        case .pixelate:     return PixelateEffect(intensity: clamped)
-        case .rainbow:      return RainbowGradientEffect(intensity: clamped)
-        case .heatHaze:     return HeatHazeEffect(intensity: clamped)
-        case .motionBlur:   return MotionBlurEffect(intensity: clamped)
-        case .gradientMap:  return GradientMapEffect(intensity: clamped, stops: options.gradientStops)
+        case .swirl:        return SwirlEffect(intensity: clamped, size: max(0, min(1, options.size)))
+        case .pixelate:     return PixelateEffect(intensity: clamped, shape: options.pixelShape)
+        case .rainbow:      return RainbowGradientEffect(intensity: clamped, speed: max(0, min(1, options.size)))
+        case .heatHaze:     return HeatHazeEffect(intensity: clamped,
+                                                  frequency: max(0, min(1, options.size)),
+                                                  speed: max(0, min(1, options.tertiary)))
+        case .motionBlur:   return MotionBlurEffect(intensity: clamped, angle: max(0, min(1, options.size)))
+        case .gradientMap:  return GradientMapEffect(intensity: clamped,
+                                                     stops: options.gradientStops,
+                                                     midpoint: max(0, min(1, options.size)))
         case .coloredEdges: return ColoredEdgesEffect(intensity: clamped, color: options.tintColor)
-        case .dither:       return DitherEffect(intensity: clamped, size: max(0, min(1, options.size)))
+        case .sliceShift:   return SliceShiftEffect(intensity: clamped,
+                                                    size: max(0, min(1, options.size)),
+                                                    jitter: max(0, min(1, options.tertiary)))
+        case .dither:       return DitherEffect(intensity: clamped,
+                                                size: max(0, min(1, options.size)),
+                                                levels: max(0, min(1, options.tertiary)))
 
         case .monotone:     return MonotoneEffect(intensity: clamped)
         case .duotone:      return DuotoneEffect(intensity: clamped, color: options.tintColor)

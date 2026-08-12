@@ -1378,3 +1378,58 @@ structural.
 
 **Rule:** tiles are a *compositing* partition, not a measurement of the ink. Anything that needs the
 text's real extent — hit regions, selection outlines, clamping, layout — reads `layout.inkBounds`.
+
+---
+
+## 2026-08-11: A new parameter must be added to every key that memoises on it
+
+**Problem:** three independent instances in one day, all the same shape.
+
+1. `GradientMapEffect` memoises its 32³ colour cube on the stop colours (`CubeKey`). MIDPOINT
+   changes the cube's *contents* without changing any stop, so the cache returned the first cube
+   for every midpoint after it. The control appeared dead.
+2. The text overlay's raster is cached on an appearance key. Adding the gradient fill without
+   putting `fillMode` / `gradient` in that key meant the panel said GRADIENT while the canvas kept
+   rendering white text.
+3. Earlier, and the reason the cube key exists at all: keying on a preset enum rather than resolved
+   RGB, once colours became user-picked.
+
+**Root cause:** a cache key is a claim that *nothing else* affects the cached value. Adding a
+parameter silently falsifies that claim. Nothing detects it — the key still hashes, the cache still
+hits, the build is green, and the tests pass because they exercise one value or construct the
+object fresh each time.
+
+**Why the tests missed it both times:** a test that renders with parameter = A and asserts it
+differs from B usually builds two fresh objects, and a cold cache is correct on its first miss. The
+bug needs a *warm* cache holding the wrong entry. Both instances were caught by looking at the
+screen, which is the part that should worry us.
+
+**Rule:** when you add a parameter, trace what it feeds and ask of every cache on that path —
+*is this parameter in the key?* If not, put it there. Then write the test so the cache is
+deliberately warm: render the **default first**, then the changed value, and assert they differ.
+A test that renders only the changed value passes against a key that ignores it.
+
+**How to find them:** grep the path for `cache`, `memo`, `static var`, `NSCache`, and any
+`Key` type. Cheap, and the failure mode is invisible otherwise.
+
+**The test is one question: *does this cache outlive the value that produced it?*** If yes, every
+input that affects the cached value must be in the key. If no, the key can ignore them.
+
+**Do not use storage class as a proxy for this.** "Instance-scoped is safe, static is dangerous"
+is the obvious shorthand and it is wrong — it mispredicts one of the three bugs above. The text
+overlay's `rasterKey` is a `private var` on `TextOverlayHostView`, an *instance* property, and it
+went stale anyway: the host view is created once for the canvas and lives across every overlay
+edit, so the cache comfortably outlived the parameter change. Storage class is not lifetime.
+
+Worked examples, all verified on 2026-08-11:
+
+| Cache | Outlives the parameter? | Why |
+|---|---|---|
+| `GradientMapEffect` cube (`static`) | **Yes** | Shared across every instance and every value |
+| `TextOverlayHostView.rasterKey` (instance) | **Yes** | The view is built once and persists across edits |
+| `AnimeBackgroundEffect` / `RainbowFaceEffect` / `HeartVignetteEffect` `overlayCache` (instance) | **No** | The *effect* is reconstructed from its parameters on every read of `activeVisualEffectList` / `activeFaceEffect`, so a parameter change brings a new instance and an empty cache |
+
+Those last three key on geometry only, with no parameter in the key at all, and are correct — but
+the reason is that the instance is **rebuilt per parameter change**, not that the cache is
+instance-scoped. Change them so the effect is reused across parameter values and they become bugs
+without their keys changing at all.

@@ -803,13 +803,41 @@ struct EditorViewModelTests {
 
     // MARK: - Panel content resolution
 
+    /// PIXELATE's SHAPE is typed state, so undo/redo has to carry it explicitly — it is not
+    /// in `parameterValues` and would otherwise survive an undo unchanged.
+    @Test func pixelShape_roundTripsThroughUndo() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedEffectCategory = .visualEffects
+        vm.selectedVisualEffect = .pixelate
+        #expect(vm.pixelShape == .square)
+
+        vm.pushUndo()
+        vm.pixelShape = .hex
+        vm.undo()
+        #expect(vm.pixelShape == .square, "undo must restore the shape")
+
+        vm.redo()
+        #expect(vm.pixelShape == .hex, "redo must reapply it")
+    }
+
+    @Test func resetEffects_restoresTheDefaultPixelShape() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.pixelShape = .hex
+        vm.resetEffects()
+        #expect(vm.pixelShape == .square)
+    }
+
     @Test func editingTitleAndParameters_resolveFromActiveCategory() {
         let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
 
         vm.selectedEffectCategory = .visualEffects
         vm.selectedVisualEffect = .dither
         #expect(vm.editingTitle == "DITHER")
-        #expect(vm.editingParameters.map(\.id) == [EffectParameter.intensityID, EffectParameter.sizeID])
+        // INTENSITY / SCALE / LEVELS — LEVELS was split out of INTENSITY in the control
+        // audit, so this list is three long rather than two.
+        #expect(vm.editingParameters.map(\.id) == [
+            EffectParameter.intensityID, EffectParameter.sizeID, EffectParameter.tertiaryID
+        ])
 
         vm.selectedEffectCategory = .faceFilters
         vm.selectedFaceFilter = .lazerEyes

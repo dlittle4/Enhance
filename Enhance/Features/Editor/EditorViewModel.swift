@@ -21,6 +21,9 @@ struct EditorSnapshot {
     let laserColor: LaserColor
     let tintColor: LaserColor
     let gradientStops: GradientStops
+    /// PIXELATE's cell shape. A typed field rather than an entry in `parameterValues`,
+    /// which holds scalars only — see `PixelShape`.
+    let pixelShape: PixelShape
     /// The text overlay, or `nil`. A whole value type per §6, so undo/redo, cancel and reset
     /// carry the text, its placement, style and animation as one unit.
     let textOverlay: TextOverlay?
@@ -88,6 +91,7 @@ class EditorViewModel {
 
     var tintColor: LaserColor = .red
     var gradientStops: GradientStops = .default
+    var pixelShape: PixelShape = .square
     var previewImage: UIImage? = nil
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
@@ -386,6 +390,7 @@ class EditorViewModel {
             laserColor: laserColor,
             tintColor: tintColor,
             gradientStops: gradientStopsOverride ?? gradientStops,
+            pixelShape: pixelShape,
             textOverlay: textOverlay
         )
     }
@@ -402,6 +407,7 @@ class EditorViewModel {
         selectedFaceIndex = snapshot.selectedFaceIndex
         laserColor = snapshot.laserColor
         tintColor = snapshot.tintColor
+        pixelShape = snapshot.pixelShape
         gradientStops = snapshot.gradientStops
         textOverlay = snapshot.textOverlay
 
@@ -470,8 +476,10 @@ class EditorViewModel {
         guard let effect = selectedVisualEffect else { return [] }
         let options = EffectOptions(
             size: value(EffectParameter.sizeID, for: effect),
+            tertiary: value(EffectParameter.tertiaryID, for: effect),
             tintColor: tintColor,
-            gradientStops: gradientStops
+            gradientStops: gradientStops,
+            pixelShape: pixelShape
         )
         return [effect.effect(intensity: value(EffectParameter.intensityID, for: effect), options: options)]
     }
@@ -552,6 +560,7 @@ class EditorViewModel {
         selectedFaceIndex = nil
         laserColor = .red
         tintColor = .red
+        pixelShape = .square
         gradientStops = .default
         textOverlay = nil
         detectedFaces = []

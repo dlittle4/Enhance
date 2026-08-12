@@ -46,12 +46,11 @@ sees a working build.
 
 **The next three things, in order:**
 
-1. **Decide the panel row budget** (§1a) — it blocks the entire control audit, and the currently
-   enforced cap permits layouts that cannot render on any supported device.
-2. **CI running the test suite** (§1b) — four sessions work this repo in parallel with no
-   automated gate.
-3. **BOKEH** (§2a) — the highest-value effect that is ready to build, and the second use of the
-   region compositor THIRD EYE left behind.
+1. **The control audit** (§2d) — eight of the nine hidden parameters fit the panel as it stands.
+   No panel work is wanted; three rows is the ceiling and the audit lives inside it.
+2. **Then the new effects** (§2a) — SLICE SHIFT and HATCHING, both ready, no new infrastructure.
+   (BOKEH was declined on 2026-08-11; don't lead with it.)
+3. **CI running the test suite** (§1b) — four sessions share this repo with no automated gate.
 
 > **A note on trusting this file.** A 2026-08-11 sweep checked every load-bearing claim against the
 > code and found six wrong — one of which actively instructed a future session to revert a repaired
@@ -72,27 +71,28 @@ render cost was filed as a P2 nit, then continuous speed shipped and
 `frameCount = max(12, Int(1/speed/0.04))` turned ~25 frames into 100 at 0.25× — the same bug, four
 times worse, and by then gating two features.
 
-### 1a. Decide the panel row budget → blocks the whole control audit (§2d)
+### 1a. The panel row budget — a constraint, not a task ✓ closed
 
-`EffectParameterTests` enforces `parameters.count <= 5`. **That cap is unreachable.** Computed from
-`PanelMetrics.swift:35-41` (grid 16, small 8, floor 34pt, cap 44pt), the panel height needed before
-rows floor and overflow:
+**No panel changes are wanted.** *(User's call, 2026-08-11.)* Raising the panel's height, lowering
+the 34pt floor, and capping effects at three rows were all considered and **all declined** — the
+panel works, and the control audit fits inside it. This section stays only to record the ceiling
+everything else must respect.
 
-| rows | minimum panel height |
-|---|---|
-| 3 | **192pt** |
-| 4 | **234pt** |
-| 5 | **276pt** |
+Computed from `PanelMetrics.swift:35-41` (grid 16, small 8, floor 34pt, cap 44pt), the panel height
+needed before rows floor and the content overflows:
 
-The SE 3 panel is ~190–200pt (`EffectParameterTests.swift:222`).
+| rows | minimum panel height | on an SE 3 (~190pt) |
+|---|---|---|
+| 3 | 192pt | **fits — verified on device 2026-08-11** |
+| 4 | 234pt | scrolls (survivable — see below) |
+| 5 | 276pt | scrolls |
 
-- **5 rows needs ~76pt more than the shortest device has.** The assertion protects nothing.
-- **4 rows overflows into a scroll** — but see the correction below: that is now known to be
-  survivable, not fatal.
-- **3 rows fits.** Confirmed on an SE 3 (2026-08-11): rows compress toward the floor rather than
-  clipping, which is `PanelMetrics` working as designed. The earlier "3 rows is marginal, THIRD EYE
-  overflows" prediction was wrong — it computed a correct 192pt threshold against the guard test's
-  "~190–200pt" note, which was an estimate rather than a measurement.
+- **3 rows fits without scrolling.** Confirmed on an SE 3 (2026-08-11): rows compress toward the
+  floor rather than clipping, which is `PanelMetrics` working as designed. An earlier prediction
+  that THIRD EYE's three rows overflowed was wrong — it computed a correct 192pt threshold against
+  the guard test's "~190–200pt" note, which was an estimate rather than a measurement.
+- **4+ rows overflow into a scroll, and that is survivable.** The table's "does not fit" means "does
+  not fit *without scrolling*", not "cannot render".
 
 **Correction (2026-08-11): a slider drag does *not* lose to the scroll.** This section previously
 said `DragGesture(minimumDistance: 0)` (`ParameterSliderRow.swift:95`) loses to the `ScrollView`
@@ -103,14 +103,18 @@ slider works normally.** The `minimumDistance: 0` gesture claims the touch first
 `EffectDetailPanel.swift:45-52` describes. The panel's own comment was right and this file was
 wrong; they had contradicted each other since the restructure.
 
-That does not make the scroll *desirable* — a panel the user must scroll to reach a control is
-still worse than one that fits — but it is no longer a correctness blocker, and the lever below can
-be chosen on layout grounds rather than to avoid a broken slider.
-- [ ] **Pick a lever**: raise the panel's height allocation, lower the 34pt floor, or cap effects at
-      three rows and treat a fourth as a design change. Then make the assertion match the lever
-      instead of the current fiction.
-- [ ] Extend the guard test across the real range (190pt as well as 200pt) and across row counts,
-      so the cap and the geometry cannot drift apart again.
+That does not make the scroll *desirable* — a panel the user must scroll to reach a control is still
+worse than one that fits — but it is not a correctness problem.
+
+**No panel changes are wanted.** *(User's call, 2026-08-11.)* Raising the panel's height, lowering
+the 34pt floor, and capping effects at three rows were all considered and **all declined**. Three
+rows is the comfortable ceiling and effects should aim for it; a fourth row is a UX judgement, not
+a blocker.
+
+One thing to respect rather than fix: **row count is not fixed per effect.** TEXT's
+`editingRowCount` varies with the selected preset, so a category can change row count at runtime
+without the user changing effect — which is how it reached four rows in the first place.
+
 
 ### 1b. CI running the test suite → protects every parallel session
 
@@ -118,8 +122,20 @@ be chosen on layout grounds rather than to avoid a broken slider.
 rules assume the colour literals are gone. Running `xcodebuild test` carries no such dependency,
 and there is no automated gate on this repo today.
 
+**A concrete instance of what this catches** *(2026-08-11)*: two sessions running simulators at once
+starved the machine enough that
+`EditorViewModelTests/generateZoomPreviewImage_afterAnEarlyNoOp_stillBuildsWhenTheSourceArrives`
+took **154s and 258s wall-clock against a 2-second poll budget**. It passes in isolation and in a
+quiet full run — a genuine flake, not a regression. Poll since widened to 10s (assertion unchanged;
+it still exits the moment the image appears, so the happy path costs nothing). **Four sessions
+sharing one machine is exactly the environment where a timing assumption rots**, and nobody found
+this by reading the test — they found it by tripping over it. A runner with a known load profile is
+where that belongs.
+
 - [ ] **Split test-only CI out and do it now** — a macOS runner on `xcodebuild test`. Lint follows
       later, with the token migration.
+- [ ] Sweep the suite for other wall-clock assumptions once CI exists — this one was found by
+      accident, so it is unlikely to be the only one.
 
 ### 1c. CIKernel de-risking gate → blocks Riso Print, Water Caustic, Hatching styles
 
@@ -156,6 +172,13 @@ equals the literal it replaces, so the app should render pixel-identical. Full p
 serves two features, which is exactly the entry bar for this section — and while it sat under P1
 Correctness it was competing with polish bugs it will always out-rank.
 
+> **This is no longer latent — it is the cause of a reported bug** *(2026-08-11)*. Edit a gallery
+> GIF that already has text, change any effect, and **the text silently disappears**. The chain:
+> "SAVE NEW COPY" could not store the overlay because there was no asset id, so the reopened editor
+> has `textOverlay == nil` while the words are baked into the pixels — and the first regeneration
+> rebuilds from the textless frame 0. **Claimed by the text-overlay session**, which is in
+> `GIFLibraryService`, `PhotoManager` and `EditorViewModel.saveGIFToLibrary`.
+
 `saveGIFToLibrary`'s callback does not return the new `PHAsset` identifier, so there is **no key to
 store anything against** after a first-time save. Two consequences, found independently:
 
@@ -191,7 +214,11 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
 
 ### 2a. Ready to build — stock filters, no new infrastructure
 
-- [ ] **BOKEH (face-aware)** — the recommended next build. `CIMaskedVariableBlur` grades blur by
+- ~~**BOKEH (face-aware)**~~ — **not wanted, 2026-08-11.** Cut on the user's call before any code
+      was written; nothing was built and nothing is owed. The analysis below is kept because it is
+      the reason the *approach* is cheap, not the reason the effect is wanted — if it is ever
+      revived, none of it needs re-deriving. **Do not re-propose it as "the obvious next build"
+      without asking**; it has been declined once. `CIMaskedVariableBlur` grades blur by
       mask value, so blur falls off with distance from the face and reads as depth rather than as a
       cutout; feed it `FaceRegionMaskBuilder`, which THIRD EYE already left behind. This is the only
       candidate that adds a *capability* — subject-aware depth of field — rather than another
@@ -200,10 +227,17 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       highlights → blur separately → add back). **Open design call:** it is face-dependent so it
       belongs in the face carousel, but unlike THIRD EYE it should *degrade* rather than vanish on
       estimated landmarks — a blur does not need precise geometry.
-- [ ] **SLICE SHIFT** — bands displaced along an angle with per-band jitter, seeded from
-      `frameIndex`. Strip compositing avoids a kernel; this existed in the project before as
-      `GlitchEffect`, doing exactly that. Animates strongly across frames, which little else does.
-      Watch the node count if soft band edges need per-band gradient masks.
+- [x] ~~**SLICE SHIFT**~~ — **shipped 2026-08-11.** Horizontal bands displaced sideways, strip
+      compositing, no kernel. Three rows: AMOUNT, SIZE, JITTER — the last blends a regular
+      alternating comb into per-band randomness, and the two read as genuinely different looks
+      (interlacing vs broken signal), which is why they are separate controls.
+      **Built as a grid effect**: band height scales with `FrameGeometry.scale` and band position
+      is phase-aligned to `contentOrigin`, so the preview and the export agree under zoom and the
+      bands stay pinned to the subject as the animation pans.
+      Soft band edges were deliberately skipped — a gradient mask per band roughly triples the
+      node count, and the hard cut suits the look.
+      **Confirmed on an iPhone SE 3, 2026-08-11** — approved as-is, no tuning pass needed, and the
+      three-row panel fits without scrolling.
 - [ ] **HATCHING (straight lines)** — `CILineScreen` / `CIHatchedScreen` take angle and width
       directly, which is closer than the `CIEdgeWork` route EFFECTS.md suggests. Three screens at
       15°/45°/75°, each masked by a luminance band, composited with darken. Grid effect: needs
@@ -231,22 +265,43 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
 - [ ] **Hatching line styles** — wave, zigzag, concentric. Arbitrary substitutions into the `sin`
       argument, with no stock equivalent. The straight-line version in §2a needs none of this.
 
-### 2d. Control audit — blocked on §1a
+### 2d. Control audit ✓ done 2026-08-11
 
 Nine shipped effects collapse independent qualities into one INTENSITY slider, or hardcode a value
 a user would reasonably want to change. Candidates are named with file and value in
 [EFFECTS.md → Control audit](EFFECTS.md#control-audit--effects-with-hidden-parameters).
 
-**This is not the cheap item it was billed as.** Each *is* a small data change — declare the
-parameter, thread it through `init` — but the ones that add a fourth row cannot render on an SE 3.
-Split accordingly:
+**Eight of the nine fit inside the verified three-row ceiling** — checked against each effect's
+current row count, not assumed. An earlier version of this section called most of them blocked;
+that was written while three rows was still believed marginal.
 
-- [ ] **Fits today (adds no fourth row):** MOTION BLUR (ANGLE — a directional blur whose direction
-      is hardcoded to 45°), SWIRL (SIZE — a straight parity gap, since FISHEYE already exposes it),
-      CHROMA SHIFT (ANGLE), RAINBOW (SPEED, which the face variant already has).
-- [ ] **Needs §1a resolved first:** DITHER (LEVELS + MONO), HALFTONE (SHARPNESS + ANGLE, both
-      already supported by `CICMYKHalftone`), HEAT HAZE (FREQUENCY + SPEED), GRADIENT (MIDPOINT),
-      PIXELATE (SHAPE — `CIHexagonalPixellate` makes hex nearly free).
+| effect | rows now | adds | after |
+|---|---|---|---|
+| MOTION BLUR | 1 | ANGLE | 2 |
+| SWIRL | 1 | SIZE | 2 |
+| CHROMA SHIFT | 1 | ANGLE | 2 |
+| RAINBOW | 1 | SPEED | 2 |
+| PIXELATE | 1 | SHAPE | 2 |
+| HALFTONE | 1 | SHARPNESS + ANGLE | 3 |
+| HEAT HAZE | 1 | FREQUENCY + SPEED | 3 |
+| GRADIENT | 2 | MIDPOINT | 3 |
+| **DITHER** | 2 | LEVELS + MONO | **4 — over** |
+
+- [x] ~~**The eight that fit**~~ — all shipped 2026-08-11, each with its midpoint reproducing the
+      constant it replaced, proved against the old implementation byte for byte: MOTION BLUR (ANGLE — a directional blur whose
+      direction is hardcoded to 45°), SWIRL (SIZE — a parity gap, FISHEYE already exposes it),
+      HALFTONE (SHARPNESS + ANGLE, both already supported by `CICMYKHalftone`), CHROMA SHIFT
+      (ANGLE), HEAT HAZE (FREQUENCY + SPEED), GRADIENT (MIDPOINT), RAINBOW (SPEED, which the face
+      variant already has), PIXELATE (SHAPE — `CIHexagonalPixellate` makes hex nearly free).
+- [x] ~~**PIXELATE's SHAPE is not a `Double`**~~ — shipped as `PixelShape`, a typed property on the
+      view model plus an `EditorSnapshot` field, with a new `EffectParameter.Kind.pixelShape`.
+      Note this made `supportsColorPicker` and "has a picker row" stop being the same thing;
+      `visualEffect_parameterDeclarationsAreWellFormed` now checks the colour kinds specifically.
+- [x] ~~**DITHER: ship LEVELS, defer MONO.**~~ LEVELS shipped — it decouples posterisation depth
+      from dither amplitude, which was the actual complaint. **MONO stays deferred, but the reason
+      changed**: a fourth row was thought unrenderable, and text overlays has since shipped four
+      rows on an SE 3. It would scroll, which is a worse panel rather than a broken one. Revisit as
+      a UX call, not a blocked one.
 - [ ] Prefer **splitting coupled qualities** over inventing new ones. Most of these are one slider
       driving two independent things; separating them makes currently-unreachable looks reachable
       without changing what the effect is.
