@@ -70,19 +70,44 @@ enum TextComposer {
 /// touching the `VisualEffect` protocol or any of its implementations.
 enum TextTileCompositor {
 
-    /// Horizontal offsets to draw each tile at, in output units.
+    /// Offsets to draw each tile at, in output units.
     ///
-    /// One entry — zero — for every preset but TICKER, so the common path is unchanged. TICKER gets
-    /// enough copies either side to cover the frame at any scroll position; without them the band
-    /// would show an empty gap sweeping past instead of reading as continuous tape.
+    /// One entry — the origin — for every preset but TICKER and GRID, so the common path is
+    /// unchanged and costs nothing. TICKER gets a horizontal run so the band never shows an empty
+    /// gap sweeping past; GRID gets both axes so the text becomes a texture. Both cover the frame
+    /// plus a margin, since the block is drawn from its centre and a copy straddling the edge still
+    /// has to appear.
     private static func repeatOffsets(for overlay: TextOverlay, raster: RasterizedText,
-                                      outputSide: CGFloat) -> [CGFloat] {
-        guard overlay.animation.repeatsHorizontally else { return [0] }
-        let step = overlay.animation.repeatStep(in: raster.layout, tuning: overlay.tuning) * outputSide
-        guard step > 1 else { return [0] }
-        // Enough either side to cover the frame plus the one step of travel.
-        let each = Int((outputSide / step).rounded(.up)) + 1
-        return (-each...each).map { CGFloat($0) * step }
+                                      outputSide: CGFloat) -> [CGPoint] {
+        let animation = overlay.animation
+        guard animation.tiling != .single else { return [.zero] }
+
+        let stepX = animation.repeatStep(in: raster.layout, tuning: overlay.tuning) * outputSide
+        guard stepX > 1 else { return [.zero] }
+        let columns = Int((outputSide / stepX).rounded(.up)) + 1
+
+        guard animation.tiling == .grid else {
+            return (-columns...columns).map { CGPoint(x: CGFloat($0) * stepX, y: 0) }
+        }
+
+        let stepY = animation.rowStep(in: raster.layout, tuning: overlay.tuning) * outputSide
+        guard stepY > 1 else {
+            return (-columns...columns).map { CGPoint(x: CGFloat($0) * stepX, y: 0) }
+        }
+        let rows = Int((outputSide / stepY).rounded(.up)) + 1
+
+        // Bounded so a tiny font cannot ask for thousands of draws — at that point the frame is a
+        // solid block of ink and more copies add nothing but time.
+        let maxCopies = 600
+        var offsets: [CGPoint] = []
+        offsets.reserveCapacity(min(maxCopies, (columns * 2 + 1) * (rows * 2 + 1)))
+        for row in -rows...rows {
+            for column in -columns...columns {
+                guard offsets.count < maxCopies else { return offsets }
+                offsets.append(CGPoint(x: CGFloat(column) * stepX, y: CGFloat(row) * stepY))
+            }
+        }
+        return offsets
     }
 
     /// Draws the overlay over `base` at a normalized progress.
@@ -137,7 +162,7 @@ enum TextTileCompositor {
             for repeatOffset in repeats {
                 context.saveGState()
                 context.setAlpha(state.alpha)
-                context.translateBy(x: repeatOffset, y: 0)
+                context.translateBy(x: repeatOffset.x, y: repeatOffset.y)
                 context.concatenate(TextComposer.transform(
                     tile: tile, state: state, overlay: overlay,
                     raster: raster, outputSide: outputSide

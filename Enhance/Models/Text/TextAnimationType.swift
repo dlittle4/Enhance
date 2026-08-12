@@ -29,6 +29,18 @@ enum TextSlideDirection: String, CaseIterable, Identifiable, Hashable, Sendable,
     var startSign: CGFloat { self == .up ? 1 : -1 }
 }
 
+/// How many copies of the block the compositor draws, and along which axes.
+///
+/// A property of the *preset*, not the layout: TICKER needs a horizontal run so the band reads as
+/// continuous, GRID needs both axes so the text becomes a texture, and everything else draws one
+/// copy. Kept here rather than in the compositor so the animation and its tiling stay described in
+/// one place.
+enum TextTiling: Sendable {
+    case single
+    case horizontal
+    case grid
+}
+
 /// What one tile is doing at one instant.
 ///
 /// Two spatial spaces are mixed here on purpose, and the split is the contract:
@@ -69,6 +81,7 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
     case cascade    = "CASCADE"
     case wave       = "WAVE"
     case ticker     = "TICKER"
+    case grid       = "GRID"
     case typewriter = "TYPEWRITER"
     case spin       = "SPIN"
     case flicker    = "FLICKER"
@@ -81,7 +94,7 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
 
     var granularity: TextTileGranularity {
         switch self {
-        case .pop, .spin, .flicker, .ticker: return .whole
+        case .pop, .spin, .flicker, .ticker, .grid: return .whole
         case .typewriter, .cascade, .wave: return .unit
         case .slide:                     return .word
         }
@@ -111,25 +124,42 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
         case .cascade:    return "STAGGER"
         case .wave:       return "AMPLITUDE"
         case .ticker:     return "GAP"
+        case .grid:       return "DENSITY"
         case .typewriter: return "SPEED"
         case .spin:       return "SPINS"
         case .flicker:    return "INTENSITY"
         }
     }
 
-    /// Whether the compositor should tile this preset's block horizontally across the frame.
-    ///
-    /// Only TICKER: a news band has to read as continuous, which means copies either side of the
-    /// one being scrolled, or the frame shows an empty gap sweeping past.
-    var repeatsHorizontally: Bool { self == .ticker }
+    /// How the compositor repeats this preset's block.
+    var tiling: TextTiling {
+        switch self {
+        case .ticker: return .horizontal
+        case .grid:   return .grid
+        default:      return .single
+        }
+    }
 
-    /// How far apart repeated copies sit, as a multiple of the block's own width. Also the exact
+    /// Horizontal distance between repeated copies, normalized to the frame. Also the exact
     /// distance TICKER travels, which is what makes its settle invisible.
+    ///
+    /// For GRID the tunable reads as DENSITY and runs the other way — turning it up packs the
+    /// copies closer, because a denser matrix is what "more density" should mean.
     func repeatStep(in layout: PreparedTextLayout, tuning: CGFloat) -> CGFloat {
         guard layout.outputSide > 0 else { return 1 }
+        let t = min(1, max(0, tuning))
         let inkWidth = layout.inkBounds.width / layout.outputSide
-        let gap = 0.08 + 0.22 * min(1, max(0, tuning))
+        let gap = self == .grid ? (0.22 - 0.17 * t) : (0.08 + 0.22 * t)
         return max(0.05, inkWidth + gap)
+    }
+
+    /// Vertical distance between rows, for GRID. Derived from the block's own height so the matrix
+    /// stays proportional as the text is resized.
+    func rowStep(in layout: PreparedTextLayout, tuning: CGFloat) -> CGFloat {
+        guard layout.outputSide > 0 else { return 1 }
+        let t = min(1, max(0, tuning))
+        let inkHeight = layout.inkBounds.height / layout.outputSide
+        return max(0.03, inkHeight + (0.14 - 0.10 * t))
     }
 
     /// Whether this preset exposes the UP/DOWN direction control.
@@ -147,6 +177,7 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
         case .cascade:    return 0.30   // some letters landed, some still falling
         case .wave:       return 0.32   // mid-ripple, the crest visible across the word
         case .ticker:     return 0.45   // mid-scroll, the band clearly travelling
+        case .grid:       return 0.50   // the matrix mostly filled in
         case .typewriter: return 0.34   // partway through the reveal, cursor showing
         case .spin:       return 0.24   // mid-turn, clearly rotated
         case .flicker:    return 0.22   // inside a flash rather than a gap
@@ -205,6 +236,7 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
         case .cascade:    states = cascadeStates(q: q, slots: slots, tuning: t)
         case .wave:       states = waveStates(q: q, slots: slots, tuning: t)
         case .ticker:     states = tickerStates(q: q, slots: slots, tuning: t, layout: layout)
+        case .grid:       states = gridStates(q: q, slots: slots, tuning: t)
         case .typewriter: states = typewriterStates(q: q, slots: slots, tuning: t)
         case .spin:       states = spinStates(q: q, slots: slots, tuning: t)
         case .flicker:    states = flickerStates(q: q, slots: slots, tuning: t, seed: layout.seed)
@@ -312,6 +344,26 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
                                  rotationDelta: 0,
                                  translationDelta: CGPoint(x: 0, y: swing))
         }
+    }
+
+    /// The block repeated across and down the frame until it reads as texture rather than a
+    /// headline.
+    ///
+    /// Every copy shares one state, which is deliberate: `tileStates` describes what a *tile* does,
+    /// and the repeats are a compositing concern, so per-copy timing would put animation logic in
+    /// the compositor and give the preview and the export two places to disagree. The matrix
+    /// therefore materialises as a whole — fading up while settling from slightly small, which
+    /// reads as the pattern resolving rather than as one word arriving.
+    ///
+    /// DENSITY packs the copies closer as it rises; see `repeatStep` and `rowStep`.
+    private func gridStates(q: CGFloat, slots: Int, tuning: CGFloat) -> [TextTileState] {
+        guard q < 1 else { return Array(repeating: .resting, count: slots) }
+
+        let eased = textEaseOut(q)
+        let state = TextTileState(alpha: textEaseOut(min(1, q / 0.6)),
+                                  scaleDelta: max(0.05, 0.88 + 0.12 * eased),
+                                  rotationDelta: 0, translationDelta: .zero)
+        return Array(repeating: state, count: slots)
     }
 
     /// A news band scrolling right to left.
