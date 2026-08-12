@@ -1433,3 +1433,29 @@ Those last three key on geometry only, with no parameter in the key at all, and 
 the reason is that the instance is **rebuilt per parameter change**, not that the cache is
 instance-scoped. Change them so the effect is reused across parameter values and they become bugs
 without their keys changing at all.
+
+---
+
+## 2026-08-11: A wall of failures at exactly 0.000 seconds is a dead test host, not a broken diff
+
+**Problem:** a suite run reported **165 failures, every one at 0.000 seconds**, immediately after a
+run of normal passes taking ~2 seconds each. The obvious reading is that the change under test
+broke everything.
+
+**Root cause:** the test host process died. Everything still queued was marked failed at once, so
+the failures cost no wall-clock time at all. Nothing about the diff was involved — isolating the
+suspect target gave 162/0, and a simulator reboot gave a clean 388/0.
+
+**The tell is the timing, not the count.** A real failure runs its test first and takes roughly as
+long as a passing one. **Zero-duration failures did not run.** So before reading a single assertion
+message, check the durations:
+
+- failures with realistic durations → your code
+- a block of failures at 0.000s → the host went away; reboot the simulator and re-run
+
+**Rule:** treat `0.000 seconds` on a failure as an infrastructure signal. Do not start bisecting a
+diff against it. This machine had **five simulator deaths in one day** with several sessions
+running simulators at once, and the same day produced a genuine flake where a 2-second poll took
+154s and 258s under load — both are the same underlying cause, and both are arguments for
+[ROADMAP §1b](ROADMAP.md): a CI runner with a known load profile, rather than several sessions
+eyeballing local runs and each independently deciding whether to trust them.
