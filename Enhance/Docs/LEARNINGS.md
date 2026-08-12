@@ -1522,9 +1522,23 @@ GIF pipeline **rasterises between the stages** — `GIFGenerator.faceEffectedSou
 end to end with no intermediate render, so nothing normalised the values. **The divergence between
 the paths was the bug, not either stage on its own.**
 
-**Fix:** a `CIColorClamp` to [0,1] at the end of the preview's face pass, before any visual effect
-sees the result. Lazy, so it costs no render, and it is exactly the normalisation the GIF path
-already performs.
+**Fix:** rasterise the preview's face pass — `createCGImage` then back to a `CIImage` — before any
+visual effect sees it. That is not *like* what the GIF does, it is the same operation.
+
+**The first fix was `CIColorClamp` to [0,1], and it was wrong in an instructive way.** It removed
+the black blobs, so it looked correct — and it dimmed the effect. Measured on a laser glow:
+
+| | max red | pixels ≥ 240 |
+|---|---|---|
+| no normalisation | 255 | 2596 |
+| `CIColorClamp` | **215** | **0** |
+| rasterised (what the GIF does) | 255 | 2596 |
+
+`CIColorClamp` clips in the *linear working space*; rasterising normalises through the display
+transfer function. Clipping therefore ate the glow's hot core while the GIF kept it, and the
+preview came out visibly duller than the export — trading a wrong-colour bug for a wrong-brightness
+one. **An approximation of what the export does is not the same as doing what the export does**,
+and when the requirement is "these two must match", only the second is a fix.
 
 **Rule:** when a face effect and a visual effect can compose, the *preview* is the path that will
 break, because the export rasterises between stages and the preview does not. Any effect that
@@ -1539,5 +1553,8 @@ its input — source-over, blends, displacement — is a consumer that will misb
 - **Do not assert that the bug reproduces.** The first regression test also checked that the
   *unclamped* path goes black. That passed alone and failed in a full suite run, because it was
   really an assertion about how Core Image treats out-of-range values — the framework's business,
-  not this code's. Assert only the invariant you own: after clamping, nothing is darker than the
-  background it started from.
+  not this code's. Assert only the invariant you own.
+- **Assert every property the fix is supposed to preserve, not just the one that was broken.** The
+  regression test checked "nothing goes black" and passed happily against the clamp that dimmed the
+  glow. A one-sided test cannot tell a fix from a different bug. It now also asserts the hot core
+  survives, which is the half that would have caught it.
