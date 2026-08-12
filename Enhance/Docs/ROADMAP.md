@@ -1,6 +1,6 @@
 # Enhance (ZoomGif) — Roadmap
 
-> Last updated: 2026-08-11 (session 17 — restructured; accuracy sweep against the code)
+> Last updated: 2026-08-11 (session 17 — restructure, accuracy sweep, control audit, SLICE SHIFT)
 
 ## Vision
 
@@ -46,11 +46,16 @@ sees a working build.
 
 **The next three things, in order:**
 
-1. **The control audit** (§2d) — eight of the nine hidden parameters fit the panel as it stands.
-   No panel work is wanted; three rows is the ceiling and the audit lives inside it.
-2. **Then the new effects** (§2a) — SLICE SHIFT and HATCHING, both ready, no new infrastructure.
-   (BOKEH was declined on 2026-08-11; don't lead with it.)
-3. **CI running the test suite** (§1b) — four sessions share this repo with no automated gate.
+1. **CI running the test suite** (§1b) — now the best-evidenced item here. Two separate
+   infrastructure failures masqueraded as code failures on 2026-08-11, and five simulator deaths in
+   one day; both are invisible to a local run someone decides to trust.
+2. **The kernel de-risking gate** (§1c) — about an hour, and it unblocks all three remaining
+   effects. The risk is the build rule reaching `Pixellate.metal`, not the effect math.
+3. **Then Riso Print** (§2c) — the highest-value effect left, and a port from source rather than a
+   reconstruction. Check its row count against §1a first: four sliders plus a picker.
+
+*(§2d control audit and SLICE SHIFT are done. HATCHING skipped and BOKEH declined, both on the
+user's call — §2a is empty, so nothing further is buildable from stock filters alone.)*
 
 > **A note on trusting this file.** A 2026-08-11 sweep checked every load-bearing claim against the
 > code and found six wrong — one of which actively instructed a future session to revert a repaired
@@ -73,10 +78,7 @@ times worse, and by then gating two features.
 
 ### 1a. The panel row budget — a constraint, not a task ✓ closed
 
-**No panel changes are wanted.** *(User's call, 2026-08-11.)* Raising the panel's height, lowering
-the 34pt floor, and capping effects at three rows were all considered and **all declined** — the
-panel works, and the control audit fits inside it. This section stays only to record the ceiling
-everything else must respect.
+This section records the ceiling everything else must respect; the decision itself is at the end.
 
 Computed from `PanelMetrics.swift:35-41` (grid 16, small 8, floor 34pt, cap 44pt), the panel height
 needed before rows floor and the content overflows:
