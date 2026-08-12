@@ -66,6 +66,8 @@ struct TextTileState: Equatable, Sendable {
 enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, Codable {
     case pop        = "POP"
     case slide      = "SLIDE"
+    case cascade    = "CASCADE"
+    case wave       = "WAVE"
     case typewriter = "TYPEWRITER"
     case spin       = "SPIN"
     case flicker    = "FLICKER"
@@ -78,9 +80,9 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
 
     var granularity: TextTileGranularity {
         switch self {
-        case .pop, .spin, .flicker: return .whole
-        case .typewriter:           return .unit
-        case .slide:                return .word
+        case .pop, .spin, .flicker:      return .whole
+        case .typewriter, .cascade, .wave: return .unit
+        case .slide:                     return .word
         }
     }
 
@@ -105,6 +107,8 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
         switch self {
         case .pop:        return "BOUNCE"
         case .slide:      return "DISTANCE"
+        case .cascade:    return "STAGGER"
+        case .wave:       return "AMPLITUDE"
         case .typewriter: return "SPEED"
         case .spin:       return "SPINS"
         case .flicker:    return "INTENSITY"
@@ -123,6 +127,8 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
         switch self {
         case .pop:        return 0.16   // just past the overshoot, at its largest
         case .slide:      return 0.28   // mid-cascade, some words still travelling
+        case .cascade:    return 0.30   // some letters landed, some still falling
+        case .wave:       return 0.32   // mid-ripple, the crest visible across the word
         case .typewriter: return 0.34   // partway through the reveal, cursor showing
         case .spin:       return 0.24   // mid-turn, clearly rotated
         case .flicker:    return 0.22   // inside a flash rather than a gap
@@ -178,6 +184,8 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
         switch self {
         case .pop:        states = popStates(q: q, slots: slots, tuning: t)
         case .slide:      states = slideStates(q: q, slots: slots, tuning: t, direction: direction)
+        case .cascade:    states = cascadeStates(q: q, slots: slots, tuning: t)
+        case .wave:       states = waveStates(q: q, slots: slots, tuning: t)
         case .typewriter: states = typewriterStates(q: q, slots: slots, tuning: t)
         case .spin:       states = spinStates(q: q, slots: slots, tuning: t)
         case .flicker:    states = flickerStates(q: q, slots: slots, tuning: t, seed: layout.seed)
@@ -229,6 +237,56 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
             let eased = textEaseOut(local)
             return TextTileState(alpha: eased, scaleDelta: 1, rotationDelta: 0,
                                  translationDelta: CGPoint(x: 0, y: distance * (1 - eased)))
+        }
+    }
+
+    /// Letters arriving one after another, each dropping into place from above.
+    ///
+    /// The sequential-timing effect: where SLIDE staggers whole *words* and settles them together,
+    /// this runs per shaping-safe unit, so a word assembles letter by letter down the line. STAGGER
+    /// sets how much of the entrance the sequence spans — low is nearly simultaneous, high is a
+    /// slow relay.
+    private func cascadeStates(q: CGFloat, slots: Int, tuning: CGFloat) -> [TextTileState] {
+        guard slots > 0 else { return [] }
+        let spread = 0.25 + 0.55 * tuning
+        let window = max(0.0001, 1 - spread)
+
+        return (0..<slots).map { index in
+            guard q < 1 else { return .resting }
+            let offset = slots > 1 ? spread * CGFloat(index) / CGFloat(slots - 1) : 0
+            let local = min(1, max(0, (q - offset) / window))
+            let eased = textEaseOut(local)
+            // Negative y is up, so each unit starts above its place and falls in.
+            return TextTileState(alpha: eased, scaleDelta: 1, rotationDelta: 0,
+                                 translationDelta: CGPoint(x: 0, y: -0.06 * (1 - eased)))
+        }
+    }
+
+    /// A ripple travelling through the word: each unit fades in on a delay while riding a sine that
+    /// decays to nothing.
+    ///
+    /// The distinction from CASCADE is that the motion does not merely *arrive* — it oscillates on
+    /// the way, so the line reads as fluid rather than as pieces landing. Amplitude decays with `q`
+    /// so the wave flattens into the settled text rather than stopping mid-swing.
+    private func waveStates(q: CGFloat, slots: Int, tuning: CGFloat) -> [TextTileState] {
+        guard slots > 0 else { return [] }
+        let amplitude = 0.02 + 0.06 * tuning
+        let spread: CGFloat = 0.30
+        let window = max(0.0001, 1 - spread)
+        // Enough cycles that a short word still shows a crest and a trough.
+        let cycles: CGFloat = 2
+
+        return (0..<slots).map { index in
+            guard q < 1 else { return .resting }
+            let phase = slots > 1 ? CGFloat(index) / CGFloat(slots - 1) : 0
+            let local = min(1, max(0, (q - spread * phase) / window))
+            let eased = textEaseOut(local)
+            // Decays with the *global* progress, not the local one, so the whole line calms
+            // together instead of each unit ringing on its own schedule.
+            let decay = 1 - textEaseOut(q)
+            let swing = sin((q * cycles - phase) * 2 * CGFloat.pi) * amplitude * decay
+            return TextTileState(alpha: eased, scaleDelta: 1, rotationDelta: 0,
+                                 translationDelta: CGPoint(x: 0, y: swing))
         }
     }
 
