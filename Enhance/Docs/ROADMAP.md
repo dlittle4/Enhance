@@ -245,6 +245,13 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       node count, and the hard cut suits the look.
       **Confirmed on an iPhone SE 3, 2026-08-11** — approved as-is, no tuning pass needed, and the
       three-row panel fits without scrolling.
+      **Composing it with face effects is also device-confirmed**, after two reports it caused:
+      the face tab showing a raw photo after ENHANCE (a pre-existing `wantsLiveCanvas` regression
+      it merely exposed), and laser eyes rendering black then dim (the preview not rasterising
+      between the face and visual passes the way the GIF does — LEARNINGS 2026-08-11).
+      **It is the first effect that composites rather than filters**, which is why it surfaced a
+      class of interaction eleven filter-style effects never had; worth remembering before adding
+      another compositing effect.
 - [ ] **HATCHING (straight lines)** — `CILineScreen` / `CIHatchedScreen` take angle and width
       directly, which is closer than the `CIEdgeWork` route EFFECTS.md suggests. Three screens at
       15°/45°/75°, each masked by a luminance band, composited with darken. Grid effect: needs
