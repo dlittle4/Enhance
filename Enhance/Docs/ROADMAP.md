@@ -267,11 +267,17 @@ new saves no longer fall back to a hardcoded `scale = 2.0, rect = (0.15, 0.15, 0
 
 ### 1f. Effect-carousel thumbnail cost → worsens with every effect added
 
-Already at 11 thumbnails, up from 8. Each new effect in §2 makes it worse, which is what puts it
-here rather than in §4.
+**Now at 15 thumbnails** — 8 → 11 → 15, the last jump on 2026-08-12 from RISO and STRETCH. Each new
+effect in §2 makes it worse, which is what puts it here rather than in §4, and the prediction has
+now come true twice without anyone measuring the cost.
+
+**Two of the fifteen are kernel effects, and RISO is the most expensive effect in the app** —
+three input samples plus three halftone screens per pixel, on every card. The carousel renders a
+card per `selectable` effect, so this is no longer a uniform-cost list.
 
 - [ ] 🔍 Whether entering the IMAGE tab stutters while thumbnails render, and the scroll feel of a
-      20-item carousel.
+      15-item carousel. **Measure before optimising**: the cost is asserted here, never timed, and
+      `previewProgress` means each card renders one frame rather than an animation.
 
 ---
 
