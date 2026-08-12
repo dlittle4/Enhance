@@ -60,10 +60,22 @@ struct EffectParameter: Identifiable, Hashable {
     /// position — the second slot is labelled SIZE, REACH, SCALE, ANGLE or FREQUENCY
     /// depending on the effect, and only its *storage key* says "size".
     ///
-    /// Three sliders plus a picker would be four rows, which does not render on the
-    /// shortest supported device — see ROADMAP §1a. Effects using this slot must have no
-    /// picker.
+    /// This used to carry a warning that three sliders plus a picker "does not render on
+    /// the shortest supported device". **That was wrong** — ROADMAP §1a has since verified
+    /// four rows on an SE 3 (text overlays' SLIDE preset), and the panel's scroll is
+    /// accepted as of 2026-08-12. There is no picker restriction on this slot.
     static let tertiaryID = "tertiary"
+
+    /// The fourth and fifth slider slots, added for RISO — the first effect whose source
+    /// genuinely has four independent scalars (halftone scale, misregistration, grain,
+    /// contrast) on top of its colours.
+    ///
+    /// Named positionally for the same reason as `tertiaryID`. Before adding a sixth,
+    /// note the panel renders one row per declaration and RISO already scrolls; the
+    /// question to ask is whether the effect really has that many *independent* qualities,
+    /// not whether another slot can be threaded through.
+    static let quaternaryID = "quaternary"
+    static let quinaryID = "quinary"
 
     /// A face filter's second control slot.
     ///

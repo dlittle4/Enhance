@@ -112,4 +112,36 @@ struct CIKernelGateTests {
             "Passthrough.ci.metallib is not a Core Image library — the -fcikernel/-cikernel flags are not reaching the build rule."
         )
     }
+
+    /// The leak the marker check above does **not** catch, and which shipped briefly in the
+    /// gate before RISO exposed it.
+    ///
+    /// Declaring the rule's intermediate as `$(DERIVED_FILE_DIR)/….air` — which sandboxing
+    /// forces you to declare *somehow* — makes the target's `MetalLink` step collect it and
+    /// merge it into `default.metallib`. The result is still not a Core Image library, so the
+    /// marker assertion passes; the `-fcikernel` objects are simply sitting inside the stock
+    /// library. It stayed invisible while the only kernel was a passthrough using
+    /// `coreimage::sample_t` (a plain `float4` typedef, no unresolved symbols), and broke the
+    /// build the moment a kernel called `coreimage::sampler::sample`, which resolves only in a
+    /// Core Image link.
+    ///
+    /// The fix is the intermediate's *extension* (`.ciair`), so asserting on the symbol names
+    /// is what actually guards it.
+    @Test("Core Image kernels do not leak into the stock Metal library")
+    func defaultMetallib_containsOnlyStitchableShaders() throws {
+        let url = try #require(Bundle.main.url(forResource: "default", withExtension: "metallib"))
+        let data = try Data(contentsOf: url)
+
+        #expect(
+            data.range(of: Data("pixellate".utf8)) != nil,
+            "default.metallib lost `pixellate` — the canvas border's shader is missing."
+        )
+
+        for leaked in ["riso", "passthrough"] {
+            #expect(
+                data.range(of: Data(leaked.utf8)) == nil,
+                "`\(leaked)` was linked into default.metallib — a *.ci.metal intermediate is being collected by MetalLink. Check the build rule's outputFiles extension."
+            )
+        }
+    }
 }

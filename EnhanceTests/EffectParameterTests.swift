@@ -198,13 +198,21 @@ struct EffectParameterTests {
 
     // MARK: - Declaration shape
 
-    /// Invariants the detail panel depends on. `parameters.count <= 5` specifically
-    /// guards the panel's vertical budget against a future effect quietly overflowing.
+    /// Invariants the detail panel depends on.
+    ///
+    /// The cap was 5, guarding "the panel's vertical budget against a future effect quietly
+    /// overflowing". **Raised to 6 on 2026-08-12** for RISO, which has four genuinely
+    /// independent scalars plus its spot colours. The budget it was guarding turned out to be
+    /// elastic: ROADMAP §1a verified four rows on an SE 3 and the panel's scroll is accepted,
+    /// so the cap now exists to force the *question* — does this effect really have six
+    /// independent qualities? — rather than to describe a rendering limit.
+    ///
+    /// Note face filters are still capped at 5 above; nothing has needed to move that.
     @Test func visualEffect_parameterDeclarationsAreWellFormed() {
         for type in VisualEffectType.allCases {
             let params = type.parameters
             #expect(!params.isEmpty, "\(type.rawValue) declares no parameters")
-            #expect(params.count <= 5, "\(type.rawValue) declares \(params.count) parameters")
+            #expect(params.count <= 6, "\(type.rawValue) declares \(params.count) parameters")
             #expect(params.first?.id == EffectParameter.intensityID, "\(type.rawValue) must lead with intensity")
 
             let ids = params.map(\.id)

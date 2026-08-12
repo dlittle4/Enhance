@@ -269,7 +269,12 @@ struct VisualEffectTests {
     @Test func colorPicker_visibleConsumersAreTheExpectedSet() {
         #expect(VisualEffectType.duotone.isRetired)
         let visible = Set(VisualEffectType.selectable.filter(\.supportsColorPicker))
-        #expect(visible == [.gradientMap, .coloredEdges])
+        // RISO joined on 2026-08-12. It needed no new branch in EditorView: the picker row
+        // switches on `param.kind` (`EditorView.swift:942`), so a second `.gradientStops`
+        // consumer renders through the same path GRADIENT already used. This test did its job —
+        // it failed the moment RISO claimed the slot, which is exactly the prompt to go and
+        // check that the view could render it.
+        #expect(visible == [.gradientMap, .coloredEdges, .risoPrint])
     }
 
     // MARK: - Required filter names

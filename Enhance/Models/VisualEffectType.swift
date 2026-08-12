@@ -16,17 +16,25 @@ struct EffectOptions {
     /// Third slider slot — see `EffectParameter.tertiaryID`. Only effects declaring three
     /// sliders read it.
     var tertiary: Double = 0.5
+    /// Fourth and fifth slider slots — see `EffectParameter.quaternaryID`. Only RISO reads
+    /// them today.
+    var quaternary: Double = 0.5
+    var quinary: Double = 0.5
     var tintColor: LaserColor = .red
     var gradientStops: GradientStops = .default
     var pixelShape: PixelShape = .square
 
     init(size: Double = 0.5,
          tertiary: Double = 0.5,
+         quaternary: Double = 0.5,
+         quinary: Double = 0.5,
          tintColor: LaserColor = .red,
          gradientStops: GradientStops = .default,
          pixelShape: PixelShape = .square) {
         self.size = size
         self.tertiary = tertiary
+        self.quaternary = quaternary
+        self.quinary = quinary
         self.tintColor = tintColor
         self.gradientStops = gradientStops
         self.pixelShape = pixelShape
@@ -49,6 +57,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     case coloredEdges  = "EDGES"
     case dither        = "DITHER"
     case sliceShift    = "SLICE SHIFT"
+    case risoPrint     = "RISO"
 
     // MARK: - Retired
     // Hidden from the picker but kept compiled and tested — see `retired` below.
@@ -117,6 +126,15 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
         case .sliceShift:
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "SIZE"))
             params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "JITTER"))
+        case .risoPrint:
+            // Four independent scalars plus the spot colours — the widest panel in the app,
+            // and the first that scrolls by design (ROADMAP §1a, user's call 2026-08-12).
+            // CONTRAST is not decoration: without it a flat photo collapses into the midtone
+            // band and prints as a single colour.
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "SCALE"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "OFFSET"))
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "GRAIN"))
+            params.append(EffectParameter(id: EffectParameter.quinaryID, label: "CONTRAST"))
         default:
             break
         }
@@ -137,7 +155,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     var colorPickerKind: EffectPickerKind? {
         switch self {
         case .duotone, .coloredEdges: return .tintColor
-        case .gradientMap:            return .gradientStops
+        case .gradientMap, .risoPrint: return .gradientStops
         default:                      return nil
         }
     }
@@ -180,6 +198,12 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
         case .sliceShift:   return SliceShiftEffect(intensity: clamped,
                                                     size: max(0, min(1, options.size)),
                                                     jitter: max(0, min(1, options.tertiary)))
+        case .risoPrint:    return RisoPrintEffect(intensity: clamped,
+                                                   stops: options.gradientStops,
+                                                   scale: max(0, min(1, options.size)),
+                                                   misregistration: max(0, min(1, options.tertiary)),
+                                                   grain: max(0, min(1, options.quaternary)),
+                                                   contrast: max(0, min(1, options.quinary)))
         case .dither:       return DitherEffect(intensity: clamped,
                                                 size: max(0, min(1, options.size)),
                                                 levels: max(0, min(1, options.tertiary)))

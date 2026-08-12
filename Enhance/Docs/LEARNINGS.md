@@ -1596,3 +1596,42 @@ only appeared on the default DerivedData path. So **a green build under a custom
 says nothing about the build everyone else runs** — and it would have reached CI, which uses the
 default, as a mysterious first-run failure rather than a local one. Verify build-system changes the
 way Xcode and CI will actually run them, not the way that was convenient to script.
+
+---
+
+## 2026-08-12: a build rule's `.air` intermediate gets linked into `default.metallib`
+
+**Problem:** RISO — the first real Core Image kernel — failed to *link*, not compile:
+
+```
+Undefined symbol(s) for architecture 'air64_v27':
+  '_ZNK9coreimage7sampler6sampleEDv2_f', referenced from: riso
+  '_ZNK9coreimage7sampler9transformEDv2_f', referenced from: riso
+air-lld: error: symbol(s) not found
+```
+
+The give-away is *which* step failed: `MetalLink … Enhance.app/default.metallib`. Dumping that
+command's inputs showed it being handed **`Passthrough.ci.air`, `Riso.ci.air` and
+`Pixellate.air`** — the `-fcikernel` objects were being merged into the SwiftUI
+`[[stitchable]]` library, where `coreimage::sampler`'s methods do not resolve because they only
+exist in a Core Image link.
+
+**Root cause:** the `*.ci.metal` rule declared `$(DERIVED_FILE_DIR)/$(INPUT_FILE_BASE).air` in
+`outputFiles`. That declaration is *mandatory* under script sandboxing (see the entry above) —
+but anything declared as `.air` in `DERIVED_FILE_DIR` is then collected by the target's
+`MetalLink` step. The two requirements collide on the file extension.
+
+**Fix:** name the intermediate anything but `.air` (`.ciair` here). It is still AIR; `metallib`
+does not care about the extension, and `MetalLink` no longer collects it.
+
+**Why it hid for a whole phase.** The de-risking gate shipped with this bug and passed every
+check. Its passthrough kernel took `coreimage::sample_t` — a plain `float4` typedef with no
+method calls — so it linked into `default.metallib` cleanly, leaving *no undefined symbols and
+no visible symptom*. The gate's own test asserted `default.metallib` is not a Core Image library,
+which was true and stayed true: the objects were merged in, but the *link* was still a stock
+one, so the `air.ci_builtin` marker never appeared.
+
+**Rule:** a passthrough proves the pipeline runs, not that it is isolated. When the point of an
+infrastructure gate is that two things stay *separate*, assert the separation directly — here,
+that `default.metallib` contains `pixellate` and does **not** contain the kernel's symbol name.
+A canary that exercises none of the risky surface is a canary that cannot die.

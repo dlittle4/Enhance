@@ -10,10 +10,10 @@
 
 ## Current state
 
-**13 effects live**, in carousel order:
+**14 effects live**, in carousel order:
 
 `CHROMA SHIFT` · `LENS` · `HALFTONE` · `FISHEYE` · `SWIRL` · `PIXELATE` · `RAINBOW` ·
-`HEAT HAZE` · `MOTION BLUR` · `GRADIENT` · `EDGES` · `DITHER` · `SLICE SHIFT`
+`HEAT HAZE` · `MOTION BLUR` · `GRADIENT` · `EDGES` · `DITHER` · `SLICE SHIFT` · `RISO`
 
 **6 retired** (compiled and tested, hidden from the picker — remove from
 `VisualEffectType.retired` to bring one back): Monotone, Duotone, Bloom, Inversion,
@@ -22,10 +22,12 @@ Vintage Grain, Pop Art.
 **15 face filters**, all shipped. LENS is the seventh effect living in *both* carousels, via
 `FaceVisualEffect`.
 
-Every effect so far is composed from stock `CIFilter`s. **There is no custom Core Image
-kernel infrastructure in the project** — the only `.metal` file, `Shaders/Pixellate.metal`,
-is a SwiftUI `[[stitchable]]` shader used for the animated canvas border, and it cannot
-render GIF frames (see the hazard below).
+Every effect **except RISO** is composed from stock `CIFilter`s, and that is still the default —
+rule zero below has not changed. **Custom Core Image kernel infrastructure now exists** as of
+2026-08-12: a build rule scoped to `*.ci.metal`, with `Shaders/CI/` holding the kernels.
+`Shaders/Pixellate.metal` remains a SwiftUI `[[stitchable]]` shader for the animated canvas
+border and deliberately does *not* go through that rule — keeping the two apart is the whole
+point of the scoping, and `CIKernelGateTests` asserts it.
 
 ### LENS — a Figma shader ported without its source
 
@@ -305,16 +307,27 @@ pixel-art identity, which is why it is first.
 6. **Grain** — `result += (hash2(pixelCoord * 1.7 + (42, 17)) - 0.5) * grain * 0.3`, then clamp.
    Alpha passes through from the unshifted sample.
 
-#### It fits the existing parameter budget — but only just
+#### Parameters, as shipped
 
 Four scalars (`scale`, `misreg`, `grain`, `contrast`) plus three colours. Declared naively that
-is seven rows and three pickers, which **breaks both panel invariants**:
-`parameters.count <= 5` and `pickers.count <= 1`.
+is seven rows and three pickers.
 
 **The three colours are shadows / midtones / highlights — which is exactly `GradientStops`
-(`dark` / `mid` / `light`).** Reuse it and the whole effect declares four sliders plus one
-`gradientStops` picker: five rows, one picker, both caps satisfied with nothing to spare. The
-picker row and its `ColorPicker` wells already exist and need no new UI.
+(`dark` / `mid` / `light`).** That mapping is exact rather than convenient, so it was kept on its
+own merits once the row budget stopped mattering; the picker row and its `ColorPicker` wells
+already exist and needed no new UI.
+
+Shipped as **six rows** — INTENSITY, SCALE, OFFSET, GRAIN, CONTRAST, COLOURS — which raised
+`parameters.count` from 5 to 6 and added `EffectOptions.quaternary` / `.quinary`, since the
+struct previously stopped at `tertiary`. INTENSITY blends toward the result the way GRADIENT's
+strength does, so all four source scalars stay exposed.
+
+**CONTRAST is the one that looks droppable and is not.** It decides how the luminance spreads
+across the three bands; without it a flat photo collapses into the midtone band and prints as a
+single colour. The other three are the signature look.
+
+> **Open:** whether six rows are all *reachable* on the shortest device — see ROADMAP §2c. The
+> panel scroll is the question, not the effect.
 
 #### Porting notes
 

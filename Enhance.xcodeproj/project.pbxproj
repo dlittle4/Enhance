@@ -16,11 +16,11 @@
 			);
 			isEditable = 1;
 			outputFiles = (
-				"$(DERIVED_FILE_DIR)/$(INPUT_FILE_BASE).air",
+				"$(DERIVED_FILE_DIR)/$(INPUT_FILE_BASE).ciair",
 				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/$(INPUT_FILE_BASE).metallib",
 			);
 			runOncePerArchitecture = 0;
-			script = "# ROADMAP §1c. Scoped to *.ci.metal so -fcikernel cannot reach Pixellate.metal,\n# a SwiftUI [[stitchable]] shader whose library must stay loadable by ShaderLibrary.default.\nset -euo pipefail\n\n# The Resources phase has not run yet when build rules fire, so the .app may not exist.\nmkdir -p \"$BUILT_PRODUCTS_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\n\nxcrun -sdk $PLATFORM_NAME metal -c -fcikernel \"$INPUT_FILE_PATH\" \\\n  -o \"$DERIVED_FILE_DIR/$INPUT_FILE_BASE.air\"\nxcrun -sdk $PLATFORM_NAME metallib -cikernel \"$DERIVED_FILE_DIR/$INPUT_FILE_BASE.air\" \\\n  -o \"$BUILT_PRODUCTS_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/$INPUT_FILE_BASE.metallib\"\n";
+			script = "# ROADMAP §1c. Scoped to *.ci.metal so -fcikernel cannot reach Pixellate.metal,\n# a SwiftUI [[stitchable]] shader whose library must stay loadable by ShaderLibrary.default.\nset -euo pipefail\n\n# The Resources phase has not run yet when build rules fire, so the .app may not exist.\nmkdir -p \"$BUILT_PRODUCTS_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\n\n# The intermediate is deliberately NOT named .air. Under ENABLE_USER_SCRIPT_SANDBOXING it has\n# to be declared as an output to be writable at all, but anything declared as *.air in\n# DERIVED_FILE_DIR is then collected by the target's MetalLink step and merged into\n# default.metallib — mixing -fcikernel objects into the SwiftUI [[stitchable]] library. That\n# fails the link the moment a kernel calls coreimage::sampler methods, which resolve only in a\n# Core Image link. The extension is the whole fix; the file is still AIR.\nxcrun -sdk $PLATFORM_NAME metal -c -fcikernel \"$INPUT_FILE_PATH\" \\\n  -o \"$DERIVED_FILE_DIR/$INPUT_FILE_BASE.ciair\"\nxcrun -sdk $PLATFORM_NAME metallib -cikernel \"$DERIVED_FILE_DIR/$INPUT_FILE_BASE.ciair\" \\\n  -o \"$BUILT_PRODUCTS_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/$INPUT_FILE_BASE.metallib\"\n";
 		};
 /* End PBXBuildRule section */
 

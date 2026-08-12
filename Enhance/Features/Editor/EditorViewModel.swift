@@ -499,6 +499,8 @@ class EditorViewModel {
         let options = EffectOptions(
             size: value(EffectParameter.sizeID, for: effect),
             tertiary: value(EffectParameter.tertiaryID, for: effect),
+            quaternary: value(EffectParameter.quaternaryID, for: effect),
+            quinary: value(EffectParameter.quinaryID, for: effect),
             tintColor: tintColor,
             gradientStops: gradientStops,
             pixelShape: pixelShape

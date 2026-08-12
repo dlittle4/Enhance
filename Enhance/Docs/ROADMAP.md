@@ -45,18 +45,20 @@ plan. The pattern is to commit on a branch and fast-forward `main` at each green
 always sees a working build. **As of 2026-08-12 every side branch is at or behind `main`** — there
 is no in-flight work anywhere, so nothing below is owned by another session.
 
-**Next up: Riso Print** (§2c) — the highest-value effect left, and a port from source
-(`reference/riso-print.wgsl`) rather than a reconstruction.
+**Next up, in order:**
 
-**Row count is no longer a question** — the panel scrolls and that is accepted (§1a, user's call
-2026-08-12), so the parameters can be whatever the effect actually needs. The one thing to read
-first is **EFFECTS.md on colour space and the ROI callback**: the gate proved the pipeline, not the
-math, and a correct port still looks wrong if it ignores that kernels run in *linear* sRGB while
-constants sampled from a reference are sRGB.
+1. 🔍 **Confirm RISO's six-row panel on a real device** (§2c). Everything else about the effect is
+   done and verified; this is the one open question, and it decides whether the params cap stays
+   at 6 or the panel needs a fix first.
+2. **Water Caustic** or the **hatching line styles** (§2c) — both unblocked by the kernel gate, and
+   RISO has now proved the whole path end to end: build rule, metallib, `CIKernel` load, ROI
+   callback, colour-space handling, grid tracking.
+3. **The `CIDisplacementDistortion` spike** (§2b) — still the cheapest way to find out whether
+   Pattern Refraction and Pixel Stretch need a kernel at all.
 
-**CI shipped on 2026-08-12** (§1b) and guards `EnhanceTests` on every push to `main` and every PR;
-first run green, 392 passed in 6m21s. **The kernel gate passed the same day** (§1c), so Water
-Caustic and the hatching line styles are unblocked too.
+**CI shipped on 2026-08-12** (§1b) and guards `EnhanceTests` on every push to `main` and every PR.
+**The kernel gate passed the same day** (§1c) — and note it shipped with a real bug that only RISO
+exposed, recorded in LEARNINGS: a passthrough proves the pipeline runs, not that it is isolated.
 
 *(§1e, §2d control audit, and SLICE SHIFT are also done. HATCHING skipped and BOKEH declined, both
 on the user's call — §2a is empty, so nothing further is buildable from stock filters alone.)*
@@ -336,14 +338,23 @@ The build rule, a working `CIKernel` load path, and a regression test that the c
 library stays stock are all in place. These three are now ordinary work. Read EFFECTS.md's colour
 space and ROI notes before starting any of them — the gate proved the pipeline, not the math.
 
-- [ ] **Riso Print** — the most distinctive look available, and the best fit for the pixel-art
-      identity. The original WGSL is in hand at `reference/riso-print.wgsl`; port from that, not
-      from prose. Tonal-band separation, not CMYK.
-      **Row count is settled and is not a constraint** *(user's call, 2026-08-12 — see §1a)*: four
-      sliders plus a picker may simply scroll. Reusing `GradientStops` for the three spot colours
-      is still worth considering **on its own merits** — three related colours is what that control
-      already expresses — but it is no longer a squeeze to fit a budget, and it should not be
-      adopted if it makes the effect harder to use.
+- [x] ~~**Riso Print**~~ — **shipped 2026-08-12 as RISO**, the app's first custom kernel. Ported
+      from `reference/riso-print.wgsl`: misregistration, Rec.601 luminance (deliberately — the
+      band edges were tuned against it), contrast, tonal-band separation, three halftone screens
+      at 15°/75°/45°, subtractive composite onto warm paper, additive grain.
+      `GradientStops` supplies the three spot colours — kept **on its own merits**, since
+      shadow/midtone/highlight *is* dark/mid/light, not to squeeze under a budget.
+      Six rows: INTENSITY, SCALE, OFFSET, GRAIN, CONTRAST, COLOURS. CONTRAST is not decoration —
+      without it a flat photo collapses into the midtone band and prints as one colour.
+- [ ] 🔍 **RISO's six-row panel on device.** On an SE 3 *simulator* only the first three rows are
+      reachable: a synthesized drag on a row moves that slider (the `minimumDistance: 0` gesture
+      winning) and a drag in the margin does nothing. **The user reports the scroll working on a
+      real device on 2026-08-11**, and synthesized touches are a poor instrument for exactly this
+      kind of gesture conflict, so that is the better evidence — but confirm it, because if the
+      simulator is right then GRAIN, CONTRAST and COLOURS are unreachable on the shortest screen.
+      *Note what §1a does and does not establish here:* it verified a slider still works while the
+      panel is scrollable. It never verified that a user can scroll **to a row below the fold** —
+      different claims, and only the first was tested on the 4-row SLIDE preset.
 - [ ] **Water Caustic** — *reclassified 2026-08-11.* Core Image has no caustic and no
       Worley/Voronoi generator. `CICrystallize` makes Voronoi-ish cells but exposes no seed or
       phase, so it cannot flow across frames, and blurred noise is ruled out by the smeared-noise
