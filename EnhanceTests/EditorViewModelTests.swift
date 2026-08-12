@@ -654,6 +654,42 @@ struct EditorViewModelTests {
         }
     }
 
+    /// The tail of the same bug: `wantsLiveCanvas` says which canvas a *category* asks for, but the
+    /// face boxes and the detection spinner need to know what is actually **on screen**, which also
+    /// depends on whether a GIF exists. They were still reading `isSplit`, so after ENHANCE the face
+    /// tab came back with the effect visible and no tappable boxes.
+    @Test func showsLiveCanvas_beforeAnyGif_isTrueEvenWithThePanelClosed() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedEffectCategory = .faceFilters
+
+        #expect(!vm.wantsLiveCanvas, "no category is editing")
+        #expect(vm.showsLiveCanvas, "but there is no GIF to show instead, so the photo is up")
+    }
+
+    @Test func showsLiveCanvas_afterGenerating_followsThePanel() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedEffectCategory = .faceFilters
+        vm.generatedGifURL = URL(fileURLWithPath: "/tmp/x.gif")
+        vm.enhanceState = .share   // isSplit
+
+        #expect(!vm.showsLiveCanvas, "the GIF owns the canvas once one exists")
+
+        vm.selectedFaceFilter = .lazerEyes
+        vm.beginEditing()
+        #expect(vm.showsLiveCanvas, "the panel brings the photo back so faces can be picked")
+
+        vm.commitEditing()
+        #expect(!vm.showsLiveCanvas)
+    }
+
+    /// A GIF that has been generated but has no file yet must not blank the canvas.
+    @Test func showsLiveCanvas_whenSplitWithoutAFile_staysOnThePhoto() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.enhanceState = .share
+        #expect(vm.generatedGifURL == nil)
+        #expect(vm.showsLiveCanvas, "there is nothing to show instead")
+    }
+
     // MARK: - Text overlay persistence
 
     /// Text is authored, not chosen from a card, so losing it on a round trip means retyping it.

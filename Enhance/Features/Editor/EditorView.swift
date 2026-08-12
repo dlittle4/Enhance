@@ -336,7 +336,7 @@ struct EditorView: View {
         ZStack {
             switch viewModel.content {
             case .existingGif(let url, _, _):
-                if viewModel.wantsLiveCanvas, let source = viewModel.sourceImage {
+                if viewModel.showsLiveCanvas, let source = viewModel.sourceImage {
                     liveCanvas(image: source)
                 } else {
                     borderedCanvas {
@@ -347,7 +347,7 @@ struct EditorView: View {
                 }
 
             case .newImage(let image):
-                if viewModel.isSplit, let gifURL = viewModel.generatedGifURL, !viewModel.wantsLiveCanvas {
+                if !viewModel.showsLiveCanvas, let gifURL = viewModel.generatedGifURL {
                     borderedCanvas {
                         GIFPreviewView(url: gifURL, isPlaying: viewModel.isPlaying, playbackSpeed: viewModel.playbackSpeed)
                             .frame(width: canvasSize, height: canvasSize)
@@ -1190,9 +1190,10 @@ struct EditorView: View {
     /// Face overlay data passed into ImageCanvasView. Empty when not in face filter mode.
     private var activeFaceOverlays: [(id: UUID, rect: CGRect, isSelected: Bool)] {
         guard viewModel.selectedEffectCategory == .faceFilters else { return [] }
-        if case .newImage = viewModel.content {
-            guard !viewModel.isSplit else { return [] }
-        }
+        // Boxes belong to the editable photo, so they follow it rather than guessing from
+        // `isSplit` — which stopped meaning "the GIF is showing" once the panel could bring the
+        // live canvas back after ENHANCE.
+        guard viewModel.showsLiveCanvas else { return [] }
         let singleSelected = viewModel.selectedFaceIndex
         return viewModel.detectedFaces.enumerated().map { index, face in
             let isSelected = singleSelected == nil || singleSelected == index
@@ -1203,7 +1204,7 @@ struct EditorView: View {
     /// Shows a loading spinner while face detection is in progress.
     private var faceStatusOverlay: some View {
         Group {
-            if viewModel.selectedEffectCategory == .faceFilters && !viewModel.isSplit {
+            if viewModel.selectedEffectCategory == .faceFilters, viewModel.showsLiveCanvas {
                 if viewModel.isDetectingFaces {
                     ProgressView()
                         .tint(mintGreen)
