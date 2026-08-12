@@ -160,6 +160,28 @@ class EditorViewModel {
         }
     }
 
+    /// Whether the editable canvas is **actually on screen** right now.
+    ///
+    /// `wantsLiveCanvas` says which canvas a *category* asks for; this answers what is displayed,
+    /// which also depends on whether a GIF exists to show instead. Everything that decorates the
+    /// live canvas — face boxes, the detection spinner — must read this rather than re-deriving it,
+    /// because a decoration shown over the GIF, or hidden while the photo is up, is the same class
+    /// of bug as the canvas itself picking wrong.
+    ///
+    /// This is the second half of that consolidation. The first pass converted the two sites that
+    /// choose the canvas and left two more gating on the `isSplit` proxy, so after ENHANCE the face
+    /// tab came back with the effect visible but no tappable boxes — a face could no longer be
+    /// chosen. Consolidation is not finished until every reader is converted.
+    var showsLiveCanvas: Bool {
+        switch content {
+        case .existingGif:
+            return wantsLiveCanvas && sourceImage != nil
+        case .newImage:
+            // The GIF wins only when there is one *and* no category is asking to edit.
+            return !(isSplit && generatedGifURL != nil && !wantsLiveCanvas)
+        }
+    }
+
     /// True for the span of a direct-manipulation gesture on the text overlay (drag, pinch,
     /// rotate — possibly several at once). Global undo/redo are disabled while it is set, the
     /// same way `isEditingEffect` disables them, so an undo mid-drag cannot fight the gesture.
