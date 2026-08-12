@@ -50,8 +50,8 @@ sees a working build.
    enforced cap permits layouts that cannot render on any supported device.
 2. **CI running the test suite** (§1b) — four sessions work this repo in parallel with no
    automated gate.
-3. **BOKEH** (§2a) — the highest-value effect that is ready to build, and the second use of the
-   region compositor THIRD EYE left behind.
+3. **Pick an effect from §2a** — SLICE SHIFT and HATCHING are both ready and need no new
+   infrastructure. (BOKEH was declined on 2026-08-11; don't lead with it.)
 
 > **A note on trusting this file.** A 2026-08-11 sweep checked every load-bearing claim against the
 > code and found six wrong — one of which actively instructed a future session to revert a repaired
@@ -221,7 +221,11 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
 
 ### 2a. Ready to build — stock filters, no new infrastructure
 
-- [ ] **BOKEH (face-aware)** — the recommended next build. `CIMaskedVariableBlur` grades blur by
+- ~~**BOKEH (face-aware)**~~ — **not wanted, 2026-08-11.** Cut on the user's call before any code
+      was written; nothing was built and nothing is owed. The analysis below is kept because it is
+      the reason the *approach* is cheap, not the reason the effect is wanted — if it is ever
+      revived, none of it needs re-deriving. **Do not re-propose it as "the obvious next build"
+      without asking**; it has been declined once. `CIMaskedVariableBlur` grades blur by
       mask value, so blur falls off with distance from the face and reads as depth rather than as a
       cutout; feed it `FaceRegionMaskBuilder`, which THIRD EYE already left behind. This is the only
       candidate that adds a *capability* — subject-aware depth of field — rather than another
