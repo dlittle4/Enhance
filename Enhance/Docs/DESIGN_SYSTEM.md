@@ -99,6 +99,39 @@ Narrower counts, for the specific Phase 1 swaps:
 
 ---
 
+## 1b. Keeping Figma in sync *(added 2026-08-12)*
+
+There is a Figma spec sheet — **Enhance — Design Tokens** — carrying the colour variables, the
+Silkscreen text styles, the radius scale, the shipped components and the open questions.
+
+**Swift is the source of truth; Figma is derived.** That direction is deliberate: a derived file
+cannot drift, whereas two authored copies always will. Edits made in Figma are *proposals* — change
+the value there, then change `Design/Colors.swift` to match, then re-run the sync.
+
+```bash
+swift Tools/export-tokens.swift            # tokens as JSON
+swift Tools/export-tokens.swift --check    # exit 1 if a token pattern stopped matching
+```
+
+`Tools/export-tokens.swift` parses `Design/*.swift` and emits every token as JSON. It parses rather
+than imports because it runs as a plain script with no app target — the trade is that a token
+written in an unexpected form would be silently *missed*, which is why the script carries expected
+counts per kind and fails when one drops.
+
+**It must live in `Tools/`, not under `Enhance/`** — that folder is a synchronized group, so any
+`.swift` file inside it is compiled into the app. See LEARNINGS 2026-08-12.
+
+Feeding the JSON into Figma and diffing is currently a manual step (an agent with the Figma MCP
+server can do it). **Last run: 2026-08-12 — 28 checkable tokens, zero drift, nothing extra on
+either side.** Motion is exported but not verifiable; Figma has no native motion variable.
+
+> **Code Connect was considered and rejected.** It maps *components* to code snippets for Dev Mode
+> handoff — it does not sync token values, is one-directional, and reports no drift. It also
+> requires an Organization or Enterprise plan (this file lives on a Professional team) and
+> components published to a team library.
+
+---
+
 ## 2. Principles for the migration
 
 1. **Phases 1–2 are pure refactors with zero intended visual change.** Every new token equals the

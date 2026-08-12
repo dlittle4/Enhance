@@ -1635,3 +1635,34 @@ one, so the `air.ci_builtin` marker never appeared.
 infrastructure gate is that two things stay *separate*, assert the separation directly — here,
 that `default.metallib` contains `pixellate` and does **not** contain the kernel's symbol name.
 A canary that exercises none of the risky surface is a canary that cannot die.
+
+---
+
+## 2026-08-12: a `.swift` file anywhere under `Enhance/` is compiled into the app
+
+**Problem:** a standalone token-export script was placed at `Enhance/Docs/tools/export-tokens.swift`
+— alongside the other docs, and inside a folder whose README explicitly says files there are not
+build inputs. The app stopped compiling:
+
+```
+error: hashbang line is allowed only in the main file
+error: statements are not allowed at the top level
+```
+
+**Root cause:** `Enhance/` is a `PBXFileSystemSynchronizedRootGroup`. Xcode adds **every** source
+file under it to the target automatically — there is no membership list to opt out of. A script
+with top-level statements is a perfectly good script and an invalid app source file.
+
+**What made it misleading:** `Docs/reference/README.md` states that `.wgsl` files live under
+`Docs/` "deliberately so Xcode's synchronised group never picks them up as build inputs". That is
+true, and it is true for the wrong reason — `.wgsl` is not a *source type Xcode compiles*, so it
+is ignored regardless of location. The safety came from the extension, not the folder, and the
+note reads as though `Docs/` were a shelter. It is not.
+
+**Fix:** standalone Swift scripts go in `Tools/` at the repository root, outside every
+synchronized group.
+
+**Rule:** the only reliable way to keep a file out of the app target is to keep it out of
+`Enhance/`. Before adding any `.swift` file that is not app code — a script, a generator, a
+scratch experiment — put it at the repo root and build once to confirm. The failure is loud, but
+it is loud *at the app target*, which makes it look like the app broke rather than the file.
