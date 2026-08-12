@@ -86,20 +86,26 @@ rows floor and overflow:
 
 The SE 3 panel is ~190–200pt (`EffectParameterTests.swift:222`).
 
-- **4 rows cannot fit an SE 3 at all** — and several control-audit items add a fourth row.
 - **5 rows needs ~76pt more than the shortest device has.** The assertion protects nothing.
-- **3 rows is marginal**: 192pt needed against a 190–200pt range. THIRD EYE ships three rows and
-  overflows at the bottom of it. The guard test only checks 200pt, and its own comment concedes it
-  tests "the roomy end."
+- **4 rows overflows into a scroll** — but see the correction below: that is now known to be
+  survivable, not fatal.
+- **3 rows fits.** Confirmed on an SE 3 (2026-08-11): rows compress toward the floor rather than
+  clipping, which is `PanelMetrics` working as designed. The earlier "3 rows is marginal, THIRD EYE
+  overflows" prediction was wrong — it computed a correct 192pt threshold against the guard test's
+  "~190–200pt" note, which was an estimate rather than a measurement.
 
-Overflow re-enables the `ScrollView` (`EffectDetailPanel.swift:53`), where
-`DragGesture(minimumDistance: 0)` (`ParameterSliderRow.swift:95`) loses to the scroll and a slider
-drag scrolls the panel instead. That mechanism is correctly documented at
-`EffectDetailPanel.swift:45-52` and `PanelMetrics.swift:5-10` — it was only the *cost estimate* in
-the old Phase 17f that was wrong.
+**Correction (2026-08-11): a slider drag does *not* lose to the scroll.** This section previously
+said `DragGesture(minimumDistance: 0)` (`ParameterSliderRow.swift:95`) loses to the `ScrollView`
+(`EffectDetailPanel.swift:53`), so a slider drag would scroll the panel instead of moving the knob.
+Text overlays' SLIDE preset ships **four rows** — FILL, swatches, FROM, DISTANCE — which is the
+first configuration in the app to enable that scroll, and it was tested on an SE 3: **the DISTANCE
+slider works normally.** The `minimumDistance: 0` gesture claims the touch first, exactly as
+`EffectDetailPanel.swift:45-52` describes. The panel's own comment was right and this file was
+wrong; they had contradicted each other since the restructure.
 
-- [ ] 🔍 **Confirm on an SE 3 whether THIRD EYE's three rows already overflow.** If they do, this
-      is a shipped bug rather than a future one.
+That does not make the scroll *desirable* — a panel the user must scroll to reach a control is
+still worse than one that fits — but it is no longer a correctness blocker, and the lever below can
+be chosen on layout grounds rather than to avoid a broken slider.
 - [ ] **Pick a lever**: raise the panel's height allocation, lower the 34pt floor, or cap effects at
       three rows and treat a fourth as a design change. Then make the assertion match the lever
       instead of the current fiction.
