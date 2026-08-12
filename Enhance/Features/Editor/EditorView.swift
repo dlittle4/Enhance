@@ -289,7 +289,7 @@ struct EditorView: View {
                     } label: {
                         Text("RESET")
                             .font(.custom("Silkscreen-Bold", size: 16))
-                            .foregroundColor(.white.opacity(historyEnabled ? 1.0 : 0.3))
+                            .foregroundColor(historyEnabled ? .textPrimary : .contentInactive)
                     }
                     .disabled(!historyEnabled)
                 }
@@ -299,7 +299,7 @@ struct EditorView: View {
                 } label: {
                     Image("icon-undo")
                         .renderingMode(.template)
-                        .foregroundColor(.white.opacity(historyEnabled && viewModel.canUndo ? 1.0 : 0.3))
+                        .foregroundColor(historyEnabled && viewModel.canUndo ? .textPrimary : .contentInactive)
                 }
                 .disabled(!historyEnabled || !viewModel.canUndo)
 
@@ -308,7 +308,7 @@ struct EditorView: View {
                 } label: {
                     Image("icon-redo")
                         .renderingMode(.template)
-                        .foregroundColor(.white.opacity(historyEnabled && viewModel.canRedo ? 1.0 : 0.3))
+                        .foregroundColor(historyEnabled && viewModel.canRedo ? .textPrimary : .contentInactive)
                 }
                 .disabled(!historyEnabled || !viewModel.canRedo)
             }
@@ -847,7 +847,7 @@ struct EditorView: View {
                 } label: {
                     Text(shape.rawValue)
                         .font(.silkscreenBody)
-                        .foregroundColor(viewModel.pixelShape == shape ? .enhanceMint : .white.opacity(0.6))
+                        .foregroundColor(viewModel.pixelShape == shape ? .enhanceMint : .textPrimary)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
                         .overlay(
@@ -1116,7 +1116,7 @@ struct EditorView: View {
                 } label: {
                     Text("SAVE")
                         .font(.silkscreenButtonLabel)
-                        .foregroundColor(viewModel.isSaveEnabled ? .white : .white.opacity(0.5))
+                        .foregroundColor(viewModel.isSaveEnabled ? .textPrimary : .contentInactive)
                         .frame(maxWidth: .infinity)
                         .frame(height: buttonHeight)
                         .background(

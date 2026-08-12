@@ -41,7 +41,7 @@ struct SettingsView: View {
                 checkmark(isSelected: autoPlayGifs)
                 Text("AUTO PLAY GIFS IN GALLERY")
                     .font(.custom("Silkscreen-Regular", size: 16))
-                    .foregroundColor(autoPlayGifs ? mintGreen : .white.opacity(0.5))
+                    .foregroundColor(autoPlayGifs ? mintGreen : .textPrimary)
             }
             .padding(.vertical, 10)
         }
@@ -65,7 +65,7 @@ struct SettingsView: View {
                         checkmark(isSelected: selectedTheme == theme)
                         Text(theme)
                             .font(.custom("Silkscreen-Regular", size: 16))
-                            .foregroundColor(selectedTheme == theme ? mintGreen : .white.opacity(0.5))
+                            .foregroundColor(selectedTheme == theme ? mintGreen : .textPrimary)
                     }
                     .padding(.vertical, 10)
                 }

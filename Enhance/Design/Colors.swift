@@ -85,22 +85,29 @@ extension Color {
 
     // MARK: - Content
 
-    /// Default text and glyph colour.
+    /// Default content colour — text and glyphs alike, **including anything unselected**.
     ///
     /// Closes the gap the spec sheet made obvious: 83 raw `.white` calls with no token, which is
-    /// what would have made light mode impossible. **Selected** text uses `enhanceMint` directly
-    /// rather than an alias — one value, one name.
+    /// what would have made light mode impossible.
     ///
-    /// Secondary text is still untokenised. `.white` at 0.5 / 0.4 / 0.3 / 0.25 opacity all appear
-    /// in the app and no single one is canonical; picking a scale is its own decision.
+    /// *Unselected is full white by decision (2026-08-12), not a dimmed variant.* Selection is
+    /// signalled by `enhanceMint` alone, so an unselected row and an ordinary label are the same
+    /// colour. That is one cue rather than two, chosen deliberately.
     static let textPrimary = Color.white
 
-    /// An icon that is present but not available — the dimmest of the three icon states.
+    /// Content that is present but unavailable — a disabled control's label or glyph.
     ///
-    /// The other two reuse existing tokens by design: an ordinary icon is `textPrimary`, a
-    /// selected one is `enhanceMint`. Note the shipped assets bake their fill into the SVG, so
-    /// these only apply where the icon is template-rendered.
-    static let iconInactive = Color(hex: 0xD1D1D1)
+    /// **One value for disabled text and disabled icons** *(user's call, 2026-08-12)*, which is
+    /// why it is named for content rather than for icons.
+    ///
+    /// Note this is *brighter* than what it replaced: disabled labels were `.white` at 0.3–0.5,
+    /// and `0xD1D1D1` is about 82% grey. Disabled state now reads as a slight desaturation rather
+    /// than a strong dimming. If a disabled control starts looking tappable, this is the value to
+    /// revisit.
+    ///
+    /// Shipped icon assets bake their fill into the SVG, so this only reaches an icon that is
+    /// template-rendered.
+    static let contentInactive = Color(hex: 0xD1D1D1)
 
 
 }

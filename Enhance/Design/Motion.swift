@@ -2,21 +2,19 @@ import SwiftUI
 
 /// Named animation curves.
 ///
-/// **All four are the same curve as of 2026-08-12** — `spring(response: 0.3, dampingFraction: 0.6)`,
-/// the press curve, applied everywhere on the user's call. The app previously used four different
-/// springs; one consistent motion is the decision.
+/// **The app's chrome moves on one curve** — `spring(response: 0.3, dampingFraction: 0.6)`,
+/// applied to presses, panels and the carousel on the user's call 2026-08-12. Three different
+/// springs used to do that job for no reason anyone could name.
 ///
-/// The names are kept rather than collapsed into a single `Motion.standard` because they say
-/// *what is moving*, and that is what lets one of them be retuned later without hunting call
-/// sites. If they are still identical when something needs to differ, that will be a one-line
-/// change here instead of a search across the app.
+/// **`gridReflow` is deliberately excluded** *(user's call, 2026-08-12)*. Directly-manipulated
+/// motion is not the same problem as chrome animating itself: a pinch is still under the finger,
+/// so the curve has to keep up with a gesture rather than play a transition. That is why it is an
+/// `interactiveSpring` and not a `spring` — a different curve *type*, not just different numbers.
+/// Consistency across the chrome is worth having; forcing it onto a gesture is not.
 ///
-/// One thing this gave up, recorded so it is a choice rather than an accident: `gridReflow` was an
-/// `interactiveSpring`, a different curve *type* tuned to stay responsive while a pinch is still
-/// in progress. It is a plain spring now. Nothing reads it yet — `GalleryView` still uses inline
-/// literals until Phase 2 migrates it — so the change is not yet visible, but it will be the
-/// moment that migration lands. If the pinch-to-reflow grid feels sluggish afterwards, this is
-/// the first place to look.
+/// The names are kept rather than collapsed into one `Motion.standard` because they say *what is
+/// moving*. If another of them needs to diverge later, that is a one-line change here instead of
+/// a search across call sites — exactly as `gridReflow` just demonstrated.
 enum Motion {
 
     /// Button press and release.
@@ -28,7 +26,10 @@ enum Motion {
     /// The showcase carousel advancing.
     static let carousel = Animation.spring(response: 0.3, dampingFraction: 0.6)
 
-    /// The gallery grid reflowing under a pinch. See the note above — this was an
-    /// `interactiveSpring` before the consolidation.
-    static let gridReflow = Animation.spring(response: 0.3, dampingFraction: 0.6)
+    /// The gallery grid reflowing under a pinch.
+    ///
+    /// `interactiveSpring`, and 0.86 damping rather than the chrome's 0.6 — this is the value the
+    /// grid was tuned to while someone had a finger on it. See the note above for why it does not
+    /// follow the others.
+    static let gridReflow = Animation.interactiveSpring(response: 0.35, dampingFraction: 0.86)
 }
