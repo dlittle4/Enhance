@@ -478,6 +478,93 @@ struct VisualEffectTests {
 
     /// A luminance ramp, so the dither has something to stipple. A solid colour
     /// posterises flat and would make the periodicity test pass trivially.
+    // MARK: - Control audit: MOTION BLUR angle, SWIRL size
+
+    /// The default must reproduce the look these effects shipped with. Exposing a hidden
+    /// constant is only safe if the midpoint of the new control *is* the old constant —
+    /// otherwise every existing GIF silently re-renders differently on the next edit.
+
+    @Test func motionBlur_defaultAngle_reproducesTheShipped45Degrees() throws {
+        let input = gradientTestImage()
+        let ctx = CIContext()
+
+        func png(_ img: CIImage) throws -> Data {
+            let cg = try #require(ctx.createCGImage(img, from: img.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+
+        let viaControl = MotionBlurEffect(intensity: 0.8, angle: 0.5)
+            .apply(to: input, progress: 1.0, frameIndex: 0)
+
+        // The pre-audit implementation, inline: radius ramp unchanged, angle hardcoded.
+        let t = min(1.0, 1.0 * 1.2)
+        let legacy = input.applyingFilter("CIMotionBlur", parameters: [
+            kCIInputRadiusKey: CGFloat(max(2.0, 30.0 * 0.8)) * t * t,
+            kCIInputAngleKey: CGFloat.pi / 4
+        ]).cropped(to: input.extent)
+
+        #expect(try png(viaControl) == png(legacy),
+                "angle 0.5 must still be the 45° this effect shipped with")
+    }
+
+    @Test func motionBlur_angleIsLiveAcrossItsRange() throws {
+        let input = gradientTestImage()
+        let ctx = CIContext()
+
+        func png(_ angle: Double) throws -> Data {
+            let out = MotionBlurEffect(intensity: 0.8, angle: angle)
+                .apply(to: input, progress: 1.0, frameIndex: 0)
+            let cg = try #require(ctx.createCGImage(out, from: out.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+
+        // Assert the control is *live across its range*, not that any two positions are
+        // byte-identical. The endpoints are one half-turn apart and so are the same
+        // direction in principle — but they are reached by different arithmetic, and
+        // asserting equality there tests CIMotionBlur's internal symmetry rather than
+        // this control. That assertion passed in isolation and failed in a full run.
+        #expect(try png(0.0) != png(0.5), "the low end must differ from the default")
+        #expect(try png(0.5) != png(0.75), "the high end must differ from the default")
+        #expect(try png(0.25) != png(0.75), "quarter turns apart must differ")
+    }
+
+    @Test func swirl_defaultSize_reproducesTheShipped040Radius() throws {
+        let input = gradientTestImage()
+        let ctx = CIContext()
+
+        func png(_ img: CIImage) throws -> Data {
+            let cg = try #require(ctx.createCGImage(img, from: img.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+
+        let viaControl = SwirlEffect(intensity: 0.8, size: 0.5)
+            .apply(to: input, progress: 1.0, frameIndex: 0)
+
+        let legacy = input.applyingFilter("CITwirlDistortion", parameters: [
+            kCIInputCenterKey: CIVector(x: input.extent.midX, y: input.extent.midY),
+            kCIInputRadiusKey: max(input.extent.width, input.extent.height) * 0.4,
+            kCIInputAngleKey: CGFloat.pi * CGFloat(max(0.1, 2.0 * 0.8)) * 1.0
+        ]).cropped(to: input.extent)
+
+        #expect(try png(viaControl) == png(legacy),
+                "size 0.5 must still be the 0.4 radius fraction this effect shipped with")
+    }
+
+    @Test func swirl_sizeIsLiveAcrossItsRange() throws {
+        let input = gradientTestImage()
+        let ctx = CIContext()
+
+        func png(_ size: Double) throws -> Data {
+            let out = SwirlEffect(intensity: 0.8, size: size)
+                .apply(to: input, progress: 1.0, frameIndex: 0)
+            let cg = try #require(ctx.createCGImage(out, from: out.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+
+        #expect(try png(0.0) != png(0.5), "a tight vortex must differ from the default")
+        #expect(try png(0.5) != png(1.0), "a wide vortex must differ from the default")
+    }
+
     private func gradientTestImage() -> CIImage {
         CIImage(color: .white)
             .cropped(to: CGRect(x: 0, y: 0, width: 96, height: 96))
