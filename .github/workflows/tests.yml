@@ -18,6 +18,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Design tokens vs the Figma snapshot. Deliberately its own job: it needs no simulator and
+  # finishes in seconds, so it reports long before the test job and never waits on it.
+  #
+  # This works headlessly *because* it diffs against a committed snapshot rather than calling
+  # Figma. The Variables REST API is Enterprise-gated and this project is on a Professional plan,
+  # so a live check was never an option. The snapshot is refreshed by hand (by an agent with
+  # Figma access) when the design file changes — which means this catches **Swift** drifting away
+  # from the agreed values, not Figma drifting away from Swift. That is the direction that
+  # matters, since Swift is the source of truth.
+  tokens:
+    name: Design tokens
+    runs-on: macos-15
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the token declarations still parse
+        run: swift Tools/export-tokens.swift --check
+      - name: Diff against the Figma snapshot
+        run: swift Tools/export-tokens.swift --diff Tools/figma-tokens.json
+
   unit-tests:
     name: Unit tests
     runs-on: macos-15

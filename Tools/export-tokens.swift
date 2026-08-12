@@ -110,6 +110,58 @@ for (kind, count) in expected {
     }
 }
 
+// MARK: - Diff against the Figma snapshot
+//
+// `Tools/figma-tokens.json` is a committed snapshot of the Figma file's variables and text
+// styles. Diffing against a *file* rather than a live API is what lets this run headlessly —
+// Figma's Variables REST API is Enterprise-gated and this project is on a Professional plan, so
+// a CI job could never call it. The snapshot is refreshed by an agent with Figma access whenever
+// the design file changes; between refreshes, this catches Swift drifting away from it.
+//
+// The trade is honest and worth stating: a stale snapshot diffs clean against a Figma file that
+// has since moved. `capturedAt` is there so the staleness is visible.
+
+if let index = CommandLine.arguments.firstIndex(of: "--diff") {
+    let path = CommandLine.arguments.count > index + 1
+        ? CommandLine.arguments[index + 1]
+        : "Tools/figma-tokens.json"
+
+    struct Snapshot: Decodable {
+        struct Entry: Decodable { let kind: String; let name: String; let value: String }
+        let capturedAt: String
+        let tokens: [Entry]
+    }
+
+    let data = try Data(contentsOf: URL(fileURLWithPath: path))
+    let snapshot = try JSONDecoder().decode(Snapshot.self, from: data)
+
+    // Motion has no Figma equivalent — Figma has no native motion variable — so it is exported
+    // but never diffed. Comparing it would report permanent false drift.
+    let comparable = tokens.filter { $0.kind != "motion" }
+    var differences: [String] = []
+
+    for token in comparable {
+        guard let match = snapshot.tokens.first(where: { $0.name == token.name && $0.kind == token.kind }) else {
+            differences.append("\(token.name): in Swift (\(token.value)), missing from Figma")
+            continue
+        }
+        if match.value != token.value {
+            differences.append("\(token.name): Swift \(token.value) vs Figma \(match.value)")
+        }
+    }
+    for entry in snapshot.tokens where !comparable.contains(where: { $0.name == entry.name && $0.kind == entry.kind }) {
+        differences.append("\(entry.name): in Figma (\(entry.value)), missing from Swift")
+    }
+
+    if differences.isEmpty {
+        print("OK — \(comparable.count) tokens match the Figma snapshot of \(snapshot.capturedAt)")
+        exit(0)
+    }
+    print("Drift against the Figma snapshot of \(snapshot.capturedAt):")
+    differences.sorted().forEach { print("  " + $0) }
+    exit(1)
+}
+
 if CommandLine.arguments.contains("--check") {
     if problems.isEmpty {
         print("OK — \(tokens.count) tokens")
