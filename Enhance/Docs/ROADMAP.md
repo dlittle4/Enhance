@@ -50,11 +50,11 @@ is no in-flight work anywhere, so nothing below is owned by another session.
 1. 🔍 **Confirm RISO's six-row panel on a real device** (§2c). Everything else about the effect is
    done and verified; this is the one open question, and it decides whether the params cap stays
    at 6 or the panel needs a fix first.
-2. **Water Caustic** or the **hatching line styles** (§2c) — both unblocked by the kernel gate, and
-   RISO has now proved the whole path end to end: build rule, metallib, `CIKernel` load, ROI
-   callback, colour-space handling, grid tracking.
-3. **The `CIDisplacementDistortion` spike** (§2b) — still the cheapest way to find out whether
-   Pattern Refraction and Pixel Stretch need a kernel at all.
+2. **The `CIDisplacementDistortion` spike** (§2b) — now the best-value item in §2. It is cheap, and
+   it decides whether Pattern Refraction and Pixel Stretch are stock work or kernel work.
+   **Ask before starting another effect outright**: three have been declined on the user's call
+   (HATCHING, BOKEH, and now Water Caustic), so the constraint is taste, not capability — the
+   kernel path itself is proved twice over.
 
 **CI shipped on 2026-08-12** (§1b) and guards `EnhanceTests` on every push to `main` and every PR.
 **The kernel gate passed the same day** (§1c) — and note it shipped with a real bug that only RISO
@@ -355,10 +355,16 @@ space and ROI notes before starting any of them — the gate proved the pipeline
       *Note what §1a does and does not establish here:* it verified a slider still works while the
       panel is scrollable. It never verified that a user can scroll **to a row below the fold** —
       different claims, and only the first was tested on the 4-row SLIDE preset.
-- [ ] **Water Caustic** — *reclassified 2026-08-11.* Core Image has no caustic and no
-      Worley/Voronoi generator. `CICrystallize` makes Voronoi-ish cells but exposes no seed or
-      phase, so it cannot flow across frames, and blurred noise is ruled out by the smeared-noise
-      rule in LEARNINGS. This is the effect that most needs the kernel.
+- [x] ~~**Water Caustic**~~ — built and then **withdrawn 2026-08-12 on the user's call**: the look
+      was not wanted. Added to `VisualEffectType.retired`, so it stays compiled and tested rather
+      than deleted — one line brings it back, and meanwhile it is the second worked example of the
+      kernel path. **Do not re-propose it without asking.**
+      The technique was sound and is worth keeping in mind: a Worley cell-wall network built
+      analytically, because the smeared-noise rule in LEARNINGS rules out noise-plus-blur for
+      discrete structure. Its one genuinely reusable idea is the **seamless loop** — feature points
+      orbit with period 1 and SPEED is quantised to a whole number of orbits, so progress 0 and 1
+      render the same frame and the GIF does not jump on wrap. Any future animated procedural
+      effect wants that, and `CausticTests` has the test that pins it.
 - [ ] **Hatching line styles** — wave, zigzag, concentric. Arbitrary substitutions into the `sin`
       argument, with no stock equivalent. The straight-line version in §2a needs none of this.
 
