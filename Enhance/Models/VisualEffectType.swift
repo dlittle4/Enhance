@@ -18,15 +18,18 @@ struct EffectOptions {
     var tertiary: Double = 0.5
     var tintColor: LaserColor = .red
     var gradientStops: GradientStops = .default
+    var pixelShape: PixelShape = .square
 
     init(size: Double = 0.5,
          tertiary: Double = 0.5,
          tintColor: LaserColor = .red,
-         gradientStops: GradientStops = .default) {
+         gradientStops: GradientStops = .default,
+         pixelShape: PixelShape = .square) {
         self.size = size
         self.tertiary = tertiary
         self.tintColor = tintColor
         self.gradientStops = gradientStops
+        self.pixelShape = pixelShape
     }
 }
 
@@ -108,6 +111,8 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "SPEED"))
         case .gradientMap:
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "MIDPOINT"))
+        case .pixelate:
+            params.append(EffectParameter(id: "shape", label: "SHAPE", kind: .pixelShape))
         default:
             break
         }
@@ -158,7 +163,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
                                                   angle: max(0, min(1, options.tertiary)))
         case .fisheye:      return FisheyeEffect(intensity: clamped, size: max(0, min(1, options.size)))
         case .swirl:        return SwirlEffect(intensity: clamped, size: max(0, min(1, options.size)))
-        case .pixelate:     return PixelateEffect(intensity: clamped)
+        case .pixelate:     return PixelateEffect(intensity: clamped, shape: options.pixelShape)
         case .rainbow:      return RainbowGradientEffect(intensity: clamped, speed: max(0, min(1, options.size)))
         case .heatHaze:     return HeatHazeEffect(intensity: clamped,
                                                   frequency: max(0, min(1, options.size)),

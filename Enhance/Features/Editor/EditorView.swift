@@ -147,6 +147,10 @@ struct EditorView: View {
             viewModel.updatePreviewImage()
             viewModel.regenerateIfNeeded()
         }
+        .onChange(of: viewModel.pixelShape) { _, _ in
+            viewModel.updatePreviewImage()
+            viewModel.regenerateIfNeeded()
+        }
         // ColorPicker emits on every drag frame of the system colour wheel, so both
         // the undo push and the regeneration are coalesced rather than fired per
         // change. `old` is the pre-change value, which is what an undo snapshot needs.
@@ -842,6 +846,35 @@ struct EditorView: View {
 
     // MARK: - Pickers
 
+    /// The two PIXELATE cell shapes. Same zero-spacing Spacer distribution as the colour
+    /// swatches — see `colorSwatchContent` for why both the spacing and the `minLength`
+    /// have to be zero.
+    private var pixelShapeContent: some View {
+        HStack(spacing: 0) {
+            ForEach(PixelShape.allCases) { shape in
+                Spacer(minLength: 0)
+                Button {
+                    viewModel.pushUndo()
+                    HapticService.light()
+                    viewModel.pixelShape = shape
+                } label: {
+                    Text(shape.rawValue)
+                        .font(.silkscreenControl)
+                        .foregroundColor(viewModel.pixelShape == shape ? .enhanceMint : .white.opacity(0.6))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(viewModel.pixelShape == shape ? Color.enhanceMint : .clear,
+                                        lineWidth: 2)
+                        )
+                }
+                .buttonStyle(.plain)
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
     /// Colour swatches for a `.tintColor` parameter. Used by visual effects (writing
     /// `tintColor`) and face filters (writing `laserColor`). Content only — the label
     /// column and row height come from `ParameterPickerRow`.
@@ -939,6 +972,10 @@ struct EditorView: View {
             case .gradientStops:
                 ParameterPickerRow(label: param.label) {
                     gradientStopsContent
+                }
+            case .pixelShape:
+                ParameterPickerRow(label: param.label) {
+                    pixelShapeContent
                 }
             }
         }

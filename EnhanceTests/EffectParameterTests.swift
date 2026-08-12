@@ -212,7 +212,14 @@ struct EffectParameterTests {
 
             let pickers = params.filter { $0.kind != .slider }
             #expect(pickers.count <= 1, "\(type.rawValue) declares more than one picker")
-            #expect((pickers.first != nil) == type.supportsColorPicker, "\(type.rawValue) picker disagrees with colorPickerKind")
+
+            // `supportsColorPicker` is specifically about *colour*, so only the colour kinds
+            // may agree with it. PIXELATE's `.pixelShape` is a picker row that is not a
+            // colour picker, and conflating the two would either fail here or force
+            // `colorPickerKind` to lie about an effect that has no colour.
+            let colourPickers = params.filter { $0.kind == .tintColor || $0.kind == .gradientStops }
+            #expect((colourPickers.first != nil) == type.supportsColorPicker,
+                    "\(type.rawValue) colour picker disagrees with colorPickerKind")
         }
     }
 

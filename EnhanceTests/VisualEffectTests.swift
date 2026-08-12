@@ -765,6 +765,49 @@ struct VisualEffectTests {
         #expect(stops.cacheKey(exponent: 1) == stops.cacheKey)
     }
 
+    // MARK: - Control audit: PIXELATE SHAPE
+
+    @Test func pixelate_defaultShape_isTheSquareThatShipped() throws {
+        let input = gradientTestImage()
+        let ctx = CIContext()
+        func png(_ e: PixelateEffect) throws -> Data {
+            let out = e.apply(to: input, progress: 0.2, frameIndex: 0)
+            let cg = try #require(ctx.createCGImage(out, from: out.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+        #expect(try png(PixelateEffect(intensity: 0.8, shape: .square))
+                == png(PixelateEffect(intensity: 0.8)))
+    }
+
+    @Test func pixelate_hexShapeRendersDifferently() throws {
+        let input = gradientTestImage()
+        let ctx = CIContext()
+        func png(_ shape: PixelShape) throws -> Data {
+            let out = PixelateEffect(intensity: 0.8, shape: shape)
+                .apply(to: input, progress: 0.2, frameIndex: 0)
+            let cg = try #require(ctx.createCGImage(out, from: out.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+        #expect(try png(.square) != png(.hex))
+    }
+
+    /// Both filters must exist on the device runtime — `applyingFilter` fails *silently* on an
+    /// unknown name, so a typo would ship as "SHAPE does nothing" rather than as a crash.
+    @Test func pixelShape_filterNamesExist() {
+        for shape in PixelShape.allCases {
+            #expect(CIFilter(name: shape.filterName) != nil, "\(shape.rawValue) -> \(shape.filterName)")
+        }
+    }
+
+    /// Storing the shape as a case index would make the enum's *order* load-bearing. This
+    /// asserts the values are carried by identity, so a future reorder cannot silently
+    /// reinterpret saved state. See LEARNINGS 2026-08-10.
+    @Test func pixelShape_isIdentifiedByNameNotOrdinal() {
+        #expect(PixelShape(rawValue: "SQUARE") == .square)
+        #expect(PixelShape(rawValue: "HEX") == .hex)
+        #expect(PixelShape.allCases.count == 2)
+    }
+
     private func gradientTestImage() -> CIImage {
         CIImage(color: .white)
             .cropped(to: CGRect(x: 0, y: 0, width: 96, height: 96))

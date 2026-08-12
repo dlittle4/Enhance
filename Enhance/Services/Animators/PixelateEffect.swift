@@ -6,11 +6,15 @@ import CoreImage
 /// Uses CIPixellate for efficient GPU-accelerated pixelation.
 ///
 /// - `intensity` scales the maximum pixel block size at the start.
+/// - `shape` picks the cell shape. `CIHexagonalPixellate` takes the same centre and scale
+///   as `CIPixellate`, so the second shape costs a filter name.
 public struct PixelateEffect: VisualEffect {
     private let maxScale: CGFloat
+    private let shape: PixelShape
 
-    public init(intensity: Double = 0.5) {
+    public init(intensity: Double = 0.5, shape: PixelShape = .square) {
         self.maxScale = max(4.0, 40.0 * CGFloat(intensity))
+        self.shape = shape
     }
 
     public func apply(to image: CIImage, progress: CGFloat, frameIndex: Int) -> CIImage {
@@ -25,11 +29,11 @@ public struct PixelateEffect: VisualEffect {
         let c = viewportCenter ?? CGPoint(x: image.extent.midX, y: image.extent.midY)
         let center = CIVector(x: c.x, y: c.y)
 
-        // Crop back to the input extent. CIPixellate grows the extent by roughly half a
-        // cell on each side, so an uncropped result is larger than its input — which
+        // Crop back to the input extent. Both pixellate filters grow the extent by roughly
+        // half a cell on each side, so an uncropped result is larger than its input — which
         // letterboxes the editor canvas and changes the GIF's frame dimensions.
         return image
-            .applyingFilter("CIPixellate", parameters: [
+            .applyingFilter(shape.filterName, parameters: [
                 kCIInputCenterKey: center,
                 kCIInputScaleKey: scale
             ])

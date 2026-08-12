@@ -16,6 +16,9 @@ struct EffectParameter: Identifiable, Hashable {
         case tintColor
         /// The three gradient stop colour wells.
         case gradientStops
+        /// PIXELATE's cell shape. A picker rather than a slider because the value is a
+        /// `PixelShape`, not a scalar — see that type for why it is not a case index.
+        case pixelShape
     }
 
     /// Stable key for value storage. Must not change once shipped — values are keyed

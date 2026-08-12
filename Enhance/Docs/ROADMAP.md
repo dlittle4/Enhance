@@ -258,7 +258,7 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
 - [ ] **Hatching line styles** — wave, zigzag, concentric. Arbitrary substitutions into the `sin`
       argument, with no stock equivalent. The straight-line version in §2a needs none of this.
 
-### 2d. Control audit — **next up**, and it fits
+### 2d. Control audit ✓ done 2026-08-11
 
 Nine shipped effects collapse independent qualities into one INTENSITY slider, or hardcode a value
 a user would reasonably want to change. Candidates are named with file and value in
@@ -280,14 +280,16 @@ that was written while three rows was still believed marginal.
 | GRADIENT | 2 | MIDPOINT | 3 |
 | **DITHER** | 2 | LEVELS + MONO | **4 — over** |
 
-- [ ] **The eight that fit**, in rough value order: MOTION BLUR (ANGLE — a directional blur whose
+- [x] ~~**The eight that fit**~~ — all shipped 2026-08-11, each with its midpoint reproducing the
+      constant it replaced, proved against the old implementation byte for byte: MOTION BLUR (ANGLE — a directional blur whose
       direction is hardcoded to 45°), SWIRL (SIZE — a parity gap, FISHEYE already exposes it),
       HALFTONE (SHARPNESS + ANGLE, both already supported by `CICMYKHalftone`), CHROMA SHIFT
       (ANGLE), HEAT HAZE (FREQUENCY + SPEED), GRADIENT (MIDPOINT), RAINBOW (SPEED, which the face
       variant already has), PIXELATE (SHAPE — `CIHexagonalPixellate` makes hex nearly free).
-- [ ] **PIXELATE's SHAPE is not a `Double`** and must not be stored as a case index — typed property
-      on the view model plus an `EditorSnapshot` field, per LEARNINGS 2026-08-10. It is the only one
-      of the eight that is more than a slider.
+- [x] ~~**PIXELATE's SHAPE is not a `Double`**~~ — shipped as `PixelShape`, a typed property on the
+      view model plus an `EditorSnapshot` field, with a new `EffectParameter.Kind.pixelShape`.
+      Note this made `supportsColorPicker` and "has a picker row" stop being the same thing;
+      `visualEffect_parameterDeclarationsAreWellFormed` now checks the colour kinds specifically.
 - [x] ~~**DITHER: ship LEVELS, defer MONO.**~~ LEVELS shipped — it decouples posterisation depth
       from dither amplitude, which was the actual complaint. **MONO stays deferred, but the reason
       changed**: a fourth row was thought unrenderable, and text overlays has since shipped four

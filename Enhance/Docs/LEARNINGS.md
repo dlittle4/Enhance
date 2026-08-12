@@ -1378,3 +1378,53 @@ structural.
 
 **Rule:** tiles are a *compositing* partition, not a measurement of the ink. Anything that needs the
 text's real extent — hit regions, selection outlines, clamping, layout — reads `layout.inkBounds`.
+
+---
+
+## 2026-08-11: A new parameter must be added to every key that memoises on it
+
+**Problem:** three independent instances in one day, all the same shape.
+
+1. `GradientMapEffect` memoises its 32³ colour cube on the stop colours (`CubeKey`). MIDPOINT
+   changes the cube's *contents* without changing any stop, so the cache returned the first cube
+   for every midpoint after it. The control appeared dead.
+2. The text overlay's raster is cached on an appearance key. Adding the gradient fill without
+   putting `fillMode` / `gradient` in that key meant the panel said GRADIENT while the canvas kept
+   rendering white text.
+3. Earlier, and the reason the cube key exists at all: keying on a preset enum rather than resolved
+   RGB, once colours became user-picked.
+
+**Root cause:** a cache key is a claim that *nothing else* affects the cached value. Adding a
+parameter silently falsifies that claim. Nothing detects it — the key still hashes, the cache still
+hits, the build is green, and the tests pass because they exercise one value or construct the
+object fresh each time.
+
+**Why the tests missed it both times:** a test that renders with parameter = A and asserts it
+differs from B usually builds two fresh objects, and a cold cache is correct on its first miss. The
+bug needs a *warm* cache holding the wrong entry. Both instances were caught by looking at the
+screen, which is the part that should worry us.
+
+**Rule:** when you add a parameter, trace what it feeds and ask of every cache on that path —
+*is this parameter in the key?* If not, put it there. Then write the test so the cache is
+deliberately warm: render the **default first**, then the changed value, and assert they differ.
+A test that renders only the changed value passes against a key that ignores it.
+
+**How to find them:** grep the path for `cache`, `memo`, `static var`, `NSCache`, and any
+`Key` type. Cheap, and the failure mode is invisible otherwise.
+
+**What decides whether a cache is exposed: its lifetime, not its key.** Sweeping the effect paths
+on 2026-08-11 found three more caches — `AnimeBackgroundEffect`, `RainbowFaceEffect`,
+`HeartVignetteEffect` — all keyed on geometry only (extent, face centre, radius) with no parameter
+in the key at all. **All three are safe**, because each is a `private let overlayCache` on the
+effect *instance*, and effects are constructed fresh from their parameters on every read of
+`activeVisualEffectList` / `activeFaceEffect`. A parameter change makes a new instance and a new
+empty cache, so a stale entry cannot outlive the value that produced it.
+
+`GradientMapEffect`'s cube cache is `static` — shared across every instance and every parameter
+value — which is exactly why it needed the parameter in its key, and why it is memoised at all
+(rebuilding 32³ entries per slider frame). So:
+
+- **Instance-scoped cache** → parameters baked in `init` are safe to omit from the key.
+- **Static or otherwise shared cache** → every input that affects the value must be in the key.
+
+Check which kind you have before deciding the key is fine.
