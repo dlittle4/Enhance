@@ -72,6 +72,12 @@ struct PreparedTextLayout: Equatable, Sendable {
     let inkBounds: CGRect
 
     let resolvedPointSize: CGFloat
+
+    /// The output side this layout was measured against, so callers can normalize its pixel
+    /// geometry back to `0…1` of the frame. TICKER needs it to express a repeat step that means
+    /// the same thing in the 600px export and the 975px preview raster.
+    let outputSide: CGFloat
+
     let baseDirection: TextBaseDirection
     let lineCount: Int
 
@@ -201,6 +207,7 @@ enum TextLayoutEngine {
             wordRanges: wordRanges(in: overlay.text, units: units),
             inkBounds: rawBounds.offsetBy(dx: shift.x, dy: shift.y),
             resolvedPointSize: pointSize,
+            outputSide: outputSide,
             baseDirection: baseDirection(of: recipe.lines.first),
             lineCount: recipe.lines.count,
             inkCentreInPath: CGPoint(x: rawBounds.midX, y: rawBounds.midY),

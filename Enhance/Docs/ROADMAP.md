@@ -84,25 +84,37 @@ needed before rows floor and the content overflows:
 | rows | minimum panel height | on an SE 3 (~190pt) |
 |---|---|---|
 | 3 | 192pt | **fits — verified on device 2026-08-11** |
-| 4 | 234pt | does not fit |
-| 5 | 276pt | does not fit |
+| 4 | 234pt | scrolls (survivable — see below) |
+| 5 | 276pt | scrolls |
 
-**The working ceiling is three rows.** Four will not render on the shortest supported device, so
-`parameters.count <= 5` remains an assertion that permits layouts nothing can display — left as-is
-deliberately, since nothing is allowed to reach it.
+- **3 rows fits without scrolling.** Confirmed on an SE 3 (2026-08-11): rows compress toward the
+  floor rather than clipping, which is `PanelMetrics` working as designed. An earlier prediction
+  that THIRD EYE's three rows overflowed was wrong — it computed a correct 192pt threshold against
+  the guard test's "~190–200pt" note, which was an estimate rather than a measurement.
+- **4+ rows overflow into a scroll, and that is survivable.** The table's "does not fit" means "does
+  not fit *without scrolling*", not "cannot render".
 
-Two things to respect rather than fix:
+**Correction (2026-08-11): a slider drag does *not* lose to the scroll.** This section previously
+said `DragGesture(minimumDistance: 0)` (`ParameterSliderRow.swift:95`) loses to the `ScrollView`
+(`EffectDetailPanel.swift:53`), so a slider drag would scroll the panel instead of moving the knob.
+Text overlays' SLIDE preset ships **four rows** — FILL, swatches, FROM, DISTANCE — which is the
+first configuration in the app to enable that scroll, and it was tested on an SE 3: **the DISTANCE
+slider works normally.** The `minimumDistance: 0` gesture claims the touch first, exactly as
+`EffectDetailPanel.swift:45-52` describes. The panel's own comment was right and this file was
+wrong; they had contradicted each other since the restructure.
 
-- **Row count is not fixed per effect.** TEXT's `editingRowCount` returns 2 normally and 3 with
-  SLIDE's direction toggle, so a category can change row count at runtime. TEXT is therefore
-  *already at the ceiling*, and any future per-preset control there overflows without anyone
-  touching panel code.
-- **The gesture conflict is unverified and now unreachable.** If rows ever do floor, the
-  `ScrollView` turns on and competes with `DragGesture(minimumDistance: 0)`
-  (`ParameterSliderRow.swift:95`). The two code comments describing what happens next contradict
-  each other on which gesture wins — `PanelMetrics.swift:5-10` says the drag loses,
-  `EffectDetailPanel.swift:45-52` says it wins and then concludes it scrolls anyway. Nothing can
-  reach it at three rows, so it stays a curiosity unless a fourth row is ever wanted.
+That does not make the scroll *desirable* — a panel the user must scroll to reach a control is still
+worse than one that fits — but it is not a correctness problem.
+
+**No panel changes are wanted.** *(User's call, 2026-08-11.)* Raising the panel's height, lowering
+the 34pt floor, and capping effects at three rows were all considered and **all declined**. Three
+rows is the comfortable ceiling and effects should aim for it; a fourth row is a UX judgement, not
+a blocker.
+
+One thing to respect rather than fix: **row count is not fixed per effect.** TEXT's
+`editingRowCount` varies with the selected preset, so a category can change row count at runtime
+without the user changing effect — which is how it reached four rows in the first place.
+
 
 ### 1b. CI running the test suite → protects every parallel session
 
@@ -276,9 +288,11 @@ that was written while three rows was still believed marginal.
 - [ ] **PIXELATE's SHAPE is not a `Double`** and must not be stored as a case index — typed property
       on the view model plus an `EditorSnapshot` field, per LEARNINGS 2026-08-10. It is the only one
       of the eight that is more than a slider.
-- [ ] **DITHER: ship LEVELS, defer MONO.** LEVELS is the one that decouples posterisation depth from
-      dither amplitude, which is the actual complaint; MONO is a look, and a fourth row cannot
-      render. Revisit only if the panel ceiling ever moves.
+- [x] ~~**DITHER: ship LEVELS, defer MONO.**~~ LEVELS shipped — it decouples posterisation depth
+      from dither amplitude, which was the actual complaint. **MONO stays deferred, but the reason
+      changed**: a fourth row was thought unrenderable, and text overlays has since shipped four
+      rows on an SE 3. It would scroll, which is a worse panel rather than a broken one. Revisit as
+      a UX call, not a blocked one.
 - [ ] Prefer **splitting coupled qualities** over inventing new ones. Most of these are one slider
       driving two independent things; separating them makes currently-unreachable looks reachable
       without changing what the effect is.

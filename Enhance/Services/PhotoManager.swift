@@ -72,7 +72,9 @@ class PhotoManager: NSObject, ObservableObject {
         }
     }
     
-    func saveGifToMyGifsAlbum(fileURL: URL, completion: @escaping (Bool, Error?) -> Void) {
+    /// Completion carries the new asset's local identifier, so callers can persist per-GIF
+    /// settings against it — see `GIFLibraryService.saveGif`.
+    func saveGifToMyGifsAlbum(fileURL: URL, completion: @escaping (Bool, String?, Error?) -> Void) {
         gifLibrary.saveGifToAlbum(
             fileURL: fileURL,
             isAuthorized: permissions.isAuthorized,

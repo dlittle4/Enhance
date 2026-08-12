@@ -187,9 +187,14 @@ class EditorViewModel {
         case .zoomEffects:   return 3
         case .visualEffects: return selectedVisualEffect?.parameters.count ?? 0
         case .faceFilters:   return selectedFaceFilter?.parameters.count ?? 0
-        // COLOR and the per-preset tunable, plus DIRECTION for the presets that travel. STYLE is
-        // held back until decoration renders correctly.
-        case .text:          return (textOverlay?.animation.usesDirection == true) ? 3 : 2
+        // FILL, the swatches it selects between, and the per-preset tunable — plus FROM for the
+        // presets that travel. STYLE is held back until decoration renders correctly.
+        //
+        // Four rows is over the budget §1a is deciding: the arithmetic there says four rows need
+        // 234pt against an SE 3 panel of ~190–200pt, so SLIDE overflows into a scroll on the
+        // shortest device, where a slider drag scrolls the panel instead of moving the knob
+        // (LEARNINGS 2026-08-08). Only SLIDE is affected, and only on that device class.
+        case .text:          return (textOverlay?.animation.usesFromRow == true) ? 4 : 3
         }
     }
 
@@ -511,7 +516,7 @@ class EditorViewModel {
         previewSourceCGImage = nil
         effectThumbnails = [:]
         faceFilterThumbnails = [:]
-        textThumbnails = [:]
+        textThumbnailFrames = [:]
         thumbnailSourceCGImage = nil
         selectedFaceFilter = nil
         selectedFaceIndex = nil
@@ -690,24 +695,39 @@ class EditorViewModel {
         }
     }
 
-    /// Card thumbnails for the text presets: the photo with a placeholder word on it, each caught
-    /// mid-entrance so the card shows what the preset *does* rather than five identical stills.
+    /// Card previews for the text presets: the photo with a placeholder word on it, rendered as a
+    /// short **frame sequence** so each card plays its own entrance rather than showing one still.
+    ///
+    /// A still could not distinguish these presets honestly — POP and SPIN both read as "big text"
+    /// at their peak, and TYPEWRITER's whole character is the reveal over time. Playing them is the
+    /// only way a card answers "what does this do".
     ///
     /// Rendered through `TextTileCompositor`, the same code the GIF uses, so a card cannot promise
-    /// something the export does not deliver. `previewProgress` is per preset because the presets
-    /// peak at different moments — a single progress value would catch SPIN mid-turn but
-    /// TYPEWRITER either blank or finished.
-    var textThumbnails: [TextAnimationType: UIImage] = [:]
+    /// something the export does not deliver. Cheap enough to precompute: the source thumbnail is
+    /// 120px, so a frame is ~57KB and the whole set is a few MB.
+    var textThumbnailFrames: [TextAnimationType: [UIImage]] = [:]
+
+    /// Frames per card loop, and how many of those hold on the settled text at the end. The hold
+    /// matters — without it the loop restarts the instant it finishes and never reads as arriving.
+    static let textPreviewFrameCount = 16
+    static let textPreviewHoldFrames = 5
+
+    /// Progress for a given frame: the entrance spread across the moving frames, then settled.
+    static func textPreviewProgress(frame: Int) -> CGFloat {
+        let moving = textPreviewFrameCount - textPreviewHoldFrames
+        guard frame < moving else { return 1 }
+        return CGFloat(frame) / CGFloat(max(1, moving - 1))
+    }
 
     func generateTextThumbnails() {
-        guard textThumbnails.isEmpty else { return }
+        guard textThumbnailFrames.isEmpty else { return }
         guard let source = image ?? sourceImage else { return }
 
         DispatchQueue.global(qos: .utility).async { [weak self] in
             guard let self, let thumb = self.getThumbnailSourceCGImage(from: source) else { return }
 
             let side = CGFloat(min(thumb.width, thumb.height))
-            var results: [TextAnimationType: UIImage] = [:]
+            var results: [TextAnimationType: [UIImage]] = [:]
 
             for preset in TextAnimationType.allCases {
                 var overlay = TextOverlay.makeDefault(animation: preset, text: "TEXT", seed: 7)
@@ -717,13 +737,18 @@ class EditorViewModel {
                 guard let raster = TextRasterizer.prepare(overlay: overlay, pixelSide: side) else {
                     continue
                 }
-                let composed = TextTileCompositor.composite(
-                    raster, overlay: overlay, progress: preset.previewProgress, over: thumb
-                )
-                results[preset] = UIImage(cgImage: composed)
+                var frames: [UIImage] = []
+                for index in 0..<Self.textPreviewFrameCount {
+                    let composed = TextTileCompositor.composite(
+                        raster, overlay: overlay,
+                        progress: Self.textPreviewProgress(frame: index), over: thumb
+                    )
+                    frames.append(UIImage(cgImage: composed))
+                }
+                results[preset] = frames
             }
 
-            DispatchQueue.main.async { self.textThumbnails = results }
+            DispatchQueue.main.async { self.textThumbnailFrames = results }
         }
     }
 
@@ -1139,10 +1164,19 @@ class EditorViewModel {
         
         showToast("Saving GIF...")
         
-        photoManager.saveGifToMyGifsAlbum(fileURL: url) { [weak self] success, error in
+        photoManager.saveGifToMyGifsAlbum(fileURL: url) { [weak self] success, newIdentifier, error in
             DispatchQueue.main.async {
                 guard let self else { return }
                 if success {
+                    // File this edit's settings against the asset that was just created. Without
+                    // the identifier there was no key, so a first-time save lost its zoom framing
+                    // and — worse — dropped its text: reopening rebuilt from the deliberately
+                    // textless frame 0, so the next regeneration erased a title the user could
+                    // still see baked into the pixels.
+                    if let newIdentifier {
+                        self.persistZoomParams(for: newIdentifier)
+                        self.persistTextOverlay(for: newIdentifier)
+                    }
                     HapticService.success()
                     self.showToast("GIF saved to My GIFs")
                     withAnimation(.spring(response: AppConstants.Animation.slow, dampingFraction: 0.7)) {
@@ -1173,17 +1207,27 @@ class EditorViewModel {
             return
         }
         
-        persistZoomParams(for: identifier)
-        persistTextOverlay(for: identifier)
+        // Deliberately *not* persisting against `identifier` here: this path deletes that asset a
+        // line below, so anything written against it is orphaned the moment it lands — it only
+        // accumulates dead UserDefaults keys. The settings are filed against the replacement
+        // asset's identifier in the save completion instead.
         showToast("Updating GIF...")
         
         photoManager.deleteGifAsset(identifier: identifier) { [weak self] success, error in
             guard let self else { return }
             if success {
-                photoManager.saveGifToMyGifsAlbum(fileURL: url) { [weak self] saveSuccess, saveError in
+                photoManager.saveGifToMyGifsAlbum(fileURL: url) { [weak self] saveSuccess, newIdentifier, saveError in
                     DispatchQueue.main.async {
                         guard let self else { return }
                         if saveSuccess {
+                            // "Update original" is a delete followed by a create, so the asset comes
+                            // back with a *new* identifier. Settings written against the old one
+                            // above are now orphaned — re-file them here, or reopening the updated
+                            // GIF finds nothing and loses its zoom framing and its text.
+                            if let newIdentifier {
+                                self.persistZoomParams(for: newIdentifier)
+                                self.persistTextOverlay(for: newIdentifier)
+                            }
                             HapticService.success()
                             self.showToast("GIF updated")
                             withAnimation(.spring(response: AppConstants.Animation.slow, dampingFraction: 0.7)) {
@@ -1225,6 +1269,44 @@ class EditorViewModel {
     /// Whether to show the arrival hint. Nothing on the editor said that pinching is how
     /// the zoom target gets chosen, so a first-time user could reasonably tap ENHANCE and
     /// be told off for it.
+    /// Latches once the user touches the text — same discipline as `hasUsedCanvas`. Set from the
+    /// gesture session and from reopening the keyboard, so any real interaction retires the hint.
+    private(set) var hasUsedTextOverlay = false
+
+    func noteTextInteraction() {
+        guard !hasUsedTextOverlay else { return }
+        hasUsedTextOverlay = true
+    }
+
+    /// Set when the user picks a preset card. Navigation state, like `hasUsedCanvas` — not
+    /// snapshotted, because undo should not resurrect a hint.
+    private(set) var hasChosenTextPreset = false
+
+    func noteTextPresetChosen() { hasChosenTextPreset = true }
+
+    /// Tells the user how to get back into the words, now that opening the TEXT tab no longer
+    /// throws them into the keyboard.
+    ///
+    /// **Waits for a preset to be chosen.** Merely arriving in the carousel is too early: choosing
+    /// an effect is the prerequisite for editing, so a hint about editing greets the user before
+    /// the thing it describes is reachable. After a preset is picked the advice is actionable, and
+    /// it is the moment the keyboard *stops* opening by itself — which is exactly when someone
+    /// would otherwise wonder how to change the words.
+    ///
+    /// Silent while the keyboard or the panel owns the screen, since it would be describing
+    /// something the user is already doing, and retired for good once the text is touched.
+    static let textHintMessage = "DOUBLE TAP TO EDIT TEXT"
+
+    var showsTextHint: Bool {
+        guard selectedEffectCategory == .text else { return false }
+        guard hasChosenTextPreset else { return false }
+        guard textOverlay?.isActive == true else { return false }
+        guard !hasUsedTextOverlay else { return false }
+        guard !isEditingEffect else { return false }
+        guard showControls else { return false }
+        return true
+    }
+
     var showsZoomHint: Bool {
         // An existing GIF opens with its saved zoom already applied, so its user has
         // made this choice before and does not need telling.

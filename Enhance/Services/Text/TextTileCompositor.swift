@@ -70,6 +70,50 @@ enum TextComposer {
 /// touching the `VisualEffect` protocol or any of its implementations.
 enum TextTileCompositor {
 
+    /// Offsets to draw each tile at, in output units.
+    ///
+    /// One entry — the origin — for every preset but TICKER and GRID, so the common path is
+    /// unchanged and costs nothing. TICKER gets a horizontal run so the band never shows an empty
+    /// gap sweeping past; GRID gets both axes so the text becomes a texture. Both cover the frame
+    /// plus a margin, since the block is drawn from its centre and a copy straddling the edge still
+    /// has to appear.
+    private static func repeatOffsets(for overlay: TextOverlay, raster: RasterizedText,
+                                      outputSide: CGFloat) -> [(offset: CGPoint, row: CGFloat)] {
+        let animation = overlay.animation
+        guard animation.tiling != .single else { return [(.zero, 0)] }
+
+        let stepX = animation.repeatStep(in: raster.layout, tuning: overlay.tuning) * outputSide
+        guard stepX > 1 else { return [(.zero, 0)] }
+        let columns = Int((outputSide / stepX).rounded(.up)) + 1
+
+        guard animation.tiling == .grid else {
+            return (-columns...columns).map { (CGPoint(x: CGFloat($0) * stepX, y: 0), 0) }
+        }
+
+        let stepY = animation.rowStep(in: raster.layout, tuning: overlay.tuning) * outputSide
+        guard stepY > 1 else {
+            return (-columns...columns).map { (CGPoint(x: CGFloat($0) * stepX, y: 0), 0) }
+        }
+        let rows = Int((outputSide / stepY).rounded(.up)) + 1
+
+        // Bounded so a tiny font cannot ask for thousands of draws — at that point the frame is a
+        // solid block of ink and more copies add nothing but time.
+        let maxCopies = 600
+        var offsets: [(offset: CGPoint, row: CGFloat)] = []
+        offsets.reserveCapacity(min(maxCopies, (columns * 2 + 1) * (rows * 2 + 1)))
+        for row in -rows...rows {
+            for column in -columns...columns {
+                guard offsets.count < maxCopies else { return offsets }
+                // 0 at the topmost row, 1 at the bottom, so a preset can fill downward without
+                // knowing how many copies there are.
+                let normalizedRow = CGFloat(row + rows) / CGFloat(max(1, rows * 2))
+                offsets.append((CGPoint(x: CGFloat(column) * stepX, y: CGFloat(row) * stepY),
+                                normalizedRow))
+            }
+        }
+        return offsets
+    }
+
     /// Draws the overlay over `base` at a normalized progress.
     ///
     /// Returns `base` unchanged when there is nothing to draw, so the no-overlay path stays
@@ -109,25 +153,47 @@ enum TextTileCompositor {
 
         let outputSide = CGFloat(min(width, height))
 
+        // TICKER tiles the block across the frame so the band reads as continuous; every other
+        // preset draws one copy. The step is the same number the preset travels, which is what
+        // makes the settled frame identical to the start of the scroll.
+        let repeats = Self.repeatOffsets(for: overlay, raster: raster, outputSide: outputSide)
+
         for tile in raster.tiles {
             guard tile.slotIndex >= 0, tile.slotIndex < states.count else { continue }
             let state = states[tile.slotIndex]
             guard state.alpha > 0.001 else { continue }
 
-            context.saveGState()
-            context.setAlpha(state.alpha)
-            context.concatenate(TextComposer.transform(
-                tile: tile, state: state, overlay: overlay,
-                raster: raster, outputSide: outputSide
-            ))
-            // `context` is flipped to top-left, so each image needs its own local flip to land
-            // the same way up as it was cut. Standard form: move to the box's bottom-left in the
-            // flipped space, invert y, then draw at the origin.
-            let rect = TextComposer.localRect(for: tile, raster: raster)
-            context.translateBy(x: rect.minX, y: rect.maxY)
-            context.scaleBy(x: 1, y: -1)
-            context.draw(tile.image, in: CGRect(origin: .zero, size: rect.size))
-            context.restoreGState()
+            for repeat_ in repeats {
+                // Per-copy choreography, composed on top of the tile's own state. The preset owns
+                // both halves; the compositor only multiplies them together.
+                let copy = overlay.animation.tiledCopyState(normalizedRow: repeat_.row,
+                                                            at: progress, tuning: overlay.tuning,
+                                                            origin: overlay.gridOrigin)
+                let alpha = state.alpha * copy.alpha
+                guard alpha > 0.001 else { continue }
+
+                var composed = state
+                composed.translationDelta = CGPoint(
+                    x: state.translationDelta.x + copy.translationDelta.x,
+                    y: state.translationDelta.y + copy.translationDelta.y
+                )
+
+                context.saveGState()
+                context.setAlpha(alpha)
+                context.translateBy(x: repeat_.offset.x, y: repeat_.offset.y)
+                context.concatenate(TextComposer.transform(
+                    tile: tile, state: composed, overlay: overlay,
+                    raster: raster, outputSide: outputSide
+                ))
+                // `context` is flipped to top-left, so each image needs its own local flip to land
+                // the same way up as it was cut. Standard form: move to the box's bottom-left in
+                // the flipped space, invert y, then draw at the origin.
+                let rect = TextComposer.localRect(for: tile, raster: raster)
+                context.translateBy(x: rect.minX, y: rect.maxY)
+                context.scaleBy(x: 1, y: -1)
+                context.draw(tile.image, in: CGRect(origin: .zero, size: rect.size))
+                context.restoreGState()
+            }
         }
 
         return context.makeImage() ?? base

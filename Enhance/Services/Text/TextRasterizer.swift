@@ -82,12 +82,14 @@ enum TextRasterizer {
         }
 
         let supersample = supersampleFactor(for: overlay)
-        let side = Int((pixelSide * supersample).rounded())
+        let side = rasterSide(layout: layout, supersample: supersample, pixelSide: pixelSide)
         guard side > 0 else { return nil }
 
         guard let mask = drawMask(overlay: overlay, layout: layout,
                                   pixelSide: pixelSide, supersample: supersample, side: side),
-              let master = fill(mask: mask, overlay: overlay) else { return nil }
+              let master = fill(mask: mask, overlay: overlay,
+                                inkRect: gradientInkRect(layout: layout, supersample: supersample,
+                                                         side: side)) else { return nil }
 
         let centre = CGPoint(x: CGFloat(side) / 2, y: CGFloat(side) / 2)
         let tiles = cut(master: master, layout: layout, overlay: overlay,
@@ -98,6 +100,31 @@ enum TextRasterizer {
             layout: layout, master: master, tiles: tiles, pixelSide: pixelSide,
             granularity: overlay.animation.granularity, supersample: supersample, centre: centre
         )
+    }
+
+
+    /// Side of the square master, in pixels.
+    ///
+    /// **Not simply the frame.** Scaling text up past the frame used to clip it here, at raster
+    /// time — the ink beyond the edge was never drawn, so it could not come back by moving the
+    /// text, and a pinch appeared to delete the ends of a word. The raster therefore grows to hold
+    /// the ink rather than assuming the text is smaller than the picture.
+    ///
+    /// `pixelSide` stays the scale reference regardless: `TextComposer.transform` converts raster
+    /// pixels to output units with `outputSide / (pixelSide * supersample)`, and tile geometry is
+    /// relative to the raster's centre, so enlarging the canvas moves nothing.
+    ///
+    /// Capped at twice the frame, which is exactly the most that can ever be seen: the block is
+    /// centred in the raster and its centre stays inside the frame, so visible ink reaches at most
+    /// one frame either side of it. Anything past that is off-screen at every legal position, and
+    /// paying for it would only cost memory — this is already a 4× area increase at the limit.
+    private static func rasterSide(layout: PreparedTextLayout, supersample: CGFloat,
+                                   pixelSide: CGFloat) -> Int {
+        let base = pixelSide * supersample
+        // Room for decoration that bleeds past the glyphs — shadow offset and blur, outline stroke.
+        let padding = layout.resolvedPointSize * supersample * 0.5
+        let ink = max(layout.inkBounds.width, layout.inkBounds.height) * supersample + padding
+        return Int(min(max(base, ink), base * 2).rounded())
     }
 
     /// How much larger than resting size to draw.
@@ -200,6 +227,21 @@ enum TextRasterizer {
         context.restoreGState()
     }
 
+    /// Ink bounds in the *fill context's* space, for ramping a gradient across the glyphs.
+    ///
+    /// The fill context is Core Graphics' native bottom-left, while `layout.inkBounds` is top-left
+    /// and centred on the block — so this both scales it into raster pixels and flips it. Getting
+    /// that wrong would not crash: the ramp would simply run the wrong way, which is exactly the
+    /// class of silent error LEARNINGS records twice for Y-flips.
+    private static func gradientInkRect(layout: PreparedTextLayout,
+                                        supersample: CGFloat, side: Int) -> CGRect {
+        let centre = CGPoint(x: CGFloat(side) / 2, y: CGFloat(side) / 2)
+        let topLeft = rasterRect(layout.inkBounds, centre: centre, scale: supersample)
+        guard topLeft.width > 0, topLeft.height > 0 else { return .zero }
+        return CGRect(x: topLeft.minX, y: CGFloat(side) - topLeft.maxY,
+                      width: topLeft.width, height: topLeft.height)
+    }
+
     /// Converts a local-space rect (origin at the block centre, y down) into raster-pixel space,
     /// which is top-left origin to match `CGImage.cropping(to:)`.
     static func rasterRect(_ rect: CGRect, centre: CGPoint, scale: CGFloat) -> CGRect {
@@ -209,8 +251,13 @@ enum TextRasterizer {
                height: rect.height * scale)
     }
 
-    /// Applies the overlay's solid colour through the coverage mask.
-    private static func fill(mask: CGImage, overlay: TextOverlay) -> CGImage? {
+    /// Applies the overlay's fill through the coverage mask.
+    ///
+    /// This is the seam §7.1 insisted on keeping: the mask carries the glyph geometry, and the fill
+    /// is drawn *through* it. Adding gradients therefore changes only what is painted inside the
+    /// clip — the layout, the tiles, the seams and every transform are untouched, and the partition
+    /// invariant still holds because the tiles are cut from whatever this returns.
+    private static func fill(mask: CGImage, overlay: TextOverlay, inkRect: CGRect) -> CGImage? {
         let width = mask.width, height = mask.height
         guard let context = CGContext(
             data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
@@ -220,10 +267,39 @@ enum TextRasterizer {
 
         let full = CGRect(x: 0, y: 0, width: width, height: height)
         context.clip(to: full, mask: mask)
-        context.setFillColor(overlay.color.uiColor.cgColor)
-        context.fill(full)
+
+        switch overlay.fillMode {
+        case .color:
+            context.setFillColor(overlay.color.uiColor.cgColor)
+            context.fill(full)
+
+        case .gradient:
+            guard let gradient = CGGradient(
+                colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                colors: overlay.gradient.cgColors as CFArray,
+                locations: TextGradient.locations
+            ) else {
+                // A gradient that cannot be built must not produce invisible text.
+                context.setFillColor(overlay.color.uiColor.cgColor)
+                context.fill(full)
+                break
+            }
+            // Ramped across the *ink*, not the raster. The raster is a square canvas mostly full of
+            // empty space — running the ramp over that would spend most of its range outside the
+            // glyphs, so short text would show a single flat slice of the gradient rather than the
+            // whole thing.
+            let ink = inkRect.isEmpty ? full : inkRect
+            context.drawLinearGradient(
+                gradient,
+                start: CGPoint(x: ink.minX, y: ink.maxY),
+                end: CGPoint(x: ink.maxX, y: ink.minY),
+                options: [.drawsBeforeStartLocation, .drawsAfterEndLocation]
+            )
+        }
+
         return context.makeImage()
     }
+
 
     // MARK: - Cutting
 

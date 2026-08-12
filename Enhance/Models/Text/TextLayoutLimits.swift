@@ -47,12 +47,24 @@ enum TextLayoutLimits {
     static let minFontSize: CGFloat = 0.035
 
     /// Ceiling before the line-count budget is applied.
-    static let maxFontSizeAbsolute: CGFloat = 0.30
+    ///
+    /// **Deliberately larger than the frame.** Running oversized text off the edge is a legitimate
+    /// design — a word cropped hard by the frame is a look, not a mistake — so the frame is not a
+    /// boundary on how big text may get. It was 0.30, which made the whole frame unreachable and
+    /// meant a pinch hit a wall well before the text filled the picture.
+    ///
+    /// Safe to raise only because the rasterizer now grows its canvas to hold the ink: the ceiling
+    /// used to be the thing quietly preventing the clipping bug rather than a design choice.
+    static let maxFontSizeAbsolute: CGFloat = 1.0
 
     static let lineHeightMultiple: CGFloat = 1.25
 
-    /// Fraction of the frame height a laid-out block may occupy.
-    static let verticalBudget: CGFloat = 0.92
+    /// Height budget for a laid-out block, as a fraction of the frame.
+    ///
+    /// Above 1 on purpose, for the same reason as the ceiling above: a single line is allowed to
+    /// stand taller than the picture. It still scales down with line count, so a three-line block
+    /// stays inside sane bounds rather than each line demanding the full frame.
+    static let verticalBudget: CGFloat = 1.6
 
     /// Headroom above the cap while pinching, so the gesture does not feel walled.
     /// Applies above the ceiling only — the legibility floor is hard in both phases.

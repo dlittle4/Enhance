@@ -53,6 +53,20 @@ struct TextOverlay: Equatable, Sendable, Codable {
     /// switching away and back remembers the choice.
     var slideDirection: TextSlideDirection = .up
 
+    /// Where GRID starts filling from. Ignored by the other presets, but stored so switching away
+    /// and back remembers the choice.
+    var gridOrigin: TextGridOrigin = .top
+
+    /// Whether the glyphs are filled with one colour or a gradient.
+    ///
+    /// Both fills are stored, not just the active one, so toggling FILL back and forth returns to
+    /// the colour and the gradient the user last picked rather than resetting either.
+    var fillMode: TextFillMode = .color
+
+    /// The gradient used when `fillMode` is `.gradient`. User-picked endpoints, like the Gradient
+    /// Map effect's stops.
+    var gradient: TextGradient = .default
+
     /// The editor's input cap. Three rendered lines is a field-sizing guideline, not a renderer
     /// constraint — the layout engine will wrap to as many lines as the size demands.
     static let maxGraphemeClusters = 120
@@ -253,3 +267,97 @@ enum TextAlign: String, CaseIterable, Identifiable, Hashable, Sendable, Codable 
         }
     }
 }
+
+// MARK: - Fill
+
+/// Whether the glyphs take a single colour or a gradient.
+///
+/// A mode rather than a colour case, so the two palettes stay separate: switching to GRADIENT and
+/// back returns the exact colour that was chosen before, instead of collapsing both choices into
+/// one list where a gradient and a flat colour compete for the same slot.
+enum TextFillMode: String, CaseIterable, Identifiable, Hashable, Sendable, Codable {
+    case gradient = "GRADIENT"
+    case color    = "COLOR"
+
+    var id: String { rawValue }
+}
+
+/// A three-stop gradient for the glyph fill, with endpoints and a midpoint the user picks.
+///
+/// Three stops rather than two, matching the Gradient Map effect: the middle is what makes a ramp
+/// look authored instead of interpolated, and it is the difference between "red to yellow" and a
+/// sunset. Located at 0 / 0.5 / 1, the same spacing `GradientStops.resolved` uses.
+///
+/// **Stored as raw components, not `SwiftUI.Color`.** `GradientStops` stores `Color` so
+/// `ColorPicker` can bind to it directly, and LEARNINGS 2026-08-07 records the bill: equality is
+/// opaque, so `commitEditing` had to push undo entries unconditionally; the cube cache needed a key
+/// derived from resolved RGB rather than the stored value; and it is not `Codable`, so it cannot be
+/// persisted. The text overlay *is* persisted and snapshotted, so it cannot afford any of that.
+///
+/// Components give real `Equatable` (undo can compare), free `Codable` (the overlay round-trips
+/// through UserDefaults), and the pickers still bind natively through the `Color` bridges below.
+struct TextGradient: Equatable, Sendable, Codable {
+    var start: TextRGB
+    var mid: TextRGB
+    var end: TextRGB
+
+    static let `default` = TextGradient(
+        start: TextRGB(red: 1.0, green: 0.20, blue: 0.30),
+        mid:   TextRGB(red: 1.0, green: 0.45, blue: 0.20),
+        end:   TextRGB(red: 1.0, green: 0.85, blue: 0.25)
+    )
+
+    /// Bridges for `ColorPicker`, which works in `Color`. The setters clamp, because a picker in
+    /// Display P3 can hand back sRGB components outside 0–1 — the same hazard `GradientStops`
+    /// documents, and it would otherwise reach Core Graphics unchecked.
+    var startColor: Color {
+        get { start.color }
+        set { start = TextRGB(newValue) }
+    }
+
+    var midColor: Color {
+        get { mid.color }
+        set { mid = TextRGB(newValue) }
+    }
+
+    var endColor: Color {
+        get { end.color }
+        set { end = TextRGB(newValue) }
+    }
+
+    var cgColors: [CGColor] { [start.cgColor, mid.cgColor, end.cgColor] }
+
+    /// Ramp positions for the three stops, matching `GradientStops`.
+    static let locations: [CGFloat] = [0, 0.5, 1]
+
+    /// The ramp as SwiftUI, for previewing the choice in the panel.
+    var swiftUIGradient: LinearGradient {
+        LinearGradient(colors: [start.color, mid.color, end.color],
+                       startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
+}
+
+/// One colour as clamped sRGB components.
+struct TextRGB: Equatable, Sendable, Codable {
+    var red: Double
+    var green: Double
+    var blue: Double
+
+    init(red: Double, green: Double, blue: Double) {
+        self.red = min(1, max(0, red))
+        self.green = min(1, max(0, green))
+        self.blue = min(1, max(0, blue))
+    }
+
+    /// Reads a `Color` back into components, clamping out-of-gamut values.
+    init(_ color: Color) {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        UIColor(color).getRed(&r, green: &g, blue: &b, alpha: &a)
+        self.init(red: Double(r), green: Double(g), blue: Double(b))
+    }
+
+    var color: Color { Color(red: red, green: green, blue: blue) }
+    var uiColor: UIColor { UIColor(red: red, green: green, blue: blue, alpha: 1) }
+    var cgColor: CGColor { uiColor.cgColor }
+}
+

@@ -7,6 +7,10 @@ struct EditorView: View {
 
     @EnvironmentObject var photoManager: PhotoManager
 
+    /// Looping card previews are decorative motion, so they hold on their settled frame when the
+    /// user has asked the system for less of it.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     /// Phase 1 of the text editor: the keyboard. `textDraft` is the live field, committed to the
     /// overlay on DONE so a cancel can discard cleanly.
     @State private var isEnteringText = false
@@ -195,14 +199,37 @@ struct EditorView: View {
             // colour, so a shadow renders in the text's own colour and a block plate fills solid
             // over the glyphs. Those decorations need a second, contrasting fill pass before they
             // are worth a control. `TextDecoration` stays in the model for that work.
-            ParameterPickerRow(label: "COLOR") {
-                textColorSwatchContent()
+            ParameterPickerRow(label: "FILL") {
+                SegmentedBar(
+                    items: TextFillMode.allCases,
+                    selection: textFillModeBinding,
+                    label: { $0.rawValue }
+                )
             }
+            // Unlabelled: the FILL row above already names what these are, and a second label
+            // would repeat it while stealing width from the swatches.
+            ParameterPickerRow(label: "") {
+                if viewModel.textOverlay?.fillMode == .gradient {
+                    textGradientSwatchContent()
+                } else {
+                    textColorSwatchContent()
+                }
+            }
+            // One slot, two possible controls: SLIDE picks a travel direction, GRID picks the
+            // origin its fill spreads from. They never both apply.
             if viewModel.textOverlay?.animation.usesDirection == true {
                 ParameterPickerRow(label: "FROM") {
                     SegmentedBar(
                         items: TextSlideDirection.allCases,
                         selection: textDirectionBinding,
+                        label: { $0.rawValue }
+                    )
+                }
+            } else if viewModel.textOverlay?.animation.usesGridOrigin == true {
+                ParameterPickerRow(label: "FROM") {
+                    SegmentedBar(
+                        items: TextGridOrigin.allCases,
+                        selection: textGridOriginBinding,
                         label: { $0.rawValue }
                     )
                 }
@@ -363,9 +390,15 @@ struct EditorView: View {
                 },
                 textOverlay: $viewModel.textOverlay,
                 isTextInteractive: viewModel.selectedEffectCategory == .text,
-                onTextGestureBegan: { viewModel.beginTextGesture() },
+                onTextGestureBegan: {
+                    viewModel.noteTextInteraction()
+                    viewModel.beginTextGesture()
+                },
                 onTextGestureEnded: { viewModel.endTextGesture() },
-                onRequestTextEditing: { openTextEntry() },
+                onRequestTextEditing: {
+                    viewModel.noteTextInteraction()
+                    openTextEntry()
+                },
                 onInteraction: { viewModel.noteCanvasInteraction() },
                 onInteractionEnded: { viewModel.commitZoomCardFraming() }
             )
@@ -532,14 +565,41 @@ struct EditorView: View {
             isBlocked: viewModel.isRegenerating,
             size: cardSize,
             background: {
-                EffectCardThumbnail(image: viewModel.textThumbnails[preset],
-                                    isActive: isActive, size: cardSize)
+                textPresetPreview(preset, isActive: isActive, cardSize: cardSize)
             }
         ) {
             HapticService.selection()
             selectTextPreset(preset)
         }
     }
+
+    /// The card's backdrop: the preset's entrance played on a loop.
+    ///
+    /// A still cannot tell these presets apart honestly — POP and SPIN both read as "big text" at
+    /// their peak, and TYPEWRITER *is* its reveal — so the card plays the frames the view model
+    /// pre-rendered. Under Reduce Motion it holds the settled frame instead, and before the frames
+    /// arrive it falls back to the plain thumbnail so the carousel never flashes empty.
+    @ViewBuilder
+    private func textPresetPreview(_ preset: TextAnimationType,
+                                   isActive: Bool,
+                                   cardSize: CGFloat) -> some View {
+        let frames = viewModel.textThumbnailFrames[preset] ?? []
+
+        if frames.isEmpty {
+            EffectCardThumbnail(image: nil, isActive: isActive, size: cardSize)
+        } else if reduceMotion {
+            EffectCardThumbnail(image: frames.last, isActive: isActive, size: cardSize)
+        } else {
+            TimelineView(.animation) { timeline in
+                let elapsed = timeline.date.timeIntervalSinceReferenceDate
+                let index = Int(elapsed * Self.textPreviewFPS) % frames.count
+                EffectCardThumbnail(image: frames[index], isActive: isActive, size: cardSize)
+            }
+        }
+    }
+
+    /// Slow enough to read the reveal, fast enough that the loop does not feel stalled.
+    private static let textPreviewFPS: Double = 12
 
     /// Selecting a preset.
     ///
@@ -550,6 +610,8 @@ struct EditorView: View {
     /// reopens the keyboard.
     private func selectTextPreset(_ preset: TextAnimationType) {
         viewModel.pushUndo()
+        // Gates the "double tap to edit" hint: it only makes sense once an effect is chosen.
+        viewModel.noteTextPresetChosen()
 
         guard var overlay = viewModel.textOverlay, overlay.isActive else {
             viewModel.textOverlay = TextOverlay.makeDefault(animation: preset)
@@ -637,6 +699,82 @@ struct EditorView: View {
         )
     }
 
+    /// Solid colour or gradient. Both choices persist independently, so toggling back returns the
+    /// colour or the gradient the user last picked rather than resetting it.
+    private var textFillModeBinding: Binding<TextFillMode> {
+        Binding(
+            get: { viewModel.textOverlay?.fillMode ?? .color },
+            set: { newValue in
+                guard var overlay = viewModel.textOverlay else { return }
+                overlay.fillMode = newValue
+                viewModel.textOverlay = overlay
+                viewModel.regenerateIfNeeded()
+            }
+        )
+    }
+
+    /// The gradient's two endpoints, as native colour wells — the same affordance the Gradient Map
+    /// effect uses. Written straight onto the overlay; the model stores components rather than
+    /// `Color`, so undo and persistence still work (see `TextGradient`).
+    private var textGradientStartBinding: Binding<Color> {
+        Binding(
+            get: { viewModel.textOverlay?.gradient.startColor ?? TextGradient.default.startColor },
+            set: { newValue in
+                guard var overlay = viewModel.textOverlay else { return }
+                overlay.gradient.startColor = newValue
+                viewModel.textOverlay = overlay
+                // A colour well emits on every drag frame of the system wheel, so this coalesces
+                // rather than kicking off a regeneration per frame.
+                viewModel.scheduleRegenerate()
+            }
+        )
+    }
+
+    private var textGradientMidBinding: Binding<Color> {
+        Binding(
+            get: { viewModel.textOverlay?.gradient.midColor ?? TextGradient.default.midColor },
+            set: { newValue in
+                guard var overlay = viewModel.textOverlay else { return }
+                overlay.gradient.midColor = newValue
+                viewModel.textOverlay = overlay
+                viewModel.scheduleRegenerate()
+            }
+        )
+    }
+
+    private var textGradientEndBinding: Binding<Color> {
+        Binding(
+            get: { viewModel.textOverlay?.gradient.endColor ?? TextGradient.default.endColor },
+            set: { newValue in
+                guard var overlay = viewModel.textOverlay else { return }
+                overlay.gradient.endColor = newValue
+                viewModel.textOverlay = overlay
+                viewModel.scheduleRegenerate()
+            }
+        )
+    }
+
+    /// Three wells, left to right along the ramp — the same three-stop shape as the Gradient Map
+    /// effect's row. The colours in the wells are the preview; the canvas shows the real result.
+    ///
+    /// Zeroed spacing and `minLength: 0` for the same reason `colorSwatchContent` documents: a bare
+    /// `Spacer` carries its own intrinsic minimum *on top of* the stack spacing, which on a 4.7"
+    /// screen pushed that row past both edges of the display.
+    private func textGradientSwatchContent() -> some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+            ColorPicker("", selection: textGradientStartBinding, supportsOpacity: false)
+                .labelsHidden()
+            Spacer(minLength: 0)
+            ColorPicker("", selection: textGradientMidBinding, supportsOpacity: false)
+                .labelsHidden()
+            Spacer(minLength: 0)
+            ColorPicker("", selection: textGradientEndBinding, supportsOpacity: false)
+                .labelsHidden()
+            Spacer(minLength: 0)
+        }
+    }
+
     /// SLIDE's entry edge. "UP" means the text travels up into place from below.
     private var textDirectionBinding: Binding<TextSlideDirection> {
         Binding(
@@ -644,6 +782,19 @@ struct EditorView: View {
             set: { newValue in
                 guard var overlay = viewModel.textOverlay else { return }
                 overlay.slideDirection = newValue
+                viewModel.textOverlay = overlay
+                viewModel.regenerateIfNeeded()
+            }
+        )
+    }
+
+    /// Where GRID's fill starts — top, bottom, or opening outward from the middle.
+    private var textGridOriginBinding: Binding<TextGridOrigin> {
+        Binding(
+            get: { viewModel.textOverlay?.gridOrigin ?? .top },
+            set: { newValue in
+                guard var overlay = viewModel.textOverlay else { return }
+                overlay.gridOrigin = newValue
                 viewModel.textOverlay = overlay
                 viewModel.regenerateIfNeeded()
             }
@@ -1076,10 +1227,17 @@ struct EditorView: View {
                 // exists to prevent.
                 toastLabel(EditorViewModel.zoomHintMessage)
                     .transition(.opacity)
+            } else if viewModel.showsTextHint {
+                // Same one-slot rule as above. Ranked below the zoom hint because the two cannot
+                // both apply — zoom's is `.newImage`-only and pre-generation, this one needs an
+                // existing overlay — but the ordering keeps the invariant obvious.
+                toastLabel(EditorViewModel.textHintMessage)
+                    .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showSaveMessage)
         .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showsZoomHint)
+        .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showsTextHint)
         .frame(maxHeight: .infinity, alignment: .bottom)
         .padding(.bottom, AppConstants.Spacing.grid)
     }

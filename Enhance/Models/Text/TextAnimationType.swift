@@ -29,6 +29,44 @@ enum TextSlideDirection: String, CaseIterable, Identifiable, Hashable, Sendable,
     var startSign: CGFloat { self == .up ? 1 : -1 }
 }
 
+/// Where GRID starts filling from.
+///
+/// Deliberately not folded into `TextSlideDirection`. That one is a *travel* direction — which edge
+/// a moving block enters from — while this is a *fill origin*, the seed of a wipe across copies
+/// that never move as a group. One enum covering both would have cases meaningless to half its
+/// users, and `.center` has no sensible reading as a travel direction at all.
+enum TextGridOrigin: String, CaseIterable, Identifiable, Hashable, Sendable, Codable {
+    case top    = "TOP"
+    case bottom = "BOTTOM"
+    case center = "CENTER"
+
+    var id: String { rawValue }
+
+    /// How far into the wipe a row at `normalizedRow` (0 top, 1 bottom) should start, `0…1`.
+    func delay(forRow normalizedRow: CGFloat) -> CGFloat {
+        let row = min(1, max(0, normalizedRow))
+        switch self {
+        case .top:    return row
+        case .bottom: return 1 - row
+        // Rows nearest the middle go first and the fill opens outward in both directions, so the
+        // distance from centre *is* the delay — doubled, since that distance only reaches 0.5.
+        case .center: return min(1, abs(row - 0.5) * 2)
+        }
+    }
+}
+
+/// How many copies of the block the compositor draws, and along which axes.
+///
+/// A property of the *preset*, not the layout: TICKER needs a horizontal run so the band reads as
+/// continuous, GRID needs both axes so the text becomes a texture, and everything else draws one
+/// copy. Kept here rather than in the compositor so the animation and its tiling stay described in
+/// one place.
+enum TextTiling: Sendable {
+    case single
+    case horizontal
+    case grid
+}
+
 /// What one tile is doing at one instant.
 ///
 /// Two spatial spaces are mixed here on purpose, and the split is the contract:
@@ -66,6 +104,10 @@ struct TextTileState: Equatable, Sendable {
 enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, Codable {
     case pop        = "POP"
     case slide      = "SLIDE"
+    case cascade    = "CASCADE"
+    case wave       = "WAVE"
+    case ticker     = "TICKER"
+    case grid       = "GRID"
     case typewriter = "TYPEWRITER"
     case spin       = "SPIN"
     case flicker    = "FLICKER"
@@ -78,9 +120,9 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
 
     var granularity: TextTileGranularity {
         switch self {
-        case .pop, .spin, .flicker: return .whole
-        case .typewriter:           return .unit
-        case .slide:                return .word
+        case .pop, .spin, .flicker, .ticker, .grid: return .whole
+        case .typewriter, .cascade, .wave: return .unit
+        case .slide:                     return .word
         }
     }
 
@@ -105,14 +147,55 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
         switch self {
         case .pop:        return "BOUNCE"
         case .slide:      return "DISTANCE"
+        case .cascade:    return "STAGGER"
+        case .wave:       return "AMPLITUDE"
+        case .ticker:     return "GAP"
+        case .grid:       return "DENSITY"
         case .typewriter: return "SPEED"
         case .spin:       return "SPINS"
         case .flicker:    return "INTENSITY"
         }
     }
 
-    /// Whether this preset exposes the UP/DOWN direction control.
+    /// How the compositor repeats this preset's block.
+    var tiling: TextTiling {
+        switch self {
+        case .ticker: return .horizontal
+        case .grid:   return .grid
+        default:      return .single
+        }
+    }
+
+    /// Horizontal distance between repeated copies, normalized to the frame. Also the exact
+    /// distance TICKER travels, which is what makes its settle invisible.
+    ///
+    /// For GRID the tunable reads as DENSITY and runs the other way — turning it up packs the
+    /// copies closer, because a denser matrix is what "more density" should mean.
+    func repeatStep(in layout: PreparedTextLayout, tuning: CGFloat) -> CGFloat {
+        guard layout.outputSide > 0 else { return 1 }
+        let t = min(1, max(0, tuning))
+        let inkWidth = layout.inkBounds.width / layout.outputSide
+        let gap = self == .grid ? (0.22 - 0.17 * t) : (0.08 + 0.22 * t)
+        return max(0.05, inkWidth + gap)
+    }
+
+    /// Vertical distance between rows, for GRID. Derived from the block's own height so the matrix
+    /// stays proportional as the text is resized.
+    func rowStep(in layout: PreparedTextLayout, tuning: CGFloat) -> CGFloat {
+        guard layout.outputSide > 0 else { return 1 }
+        let t = min(1, max(0, tuning))
+        let inkHeight = layout.inkBounds.height / layout.outputSide
+        return max(0.03, inkHeight + (0.14 - 0.10 * t))
+    }
+
+    /// Whether this preset exposes the UP/DOWN travel control.
     var usesDirection: Bool { self == .slide }
+
+    /// Whether this preset exposes the TOP/BOTTOM/CENTER fill-origin control.
+    var usesGridOrigin: Bool { self == .grid }
+
+    /// Whether the panel shows a FROM row at all — either control occupies the same slot.
+    var usesFromRow: Bool { usesDirection || usesGridOrigin }
 
     /// Where in the entrance a card thumbnail should be sampled.
     ///
@@ -123,6 +206,10 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
         switch self {
         case .pop:        return 0.16   // just past the overshoot, at its largest
         case .slide:      return 0.28   // mid-cascade, some words still travelling
+        case .cascade:    return 0.30   // some letters landed, some still falling
+        case .wave:       return 0.32   // mid-ripple, the crest visible across the word
+        case .ticker:     return 0.45   // mid-scroll, the band clearly travelling
+        case .grid:       return 0.50   // the matrix mostly filled in
         case .typewriter: return 0.34   // partway through the reveal, cursor showing
         case .spin:       return 0.24   // mid-turn, clearly rotated
         case .flicker:    return 0.22   // inside a flash rather than a gap
@@ -178,6 +265,10 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
         switch self {
         case .pop:        states = popStates(q: q, slots: slots, tuning: t)
         case .slide:      states = slideStates(q: q, slots: slots, tuning: t, direction: direction)
+        case .cascade:    states = cascadeStates(q: q, slots: slots, tuning: t)
+        case .wave:       states = waveStates(q: q, slots: slots, tuning: t)
+        case .ticker:     states = tickerStates(q: q, slots: slots, tuning: t, layout: layout)
+        case .grid:       states = gridStates(q: q, slots: slots, tuning: t)
         case .typewriter: states = typewriterStates(q: q, slots: slots, tuning: t)
         case .spin:       states = spinStates(q: q, slots: slots, tuning: t)
         case .flicker:    states = flickerStates(q: q, slots: slots, tuning: t, seed: layout.seed)
@@ -230,6 +321,133 @@ enum TextAnimationType: String, CaseIterable, Identifiable, Hashable, Sendable, 
             return TextTileState(alpha: eased, scaleDelta: 1, rotationDelta: 0,
                                  translationDelta: CGPoint(x: 0, y: distance * (1 - eased)))
         }
+    }
+
+    /// Letters arriving one after another, each dropping into place from above.
+    ///
+    /// The sequential-timing effect: where SLIDE staggers whole *words* and settles them together,
+    /// this runs per shaping-safe unit, so a word assembles letter by letter down the line. STAGGER
+    /// sets how much of the entrance the sequence spans — low is nearly simultaneous, high is a
+    /// slow relay.
+    private func cascadeStates(q: CGFloat, slots: Int, tuning: CGFloat) -> [TextTileState] {
+        guard slots > 0 else { return [] }
+        let spread = 0.25 + 0.55 * tuning
+        let window = max(0.0001, 1 - spread)
+
+        return (0..<slots).map { index in
+            guard q < 1 else { return .resting }
+            let offset = slots > 1 ? spread * CGFloat(index) / CGFloat(slots - 1) : 0
+            let local = min(1, max(0, (q - offset) / window))
+            let eased = textEaseOut(local)
+            // Negative y is up, so each unit starts above its place and falls in.
+            return TextTileState(alpha: eased, scaleDelta: 1, rotationDelta: 0,
+                                 translationDelta: CGPoint(x: 0, y: -0.06 * (1 - eased)))
+        }
+    }
+
+    /// A ripple travelling through the word: two full waves pass along the line before it settles.
+    ///
+    /// Three things keep this distinct from CASCADE, which it otherwise collapses into:
+    ///
+    /// - **Two visible cycles**, so the motion reads as a wave rather than as one wobble.
+    /// - **Linear decay**, not eased. An eased decay is down to about a tenth by the halfway point,
+    ///   which killed the oscillation before either crest arrived and left only a staggered fade —
+    ///   i.e. CASCADE with extra steps.
+    /// - **A short appearance stagger.** CASCADE's character is the sequential *arrival*; here the
+    ///   letters turn up almost together and the wave is what you watch, so the two effects differ
+    ///   in what they draw the eye to rather than only in degree.
+    ///
+    /// Amplitude decays against *global* progress, not each unit's own, so the line calms together
+    /// instead of every letter ringing on its own schedule.
+    private func waveStates(q: CGFloat, slots: Int, tuning: CGFloat) -> [TextTileState] {
+        guard slots > 0 else { return [] }
+        let amplitude = 0.025 + 0.075 * tuning
+        let spread: CGFloat = 0.15
+        let window = max(0.0001, 1 - spread)
+        let cycles: CGFloat = 2
+
+        return (0..<slots).map { index in
+            guard q < 1 else { return .resting }
+            let phase = slots > 1 ? CGFloat(index) / CGFloat(slots - 1) : 0
+            let local = min(1, max(0, (q - spread * phase) / window))
+            let decay = 1 - q
+            let swing = sin((q * cycles - phase) * 2 * CGFloat.pi) * amplitude * decay
+            return TextTileState(alpha: textEaseOut(min(1, local / 0.35)), scaleDelta: 1,
+                                 rotationDelta: 0,
+                                 translationDelta: CGPoint(x: 0, y: swing))
+        }
+    }
+
+    /// The block repeated across and down the frame until it reads as texture rather than a
+    /// headline.
+    ///
+    /// This returns only the *envelope* every copy shares — a fast fade that exists to honour the
+    /// empty-first-frame contract, plus the settle from slightly small. The choreography that makes
+    /// the matrix fill downward is per copy, in `tiledCopyState`, because a row's timing depends on
+    /// where that row sits and `tileStates` has no idea how many copies the compositor will draw.
+    private func gridStates(q: CGFloat, slots: Int, tuning: CGFloat) -> [TextTileState] {
+        guard q < 1 else { return Array(repeating: .resting, count: slots) }
+
+        let eased = textEaseOut(q)
+        let state = TextTileState(alpha: textEaseOut(min(1, q / 0.05)),
+                                  scaleDelta: max(0.05, 0.9 + 0.1 * eased),
+                                  rotationDelta: 0, translationDelta: .zero)
+        return Array(repeating: state, count: slots)
+    }
+
+    /// Extra state for one *copy* of a tiled preset, composed on top of `tileStates`.
+    ///
+    /// Exists so per-copy choreography stays in the preset rather than migrating into the
+    /// compositor. That boundary matters: the compositor draws both the live preview and the
+    /// exported GIF, so any timing it owned would be timing the two could disagree about.
+    ///
+    /// - Parameter normalizedRow: 0 at the topmost copy, 1 at the bottom.
+    /// - Returns: alpha to multiply into the tile's own, and a translation to add.
+    func tiledCopyState(normalizedRow: CGFloat, at progress: CGFloat,
+                        tuning: CGFloat = 0.5,
+                        origin: TextGridOrigin = .top) -> TextTileState {
+        guard self == .grid else { return .resting }
+
+        let p = min(1, max(0, progress))
+        let q = min(1, p / Self.entranceWindow)
+        guard q < 1 else { return .resting }
+
+        // Rows arrive in the order the origin dictates — down from the top, up from the bottom, or
+        // outward from the middle — and the wipe finishes by the end of the entrance either way.
+        let spread: CGFloat = 0.55
+        let window = max(0.0001, 1 - spread)
+        let delay = origin.delay(forRow: normalizedRow)
+        let local = min(1, max(0, (q - spread * delay) / window))
+        let eased = textEaseOut(local)
+
+        return TextTileState(alpha: eased, scaleDelta: 1, rotationDelta: 0,
+                             // A short drop into place, so a row arrives rather than blinking on.
+                             translationDelta: CGPoint(x: 0, y: -0.03 * (1 - eased)))
+    }
+
+    /// A news band scrolling right to left.
+    ///
+    /// **It travels exactly one repeat step.** That is the whole trick, and it exists because the
+    /// pause frames are one render replicated — a ticker cannot keep moving during the hold, so a
+    /// naive one freezes mid-scroll and reads as a stall. Landing precisely one step along means the
+    /// settled frame is pixel-identical to where the scroll began, so the stop is invisible and the
+    /// GIF's loop continues the motion seamlessly.
+    ///
+    /// GAP therefore does double duty: it sets the spacing between repeated copies *and* the
+    /// distance travelled, because those must be the same number for the seam to disappear.
+    private func tickerStates(q: CGFloat, slots: Int, tuning: CGFloat,
+                              layout: PreparedTextLayout) -> [TextTileState] {
+        guard q < 1 else { return Array(repeating: .resting, count: slots) }
+
+        let step = repeatStep(in: layout, tuning: tuning)
+        // Linear, not eased: a ticker that accelerates is a ticker that looks broken.
+        let offset = step * (1 - q)
+        // Fades in over the first sliver only, so the band is running by the time it is legible —
+        // and so the first frame carries no text, which the saved-GIF contract requires.
+        let state = TextTileState(alpha: textEaseOut(min(1, q / 0.08)), scaleDelta: 1,
+                                  rotationDelta: 0,
+                                  translationDelta: CGPoint(x: offset, y: 0))
+        return Array(repeating: state, count: slots)
     }
 
     /// A stepped reveal, unit by unit, with a blinking block cursor.
