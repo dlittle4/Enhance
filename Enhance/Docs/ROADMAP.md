@@ -134,6 +134,11 @@ where that belongs.
 
 - [ ] **Split test-only CI out and do it now** — a macOS runner on `xcodebuild test`. Lint follows
       later, with the token migration.
+**And a second instance the same day**: a run reported 165 failures *at exactly 0.000 seconds each*,
+which was the test host dying rather than any code change — five simulator deaths in one day. Both
+failure modes are invisible to a local run that someone decides to trust. See LEARNINGS 2026-08-11
+for the timing tell.
+
 - [ ] Sweep the suite for other wall-clock assumptions once CI exists — this one was found by
       accident, so it is unlikely to be the only one.
 
