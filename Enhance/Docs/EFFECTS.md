@@ -160,7 +160,9 @@ edges**, and look at them. A solid-colour fixture shows nothing.
 ## Phase 2 — custom Core Image kernels
 
 Everything above is stock Core Image. The effects below have no built-in equivalent and need a
-kernel. **This infrastructure does not exist yet.**
+kernel. **This infrastructure now exists — the gate passed on 2026-08-12.** The hazard analysis
+below was correct and is kept as the reason the design is what it is; what actually happened when
+it was built is recorded at the end of this section.
 
 ### The hazard, and the resolution
 
@@ -180,12 +182,25 @@ the stock path untouched.
    pbxproj — `objectVersion 77` `PBXBuildRule` entries are easy to malform.
    - Match `*.ci.metal` → Custom script:
      ```
+     set -euo pipefail
+     mkdir -p "$BUILT_PRODUCTS_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH"
      xcrun -sdk $PLATFORM_NAME metal -c -fcikernel "$INPUT_FILE_PATH" \
        -o "$DERIVED_FILE_DIR/$INPUT_FILE_BASE.air"
      xcrun -sdk $PLATFORM_NAME metallib -cikernel "$DERIVED_FILE_DIR/$INPUT_FILE_BASE.air" \
        -o "$BUILT_PRODUCTS_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/$INPUT_FILE_BASE.metallib"
      ```
-   - Output: `$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/$(INPUT_FILE_BASE).metallib`
+     The `mkdir -p` is not optional: build rules fire during the Sources phase, before Resources
+     has created the `.app`.
+   - Outputs — **both of them**:
+     ```
+     $(DERIVED_FILE_DIR)/$(INPUT_FILE_BASE).air
+     $(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/$(INPUT_FILE_BASE).metallib
+     ```
+     This project sets `ENABLE_USER_SCRIPT_SANDBOXING = YES`, under which `outputFiles` is a
+     **write-permission list, not a dependency declaration**. Declaring only the `.metallib` — the
+     obvious choice, since it is the only output anything downstream consumes — makes the `metal -c`
+     step die with `Sandbox: deny(1) file-write-create … .air`. See LEARNINGS 2026-08-12, including
+     why a green build can hide this.
 3. **`$INPUT_FILE_BASE` strips only the last extension**, so `Riso.ci.metal` becomes
    `Riso.ci.metallib`. Load with `forResource: "Riso.ci"`. Getting this wrong yields a silent
    nil kernel.
@@ -198,17 +213,35 @@ the stock path untouched.
 `PBXFileSystemSynchronizedBuildFileExceptionSet` to keep the kernel folder out of the app
 target's Sources phase.
 
-### Do the gate first
+### The gate — done 2026-08-12, and it passed
 
-Before writing any effect math: add the build rule plus a passthrough kernel
-(`extern "C" float4 riso(coreimage::sample_t s) { return s; }`) and verify
+Run before writing any effect math: the build rule plus a passthrough kernel, verifying
 
-- (a) `Riso.ci.metallib` appears in the app bundle,
+- (a) the `.metallib` appears in the app bundle,
 - (b) **the animated border still renders** in both `EditorView` and `GradientViews`,
 - (c) `CIKernel(functionName:fromMetalLibraryData:)` returns non-nil in a unit test — tests are
   hosted, so `Bundle.main` is `Enhance.app`.
 
-A negative result means falling back, and that is worth knowing before the algorithm work.
+**All three passed**, so the fallback (a dedicated Metal Library target) was never needed and the
+custom build rule is the shipped design. What the gate produced, which is what Riso Print inherits:
+
+- `Shaders/CI/Passthrough.ci.metal` — the passthrough, kept deliberately. It is the canary: it
+  costs one tiny metallib and it fails loudly if the rule ever breaks.
+- `EnhanceTests/CIKernelGateTests.swift` — four tests. Three are the criteria above plus an
+  identity render (a kernel can load and still produce no pixels). The fourth is the one that
+  matters most and was not in the original plan: it asserts **`default.metallib` is still a stock
+  library**, by checking it does *not* contain the `air.ci_builtin` marker that a Core Image
+  library carries. That is the actual regression this phase feared — if the rule's pattern is ever
+  widened, or the flags moved to target scope, that test fails instead of the canvas border
+  silently blanking on device.
+- Evidence the two paths stay separate: after the gate, `default.metallib` is ~61KB and still
+  contains `pixellate` from `Pixellate.metal`; `Passthrough.ci.metallib` is a separate ~3KB file
+  carrying `air.ci_builtin`. **(b) was confirmed by looking** — the border and the ENHANCE button
+  both render pixellated and animate, on an SE 3 simulator.
+
+Two things the plan above got right and one it did not: the `*.ci.metal` scoping and the
+`$INPUT_FILE_BASE` trap were both exactly as described; the script sandboxing was not anticipated
+(see the `outputFiles` note above).
 
 ### Two things that make hand-ported shaders look wrong
 

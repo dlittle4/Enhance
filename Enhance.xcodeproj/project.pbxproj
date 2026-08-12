@@ -6,6 +6,24 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildRule section */
+		FD69C2012D8F8CD9001ED27D /* PBXBuildRule */ = {
+			isa = PBXBuildRule;
+			compilerSpec = com.apple.compilers.proxy.script;
+			filePatterns = "*.ci.metal";
+			fileType = pattern.proxy;
+			inputFiles = (
+			);
+			isEditable = 1;
+			outputFiles = (
+				"$(DERIVED_FILE_DIR)/$(INPUT_FILE_BASE).air",
+				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/$(INPUT_FILE_BASE).metallib",
+			);
+			runOncePerArchitecture = 0;
+			script = "# ROADMAP §1c. Scoped to *.ci.metal so -fcikernel cannot reach Pixellate.metal,\n# a SwiftUI [[stitchable]] shader whose library must stay loadable by ShaderLibrary.default.\nset -euo pipefail\n\n# The Resources phase has not run yet when build rules fire, so the .app may not exist.\nmkdir -p \"$BUILT_PRODUCTS_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH\"\n\nxcrun -sdk $PLATFORM_NAME metal -c -fcikernel \"$INPUT_FILE_PATH\" \\\n  -o \"$DERIVED_FILE_DIR/$INPUT_FILE_BASE.air\"\nxcrun -sdk $PLATFORM_NAME metallib -cikernel \"$DERIVED_FILE_DIR/$INPUT_FILE_BASE.air\" \\\n  -o \"$BUILT_PRODUCTS_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/$INPUT_FILE_BASE.metallib\"\n";
+		};
+/* End PBXBuildRule section */
+
 /* Begin PBXContainerItemProxy section */
 		FD69C1882D8F8CDA001ED27D /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -127,6 +145,7 @@
 				FD69C1752D8F8CD9001ED27D /* Resources */,
 			);
 			buildRules = (
+				FD69C2012D8F8CD9001ED27D /* PBXBuildRule */,
 			);
 			dependencies = (
 			);

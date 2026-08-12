@@ -1558,3 +1558,41 @@ its input — source-over, blends, displacement — is a consumer that will misb
   regression test checked "nothing goes black" and passed happily against the clamp that dimmed the
   glow. A one-sided test cannot tell a fix from a different bug. It now also asserts the hot core
   survives, which is the half that would have caught it.
+
+---
+
+## 2026-08-12: script sandboxing blocks a build rule's intermediates, not just its outputs
+
+**Problem:** The `*.ci.metal` build rule (ROADMAP §1c) compiles in two steps — `metal -c -fcikernel`
+emits a `.air`, then `metallib -cikernel` turns that into the `.metallib`. It built fine, then
+failed the moment it ran under a different derived-data path:
+
+```
+error: Sandbox: metal(55092) deny(1) file-write-create .../DerivedSources/Passthrough.ci.air
+error: unable to open output file '.../Passthrough.ci.air': 'Operation not permitted'
+```
+
+**Root cause:** the project sets `ENABLE_USER_SCRIPT_SANDBOXING = YES`. Under that, a rule script
+may only write files it *declares*. `outputFiles` listed the `.metallib` — the thing the build
+actually consumes — but not the `.air`, which is an intermediate nobody downstream cares about.
+The sandbox does not care that it is an intermediate.
+
+**Fix:** declare it anyway.
+
+```
+outputFiles = (
+    "$(DERIVED_FILE_DIR)/$(INPUT_FILE_BASE).air",
+    "$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/$(INPUT_FILE_BASE).metallib",
+);
+```
+
+**Rule:** under script sandboxing, `outputFiles` is a write permission list, not a dependency
+declaration. Declare **every path the script writes**, including scratch files — and prefer
+`$DERIVED_FILE_DIR` for them, since that is the directory the sandbox is willing to grant.
+
+**The part worth remembering is how it hid.** The first build passed because it ran with an explicit
+`-derivedDataPath` pointing at a scratch directory outside the sandbox's jurisdiction; the failure
+only appeared on the default DerivedData path. So **a green build under a custom derived-data path
+says nothing about the build everyone else runs** — and it would have reached CI, which uses the
+default, as a mysterious first-run failure rather than a local one. Verify build-system changes the
+way Xcode and CI will actually run them, not the way that was convenient to script.

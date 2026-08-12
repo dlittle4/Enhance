@@ -1,6 +1,6 @@
 # Enhance (ZoomGif) — Roadmap
 
-> Last updated: 2026-08-12 (session 18 — accuracy pass on §1e and the face-box defect, then CI)
+> Last updated: 2026-08-12 (session 18 — roadmap accuracy pass, CI test gate, CIKernel gate)
 
 ## Vision
 
@@ -45,15 +45,19 @@ plan. The pattern is to commit on a branch and fast-forward `main` at each green
 always sees a working build. **As of 2026-08-12 every side branch is at or behind `main`** — there
 is no in-flight work anywhere, so nothing below is owned by another session.
 
-**The next two things, in order:**
+**Next up: Riso Print** (§2c) — the highest-value effect left, and a port from source
+(`reference/riso-print.wgsl`) rather than a reconstruction. Two things to do before writing
+any math:
 
-1. **The kernel de-risking gate** (§1c) — about an hour, and it unblocks all three remaining
-   effects. The risk is the build rule reaching `Pixellate.metal`, not the effect math.
-2. **Then Riso Print** (§2c) — the highest-value effect left, and a port from source rather than a
-   reconstruction. Check its row count against §1a first: four sliders plus a picker.
+1. **Check its row count against §1a.** It needs four sliders plus a picker, and fits the
+   three-row ceiling only by reusing `GradientStops` for its three spot colours.
+2. **Read EFFECTS.md on colour space and the ROI callback.** The gate proved the pipeline, not the
+   math — a correct port still looks wrong if it ignores that kernels run in *linear* sRGB while
+   constants sampled from a reference are sRGB.
 
-**CI shipped on 2026-08-12** (§1b) and now guards `EnhanceTests` on every push to `main` and every
-PR. **First run was green** — 392 passed / 0 failed in 6m21s.
+**CI shipped on 2026-08-12** (§1b) and guards `EnhanceTests` on every push to `main` and every PR;
+first run green, 392 passed in 6m21s. **The kernel gate passed the same day** (§1c), so Water
+Caustic and the hatching line styles are unblocked too.
 
 *(§1e, §2d control audit, and SLICE SHIFT are also done. HATCHING skipped and BOKEH declined, both
 on the user's call — §2a is empty, so nothing further is buildable from stock filters alone.)*
@@ -123,7 +127,7 @@ without the user changing effect — which is how it reached four rows in the fi
 
 [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) §3a sequences CI *after* its Phases 1–2, because the **lint**
 rules assume the colour literals are gone. Running `xcodebuild test` carries no such dependency,
-and there is no automated gate on this repo today.
+which is what made the test half splittable and shippable first.
 
 **A concrete instance of what this catches** *(2026-08-11)*: two sessions running simulators at once
 starved the machine enough that
@@ -173,15 +177,34 @@ for the timing tell.
 is **391 passed / 0 failed in ~44s** on an iPhone 17 Pro simulator (tests run parallelised, so the
 per-test times in the log are clones' wall-clock, not CPU).
 
-### 1c. CIKernel de-risking gate → blocks Riso Print, Water Caustic, Hatching styles
+### 1c. CIKernel de-risking gate ✓ passed 2026-08-12 → Riso Print, Water Caustic, Hatching styles unblocked
 
 Split out of the old Phase 17e. The risk in that phase was never the effect math — it is that a
 target-scoped `-fcikernel` reaches `Shaders/Pixellate.metal` and **breaks the animated canvas border
-at runtime**. Decoupled, the gate is about an hour, and it converts the rest into ordinary work.
+at runtime**. Decoupled, the gate took about an hour, exactly as estimated, and the rest is now
+ordinary work.
 
-- [ ] Build rule scoped to `*.ci.metal`, so the flag cannot reach `Pixellate.metal`.
-- [ ] Passthrough kernel, then confirm the border still renders in **both** `EditorView` and
-      `GradientViews`, before any effect math is written.
+- [x] ~~**Build rule scoped to `*.ci.metal`.**~~ A `PBXBuildRule` on the app target only. Custom
+      rules take precedence over Xcode's built-in Metal rule *for matching files*, so
+      `Pixellate.metal` still goes through the stock path. **Measured, not assumed:** after the
+      change `default.metallib` is ~61KB and still contains `pixellate`, while
+      `Passthrough.ci.metallib` is a separate ~3KB file carrying the `air.ci_builtin` marker.
+- [x] ~~**Passthrough kernel, then confirm the border still renders in both `EditorView` and
+      `GradientViews`.**~~ `Shaders/CI/Passthrough.ci.metal`, kept as a canary.
+      **Confirmed by looking**, on an SE 3 simulator: the canvas border and the ENHANCE button both
+      render pixellated and animate between frames. Four tests in `CIKernelGateTests` cover the
+      rest, including one asserting `default.metallib` is *not* a Core Image library — so a future
+      widening of the rule fails a test instead of silently blanking the border on device.
+
+**One thing the plan did not anticipate**, now fixed in EFFECTS.md and LEARNINGS: this project sets
+`ENABLE_USER_SCRIPT_SANDBOXING = YES`, under which a rule's `outputFiles` is a *write-permission
+list*. Declaring only the `.metallib` makes the intermediate `.air` fail with
+`Sandbox: deny(1) file-write-create`. It also hid at first — an explicit `-derivedDataPath` to a
+scratch directory built green, and only the default DerivedData path failed, which is what CI uses.
+
+> **Note for whoever writes the first real kernel:** the gate deliberately proves the *pipeline*,
+> not the math. Colour space (kernels run in linear sRGB) and the ROI callback are still ahead of
+> you — both are in EFFECTS.md, and both make a correct port look wrong.
 
 ### 1d. Design system, Phases 1–2 → blocks themes (§3b)
 
@@ -292,7 +315,11 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       per-channel dispersion — the same trick LENS uses with `CIZoomBlur`. If it works, both leave
       §2c and the kernel gate's remaining justification narrows sharply.
 
-### 2c. Blocked on the kernel gate (§1c)
+### 2c. Kernel effects — **unblocked 2026-08-12**, the gate in §1c passed
+
+The build rule, a working `CIKernel` load path, and a regression test that the canvas border's
+library stays stock are all in place. These three are now ordinary work. Read EFFECTS.md's colour
+space and ROI notes before starting any of them — the gate proved the pipeline, not the math.
 
 - [ ] **Riso Print** — the most distinctive look available, and the best fit for the pixel-art
       identity. The original WGSL is in hand at `reference/riso-print.wgsl`; port from that, not
