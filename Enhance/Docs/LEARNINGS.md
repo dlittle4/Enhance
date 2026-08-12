@@ -1459,3 +1459,45 @@ running simulators at once, and the same day produced a genuine flake where a 2-
 154s and 258s under load — both are the same underlying cause, and both are arguments for
 [ROADMAP §1b](ROADMAP.md): a CI runner with a known load profile, rather than several sessions
 eyeballing local runs and each independently deciding whether to trust them.
+
+---
+
+## 2026-08-11: When two components must agree, one of them has to ask the other
+
+**Problem:** after generating a GIF, switching to the FACE tab showed the raw, un-zoomed,
+un-effected photo — no GIF, no animation, and any face filter chosen afterwards was invisible. The
+GIF was correct the whole time; only its presentation was wrong, which is why switching to the
+IMAGE tab appeared to fix it.
+
+**Root cause: the same question answered independently in two places, from different inputs.**
+
+- The **view** decided whether to show the live canvas: `wantsLiveCanvas` returned true for the
+  face tab, so the canvas never showed the GIF.
+- The **view model** decided whether a preview was needed, from a bare `isSplit`: a GIF exists,
+  therefore the GIF must be on screen, therefore no preview — `previewImage = nil`.
+
+Each rule is defensible in isolation, and each was written by someone who had good reasons. The
+live canvas then rendered `previewImage ?? image`, and with the preview suppressed that is the
+untouched source photo.
+
+**The distinguishing test — and it is not "avoid duplication".** Some duplication is harmless;
+this kind is not. Ask: **does correctness require these two to agree?** If the system is only
+correct when A and B give the same answer, then A and B must not be computed separately. Derive one
+from the other, or both from a shared third. Here `wantsLiveCanvas` moved onto the view model and
+both the canvas and `updateCombinedPreview` now consult it, so disagreement is unrepresentable
+rather than merely unlikely.
+
+**Why the tests missed it:** each side was individually correct and individually testable. Nothing
+tested the *pair*, because the pair was not a thing either file knew about. After the fix the
+property is pure and shared, which made three behavioural tests trivial to write — a decent
+signal that the shape was right.
+
+**Consolidation is not finished until every reader is converted.** The fix updated the two sites
+that decide *which canvas*, but `EditorView.activeFaceOverlays` and `faceStatusOverlay` still gate
+face affordances on the original `isSplit` proxy — so after generating, the live canvas comes back
+with the effect visible but **no tappable face boxes**. The old proxy survives wherever nobody
+looked. When you introduce a shared answer, grep every use of what it replaced.
+
+Related: [ROADMAP](ROADMAP.md) §4 records `previewProgress` implemented three times, and the
+memoisation-key entry above is the same family — a claim about what something depends on, drifting
+from what it actually depends on.

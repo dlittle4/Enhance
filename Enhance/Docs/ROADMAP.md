@@ -474,6 +474,13 @@ repairs. Stage B remains:
       point at the shared idea.
       *Who hits this next:* whoever adds an effect that peaks anywhere but full strength. They will
       edit one enum, ship, and find the other card still wrong. That has now happened twice.
+- [ ] **Face boxes vanish on the face tab once a GIF exists.** Residual of the `wantsLiveCanvas`
+      fix (`84fea9e`): that consolidated the two sites deciding *which canvas*, but
+      `EditorView.activeFaceOverlays` (`:1194`) and `faceStatusOverlay` (`:1206`) still gate on the
+      old `isSplit` proxy. So after ENHANCE the live canvas returns with the effect visible but
+      **no tappable face boxes**, and a different face cannot be chosen. Both should consult
+      `viewModel.wantsLiveCanvas` instead. Found by grepping the proxy the fix replaced — see
+      LEARNINGS 2026-08-11 on converting every reader.
 - [ ] **"NO FACES DETECTED" toast repeats.** `detectFacesIfNeeded` guards on `detectedFaces.isEmpty`
       (`EditorViewModel.swift:346`), which stays true forever when detection legitimately finds
       nothing, so every return to the face tab re-runs detection and re-toasts. Needs a separate
