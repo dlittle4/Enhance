@@ -48,6 +48,20 @@ struct EffectParameter: Identifiable, Hashable {
     /// same reason: it maps to `EffectOptions.size`.
     static let sizeID = "size"
 
+    /// A visual effect's *third* slider slot, for effects that expose two secondary
+    /// qualities — HALFTONE's SHARPNESS + ANGLE, HEAT HAZE's FREQUENCY + SPEED.
+    ///
+    /// Named for the slot rather than any one meaning, for the same reason as
+    /// `secondaryID` below: it maps verbatim to `EffectOptions.tertiary`, and no single
+    /// word is honest across every effect that uses it. Note `sizeID` is already in this
+    /// position — the second slot is labelled SIZE, REACH, SCALE, ANGLE or FREQUENCY
+    /// depending on the effect, and only its *storage key* says "size".
+    ///
+    /// Three sliders plus a picker would be four rows, which does not render on the
+    /// shortest supported device — see ROADMAP §1a. Effects using this slot must have no
+    /// picker.
+    static let tertiaryID = "tertiary"
+
     /// A face filter's second control slot.
     ///
     /// Deliberately not `sizeID`. A visual effect's second slot maps verbatim to

@@ -565,6 +565,109 @@ struct VisualEffectTests {
         #expect(try png(0.5) != png(1.0), "a wide vortex must differ from the default")
     }
 
+    // MARK: - Control audit: HALFTONE, CHROMA SHIFT, HEAT HAZE
+
+    @Test func chromaShift_defaultAngle_reproducesTheShippedDiagonal() throws {
+        let input = gradientTestImage()
+        let ctx = CIContext()
+        func png(_ img: CIImage) throws -> Data {
+            let cg = try #require(ctx.createCGImage(img, from: img.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+
+        let viaControl = ChromaticAberrationEffect(intensity: 0.8, angle: 0.5)
+            .apply(to: input, progress: 1.0, frameIndex: 0)
+        let legacy = ChromaticAberrationEffect(intensity: 0.8)
+            .apply(to: input, progress: 1.0, frameIndex: 0)
+
+        #expect(try png(viaControl) == png(legacy),
+                "angle 0.5 must keep both the direction and the magnitude that shipped")
+    }
+
+    @Test func chromaShift_angleIsLiveAcrossItsRange() throws {
+        let input = gradientTestImage()
+        let ctx = CIContext()
+        func png(_ a: Double) throws -> Data {
+            let out = ChromaticAberrationEffect(intensity: 0.8, angle: a)
+                .apply(to: input, progress: 1.0, frameIndex: 0)
+            let cg = try #require(ctx.createCGImage(out, from: out.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+        #expect(try png(0.0) != png(0.5))
+        #expect(try png(0.5) != png(0.85))
+    }
+
+    @Test func halftone_defaultsReproduceTheShippedScreen() throws {
+        let input = gradientTestImage()
+        let ctx = CIContext()
+        func png(_ img: CIImage) throws -> Data {
+            let cg = try #require(ctx.createCGImage(img, from: img.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+
+        let viaControl = HalftoneEffect(intensity: 0.8, sharpness: 0.5, angle: 0.5)
+            .apply(to: input, progress: 1.0, frameIndex: 0)
+
+        // The pre-audit implementation: sharpness pinned to 0.7, inputAngle never set.
+        let w: CGFloat = 2.0 + (max(4.0, 24.0 * 0.8) - 2.0) * 1.0
+        let legacy = input.applyingFilter("CICMYKHalftone", parameters: [
+            kCIInputCenterKey: CIVector(x: input.extent.midX, y: input.extent.midY),
+            kCIInputWidthKey: w,
+            kCIInputSharpnessKey: 0.7
+        ])
+
+        #expect(try png(viaControl) == png(legacy),
+                "sharpness/angle at 0.5 must reproduce 0.7 and the filter's default angle")
+    }
+
+    @Test func halftone_sharpnessAndAngleAreBothLive() throws {
+        let input = gradientTestImage()
+        let ctx = CIContext()
+        func png(_ sharp: Double, _ ang: Double) throws -> Data {
+            let out = HalftoneEffect(intensity: 0.8, sharpness: sharp, angle: ang)
+                .apply(to: input, progress: 1.0, frameIndex: 0)
+            let cg = try #require(ctx.createCGImage(out, from: out.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+        #expect(try png(0.0, 0.5) != png(1.0, 0.5), "SHARPNESS must change the dots")
+        #expect(try png(0.5, 0.0) != png(0.5, 1.0), "ANGLE must rotate the screen")
+    }
+
+    @Test func heatHaze_defaultsReproduceTheShippedShimmer() throws {
+        let input = gradientTestImage()
+        let ctx = CIContext()
+        func png(_ img: CIImage) throws -> Data {
+            let cg = try #require(ctx.createCGImage(img, from: img.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+
+        // frequency 0.5 -> 0.015 and speed 0.5 -> 0.35, the two shipped constants.
+        let viaControl = HeatHazeEffect(intensity: 0.8, frequency: 0.5, speed: 0.5)
+            .apply(to: input, progress: 1.0, frameIndex: 7)
+        let legacy = HeatHazeEffect(intensity: 0.8)
+            .apply(to: input, progress: 1.0, frameIndex: 7)
+
+        #expect(try png(viaControl) == png(legacy))
+    }
+
+    @Test func heatHaze_frequencyAndSpeedAreBothLive() throws {
+        let input = gradientTestImage()
+        let ctx = CIContext()
+        func png(_ freq: Double, _ speed: Double, frame: Int) throws -> Data {
+            let out = HeatHazeEffect(intensity: 1.0, frequency: freq, speed: speed)
+                .apply(to: input, progress: 1.0, frameIndex: frame)
+            let cg = try #require(ctx.createCGImage(out, from: out.extent))
+            return try #require(UIImage(cgImage: cg).pngData())
+        }
+        #expect(try png(0.0, 0.5, frame: 3) != png(1.0, 0.5, frame: 3),
+                "FREQUENCY must change the wave scale")
+        // SPEED only shows up across frames — at frame 0 the phase is 0 whatever it is.
+        #expect(try png(0.5, 0.0, frame: 5) != png(0.5, 1.0, frame: 5),
+                "SPEED must change how far the pattern has travelled by frame 5")
+        #expect(try png(0.5, 0.0, frame: 0) == png(0.5, 1.0, frame: 0),
+                "at frame 0 the phase is zero regardless of speed")
+    }
+
     private func gradientTestImage() -> CIImage {
         CIImage(color: .white)
             .cropped(to: CGRect(x: 0, y: 0, width: 96, height: 96))

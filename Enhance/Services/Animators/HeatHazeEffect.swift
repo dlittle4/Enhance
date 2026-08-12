@@ -10,9 +10,18 @@ struct HeatHazeEffect: VisualEffect {
     private static let sharedContext = CIContext(options: [.useSoftwareRenderer: false])
 
     private let maxAmplitude: CGFloat
+    private let frequency: CGFloat
+    private let speed: CGFloat
 
-    init(intensity: Double = 0.5) {
+    /// - `intensity` scales how far each row is displaced.
+    /// - `frequency` is the vertical wave scale: low is a slow roll, high a tight shimmer.
+    /// - `speed` is how fast the pattern travels across frames. Both were hardcoded, which
+    ///   made the effect a single look rather than a family.
+    init(intensity: Double = 0.5, frequency: Double = 0.5, speed: Double = 0.5) {
         self.maxAmplitude = CGFloat(max(1.0, 8.0 * intensity))
+        // Each midpoint reproduces the constant this effect shipped with: 0.015 and 0.35.
+        self.frequency = 0.005 + 0.02 * CGFloat(max(0, min(1, frequency)))
+        self.speed = 0.1 + 0.5 * CGFloat(max(0, min(1, speed)))
     }
 
     func apply(to image: CIImage, progress: CGFloat, frameIndex: Int) -> CIImage {
@@ -24,8 +33,7 @@ struct HeatHazeEffect: VisualEffect {
         let height = Int(extent.height)
         guard width > 0, height > 0 else { return image }
 
-        let phase = CGFloat(frameIndex) * 0.35
-        let frequency: CGFloat = 0.015
+        let phase = CGFloat(frameIndex) * speed
 
         let bytesPerRow = width * 4
         var pixelData = [UInt8](repeating: 0, count: height * bytesPerRow)

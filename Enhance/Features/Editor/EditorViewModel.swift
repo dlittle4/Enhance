@@ -434,6 +434,7 @@ class EditorViewModel {
         guard let effect = selectedVisualEffect else { return [] }
         let options = EffectOptions(
             size: value(EffectParameter.sizeID, for: effect),
+            tertiary: value(EffectParameter.tertiaryID, for: effect),
             tintColor: tintColor,
             gradientStops: gradientStops
         )
