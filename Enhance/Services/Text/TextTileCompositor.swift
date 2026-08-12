@@ -70,6 +70,21 @@ enum TextComposer {
 /// touching the `VisualEffect` protocol or any of its implementations.
 enum TextTileCompositor {
 
+    /// Horizontal offsets to draw each tile at, in output units.
+    ///
+    /// One entry — zero — for every preset but TICKER, so the common path is unchanged. TICKER gets
+    /// enough copies either side to cover the frame at any scroll position; without them the band
+    /// would show an empty gap sweeping past instead of reading as continuous tape.
+    private static func repeatOffsets(for overlay: TextOverlay, raster: RasterizedText,
+                                      outputSide: CGFloat) -> [CGFloat] {
+        guard overlay.animation.repeatsHorizontally else { return [0] }
+        let step = overlay.animation.repeatStep(in: raster.layout, tuning: overlay.tuning) * outputSide
+        guard step > 1 else { return [0] }
+        // Enough either side to cover the frame plus the one step of travel.
+        let each = Int((outputSide / step).rounded(.up)) + 1
+        return (-each...each).map { CGFloat($0) * step }
+    }
+
     /// Draws the overlay over `base` at a normalized progress.
     ///
     /// Returns `base` unchanged when there is nothing to draw, so the no-overlay path stays
@@ -109,25 +124,33 @@ enum TextTileCompositor {
 
         let outputSide = CGFloat(min(width, height))
 
+        // TICKER tiles the block across the frame so the band reads as continuous; every other
+        // preset draws one copy. The step is the same number the preset travels, which is what
+        // makes the settled frame identical to the start of the scroll.
+        let repeats = Self.repeatOffsets(for: overlay, raster: raster, outputSide: outputSide)
+
         for tile in raster.tiles {
             guard tile.slotIndex >= 0, tile.slotIndex < states.count else { continue }
             let state = states[tile.slotIndex]
             guard state.alpha > 0.001 else { continue }
 
-            context.saveGState()
-            context.setAlpha(state.alpha)
-            context.concatenate(TextComposer.transform(
-                tile: tile, state: state, overlay: overlay,
-                raster: raster, outputSide: outputSide
-            ))
-            // `context` is flipped to top-left, so each image needs its own local flip to land
-            // the same way up as it was cut. Standard form: move to the box's bottom-left in the
-            // flipped space, invert y, then draw at the origin.
-            let rect = TextComposer.localRect(for: tile, raster: raster)
-            context.translateBy(x: rect.minX, y: rect.maxY)
-            context.scaleBy(x: 1, y: -1)
-            context.draw(tile.image, in: CGRect(origin: .zero, size: rect.size))
-            context.restoreGState()
+            for repeatOffset in repeats {
+                context.saveGState()
+                context.setAlpha(state.alpha)
+                context.translateBy(x: repeatOffset, y: 0)
+                context.concatenate(TextComposer.transform(
+                    tile: tile, state: state, overlay: overlay,
+                    raster: raster, outputSide: outputSide
+                ))
+                // `context` is flipped to top-left, so each image needs its own local flip to land
+                // the same way up as it was cut. Standard form: move to the box's bottom-left in
+                // the flipped space, invert y, then draw at the origin.
+                let rect = TextComposer.localRect(for: tile, raster: raster)
+                context.translateBy(x: rect.minX, y: rect.maxY)
+                context.scaleBy(x: 1, y: -1)
+                context.draw(tile.image, in: CGRect(origin: .zero, size: rect.size))
+                context.restoreGState()
+            }
         }
 
         return context.makeImage() ?? base
