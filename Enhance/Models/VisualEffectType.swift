@@ -48,6 +48,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     case gradientMap   = "GRADIENT"
     case coloredEdges  = "EDGES"
     case dither        = "DITHER"
+    case sliceShift    = "SLICE SHIFT"
 
     // MARK: - Retired
     // Hidden from the picker but kept compiled and tested — see `retired` below.
@@ -113,6 +114,9 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "MIDPOINT"))
         case .pixelate:
             params.append(EffectParameter(id: "shape", label: "SHAPE", kind: .pixelShape))
+        case .sliceShift:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "SIZE"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "JITTER"))
         default:
             break
         }
@@ -173,6 +177,9 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
                                                      stops: options.gradientStops,
                                                      midpoint: max(0, min(1, options.size)))
         case .coloredEdges: return ColoredEdgesEffect(intensity: clamped, color: options.tintColor)
+        case .sliceShift:   return SliceShiftEffect(intensity: clamped,
+                                                    size: max(0, min(1, options.size)),
+                                                    jitter: max(0, min(1, options.tertiary)))
         case .dither:       return DitherEffect(intensity: clamped,
                                                 size: max(0, min(1, options.size)),
                                                 levels: max(0, min(1, options.tertiary)))

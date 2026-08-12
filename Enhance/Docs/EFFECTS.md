@@ -10,10 +10,10 @@
 
 ## Current state
 
-**12 effects live**, in carousel order:
+**13 effects live**, in carousel order:
 
 `CHROMA SHIFT` · `LENS` · `HALFTONE` · `FISHEYE` · `SWIRL` · `PIXELATE` · `RAINBOW` ·
-`HEAT HAZE` · `MOTION BLUR` · `GRADIENT` · `EDGES` · `DITHER`
+`HEAT HAZE` · `MOTION BLUR` · `GRADIENT` · `EDGES` · `DITHER` · `SLICE SHIFT`
 
 **6 retired** (compiled and tested, hidden from the picker — remove from
 `VisualEffectType.retired` to bring one back): Monotone, Duotone, Bloom, Inversion,
@@ -318,7 +318,7 @@ picker row and its `ColorPicker` wells already exist and need no new UI.
 | Effect | Approach | Notes |
 |---|---|---|
 | ~~**Bokeh (face-aware)**~~ | `CIMaskedVariableBlur` graded by a `FaceRegionMaskBuilder` mask | **Declined 2026-08-11**, before any code. Spec kept below so a revival needs no re-derivation — but it has been said no to once, so don't re-pitch it unprompted |
-| **Slice shift** | Horizontal bands, per-band displacement with a `frameIndex`-seeded hash | Was previously in the project as `GlitchEffect` and deleted; animates well across frames. Strip compositing avoids a kernel |
+| ~~**Slice shift**~~ | Horizontal bands, per-band displacement with a `frameIndex`-seeded hash | **Shipped 2026-08-11** as `SliceShiftEffect` — AMOUNT + SIZE + JITTER, strip compositing, no kernel. A grid effect: band height scales with `FrameGeometry.scale` and phase follows `contentOrigin` |
 | **Hatching** (straight lines) | Three luminance-banded line screens at 15°/45°/75°, composited with darken | **`CILineScreen` and `CIHatchedScreen` take angle and width directly** — closer than the `CIEdgeWork` / `CIComicEffect` route suggested previously. Grid effect: needs `FrameGeometry` scale *and* phase |
 
 **Needs a spike first:**

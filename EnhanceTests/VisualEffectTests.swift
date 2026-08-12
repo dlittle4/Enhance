@@ -808,6 +808,111 @@ struct VisualEffectTests {
         #expect(PixelShape.allCases.count == 2)
     }
 
+    // MARK: - SliceShiftEffect
+
+    private func sliceFixture() -> CIImage {
+        // Vertical stripes, so a *horizontal* displacement is visible. A gradient that
+        // varies only along y would render identically however far the bands slide.
+        CIImage(color: .white)
+            .cropped(to: CGRect(x: 0, y: 0, width: 96, height: 96))
+            .applyingFilter("CILinearGradient", parameters: [
+                "inputPoint0": CIVector(x: 0, y: 0),
+                "inputColor0": CIColor(red: 0, green: 0, blue: 0),
+                "inputPoint1": CIVector(x: 96, y: 0),
+                "inputColor1": CIColor(red: 1, green: 1, blue: 1)
+            ])
+            .cropped(to: CGRect(x: 0, y: 0, width: 96, height: 96))
+    }
+
+    private func slicePNG(_ effect: SliceShiftEffect,
+                          progress: CGFloat = 1.0,
+                          frame: Int = 0,
+                          geometry: FrameGeometry = .identity) throws -> Data {
+        let out = effect.apply(to: sliceFixture(), progress: progress, frameIndex: frame,
+                               viewportCenter: nil, geometry: geometry)
+        let cg = try #require(CIContext().createCGImage(out, from: out.extent))
+        return try #require(UIImage(cgImage: cg).pngData())
+    }
+
+    @Test func sliceShift_atZeroProgress_returnsUnchanged() {
+        let input = sliceFixture()
+        let output = SliceShiftEffect().apply(to: input, progress: 0.0, frameIndex: 0)
+        #expect(output.extent == input.extent)
+    }
+
+    @Test func sliceShift_atFullProgress_displacesBands() throws {
+        let clean = try #require(CIContext().createCGImage(sliceFixture(), from: sliceFixture().extent))
+        let cleanPNG = try #require(UIImage(cgImage: clean).pngData())
+        #expect(try slicePNG(SliceShiftEffect(intensity: 0.8)) != cleanPNG)
+    }
+
+    /// All three controls must be independently live, or they are one control wearing
+    /// three labels.
+    @Test func sliceShift_amountSizeAndJitterAreAllLive() throws {
+        #expect(try slicePNG(SliceShiftEffect(intensity: 0.2, size: 0.5, jitter: 0.5))
+                != slicePNG(SliceShiftEffect(intensity: 1.0, size: 0.5, jitter: 0.5)),
+                "AMOUNT must change the displacement")
+        #expect(try slicePNG(SliceShiftEffect(intensity: 0.8, size: 0.0, jitter: 0.5))
+                != slicePNG(SliceShiftEffect(intensity: 0.8, size: 1.0, jitter: 0.5)),
+                "SIZE must change the band height")
+        #expect(try slicePNG(SliceShiftEffect(intensity: 0.8, size: 0.5, jitter: 0.0))
+                != slicePNG(SliceShiftEffect(intensity: 0.8, size: 0.5, jitter: 1.0)),
+                "JITTER must change the pattern")
+    }
+
+    /// At jitter 0 the displacement is a pure alternating comb, so it must not depend on
+    /// the frame — the bands hold still. Any frame dependence there would mean the comb
+    /// is picking up hash noise it should not.
+    @Test func sliceShift_withoutJitter_isFrameIndependent() throws {
+        let effect = SliceShiftEffect(intensity: 0.8, size: 0.5, jitter: 0.0)
+        #expect(try slicePNG(effect, frame: 0) == slicePNG(effect, frame: 11))
+    }
+
+    /// With jitter the pattern is meant to flicker across frames — that is the whole
+    /// reason this effect earns its place, since almost nothing else in the app animates
+    /// between frames.
+    @Test func sliceShift_withJitter_changesBetweenFrames() throws {
+        let effect = SliceShiftEffect(intensity: 0.8, size: 0.5, jitter: 1.0)
+        #expect(try slicePNG(effect, frame: 0) != slicePNG(effect, frame: 11))
+    }
+
+    /// Reproducibility: the same frame must render identically every time, or GIF playback
+    /// and the live preview disagree. Seeded from the band and frame indices, never random().
+    @Test func sliceShift_isDeterministic() throws {
+        let effect = SliceShiftEffect(intensity: 0.8, size: 0.5, jitter: 1.0)
+        #expect(try slicePNG(effect, frame: 7) == slicePNG(effect, frame: 7))
+    }
+
+    /// Grid-effect contract, same property DITHER is held to: band height scales with the
+    /// zoom, so the export matches the magnified preview instead of showing finer bands.
+    @Test func sliceShift_scalesBandHeightWithFrameScale() throws {
+        let effect = SliceShiftEffect(intensity: 0.8, size: 0.5, jitter: 0.0)
+        #expect(try slicePNG(effect, geometry: FrameGeometry(scale: 1.0))
+                != slicePNG(effect, geometry: FrameGeometry(scale: 3.0)))
+    }
+
+    /// The other half of the grid contract, and note the period is **two** bands, not one.
+    ///
+    /// DITHER's equivalent test uses a one-cell period because its lattice repeats every
+    /// cell. This comb alternates direction, so a one-band shift of the content moves every
+    /// band onto the opposite parity and *inverts* the pattern — a correct result that looks
+    /// like a failure. Two bands is the true period. Do not "fix" the effect to make a
+    /// one-band assertion pass; that would mean the parity had stopped tracking the content.
+    @Test func sliceShift_phaseIsPeriodicInTwoBands() throws {
+        // size 0.5 -> 22pt bands at scale 1.
+        let effect = SliceShiftEffect(intensity: 0.8, size: 0.5, jitter: 0.0)
+        let band: CGFloat = 22.0
+
+        func at(_ dy: CGFloat) throws -> Data {
+            try slicePNG(effect, geometry: FrameGeometry(scale: 1, contentOrigin: CGPoint(x: 0, y: dy)))
+        }
+
+        let base = try at(0)
+        #expect(try base == at(band * 2), "two bands is the comb's period")
+        #expect(try base != at(band), "one band inverts the comb rather than repeating it")
+        #expect(try base != at(band / 2), "a half-band shift should move the bands")
+    }
+
     private func gradientTestImage() -> CIImage {
         CIImage(color: .white)
             .cropped(to: CGRect(x: 0, y: 0, width: 96, height: 96))

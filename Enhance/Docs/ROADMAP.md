@@ -227,10 +227,15 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       highlights → blur separately → add back). **Open design call:** it is face-dependent so it
       belongs in the face carousel, but unlike THIRD EYE it should *degrade* rather than vanish on
       estimated landmarks — a blur does not need precise geometry.
-- [ ] **SLICE SHIFT** — bands displaced along an angle with per-band jitter, seeded from
-      `frameIndex`. Strip compositing avoids a kernel; this existed in the project before as
-      `GlitchEffect`, doing exactly that. Animates strongly across frames, which little else does.
-      Watch the node count if soft band edges need per-band gradient masks.
+- [x] ~~**SLICE SHIFT**~~ — **shipped 2026-08-11.** Horizontal bands displaced sideways, strip
+      compositing, no kernel. Three rows: AMOUNT, SIZE, JITTER — the last blends a regular
+      alternating comb into per-band randomness, and the two read as genuinely different looks
+      (interlacing vs broken signal), which is why they are separate controls.
+      **Built as a grid effect**: band height scales with `FrameGeometry.scale` and band position
+      is phase-aligned to `contentOrigin`, so the preview and the export agree under zoom and the
+      bands stay pinned to the subject as the animation pans.
+      Soft band edges were deliberately skipped — a gradient mask per band roughly triples the
+      node count, and the hard cut suits the look. 🔍 Not yet seen on device.
 - [ ] **HATCHING (straight lines)** — `CILineScreen` / `CIHatchedScreen` take angle and width
       directly, which is closer than the `CIEdgeWork` route EFFECTS.md suggests. Three screens at
       15°/45°/75°, each masked by a luminance band, composited with darken. Grid effect: needs
