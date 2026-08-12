@@ -1412,19 +1412,24 @@ A test that renders only the changed value passes against a key that ignores it.
 **How to find them:** grep the path for `cache`, `memo`, `static var`, `NSCache`, and any
 `Key` type. Cheap, and the failure mode is invisible otherwise.
 
-**What decides whether a cache is exposed: its lifetime, not its key.** Sweeping the effect paths
-on 2026-08-11 found three more caches — `AnimeBackgroundEffect`, `RainbowFaceEffect`,
-`HeartVignetteEffect` — all keyed on geometry only (extent, face centre, radius) with no parameter
-in the key at all. **All three are safe**, because each is a `private let overlayCache` on the
-effect *instance*, and effects are constructed fresh from their parameters on every read of
-`activeVisualEffectList` / `activeFaceEffect`. A parameter change makes a new instance and a new
-empty cache, so a stale entry cannot outlive the value that produced it.
+**The test is one question: *does this cache outlive the value that produced it?*** If yes, every
+input that affects the cached value must be in the key. If no, the key can ignore them.
 
-`GradientMapEffect`'s cube cache is `static` — shared across every instance and every parameter
-value — which is exactly why it needed the parameter in its key, and why it is memoised at all
-(rebuilding 32³ entries per slider frame). So:
+**Do not use storage class as a proxy for this.** "Instance-scoped is safe, static is dangerous"
+is the obvious shorthand and it is wrong — it mispredicts one of the three bugs above. The text
+overlay's `rasterKey` is a `private var` on `TextOverlayHostView`, an *instance* property, and it
+went stale anyway: the host view is created once for the canvas and lives across every overlay
+edit, so the cache comfortably outlived the parameter change. Storage class is not lifetime.
 
-- **Instance-scoped cache** → parameters baked in `init` are safe to omit from the key.
-- **Static or otherwise shared cache** → every input that affects the value must be in the key.
+Worked examples, all verified on 2026-08-11:
 
-Check which kind you have before deciding the key is fine.
+| Cache | Outlives the parameter? | Why |
+|---|---|---|
+| `GradientMapEffect` cube (`static`) | **Yes** | Shared across every instance and every value |
+| `TextOverlayHostView.rasterKey` (instance) | **Yes** | The view is built once and persists across edits |
+| `AnimeBackgroundEffect` / `RainbowFaceEffect` / `HeartVignetteEffect` `overlayCache` (instance) | **No** | The *effect* is reconstructed from its parameters on every read of `activeVisualEffectList` / `activeFaceEffect`, so a parameter change brings a new instance and an empty cache |
+
+Those last three key on geometry only, with no parameter in the key at all, and are correct — but
+the reason is that the instance is **rebuilt per parameter change**, not that the cache is
+instance-scoped. Change them so the effect is reused across parameter values and they become bugs
+without their keys changing at all.
