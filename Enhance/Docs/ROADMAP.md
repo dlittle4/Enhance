@@ -362,6 +362,21 @@ space and ROI notes before starting any of them — the gate proved the pipeline
       shadow/midtone/highlight *is* dark/mid/light, not to squeeze under a budget.
       Six rows: INTENSITY, SCALE, OFFSET, GRAIN, CONTRAST, COLOURS. CONTRAST is not decoration —
       without it a flat photo collapses into the midtone band and prints as one colour.
+### Device check — queued 2026-08-12, all on one pass
+
+The design pass changed things only a real screen settles. Build verified for `generic/platform=iOS`
+(all four `.ci.metallib` files present and built for `air64_v27-apple-ios18.2.0`, `default.metallib`
+still stock), so this is a Run-and-look, not a debugging session.
+
+- [ ] 🔍 **Settings, unselected rows.** Went from `.white.opacity(0.5)` to full white. The largest
+      visible change from the content-state decisions and **never seen** — Settings sits behind the
+      gallery, which needs a saved GIF, and the simulator had none.
+- [ ] 🔍 **Disabled brightness.** `contentInactive` (#D1D1D1, ~82% grey) replaced `.white` at
+      0.3–0.5 on RESET, undo, redo and the save button. Flagged before implementing: disabled may
+      now read as available. Look at the top bar with no history.
+- [ ] 🔍 **Selection by colour alone.** Unselected is now identical to ordinary text, so `enhanceMint`
+      is the only cue. Fine in the abstract; the question is whether a Settings row reads as
+      "chosen" at a glance.
 - [ ] 🔍 **RISO's six-row panel on device.** On an SE 3 *simulator* only the first three rows are
       reachable: a synthesized drag on a row moves that slider (the `minimumDistance: 0` gesture
       winning) and a drag in the margin does nothing. **The user reports the scroll working on a
