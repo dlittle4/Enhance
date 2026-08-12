@@ -25,26 +25,27 @@ extension Color {
     /// plus a third in the `icon-check` asset's SVG fill. They all mean `#60FFA8`.
     static let enhanceMint = Color(hex: 0x60FFA8)
 
-    /// Content drawn *on top of* the accent — the numeral inside a slider knob.
+    /// Content drawn *on top of* the accent — the slider knob's numeral, and every button label
+    /// sitting on the mint gradient.
     ///
-    /// Equal to `editorBackground` today, and that is a coincidence rather than a relationship:
-    /// see the note on that token. Keeping them separate is what stops a future theme that
-    /// darkens the editor from also darkening the text on every knob.
-    static let onAccent = Color(hex: 0x120E0A)
+    /// **Resolved 2026-08-12 in favour of the AppButton literal.** Two values were doing this job:
+    /// `0x120E0A` on the knob and `Color(red: 0.09, …)` on buttons. The button value won because
+    /// it is the majority — five call sites against one.
+    ///
+    /// Note it rounds to `0x171717`, which is `surfaceBase`. They are the same colour under two
+    /// names, kept apart because they answer different questions: one is "what is behind
+    /// everything", the other "what is legible on mint".
+    static let onAccent = Color(red: 0.09, green: 0.09, blue: 0.09)
 
     // MARK: - Surfaces
 
-    /// The gallery and settings screen background.
+    /// Every screen's background.
+    ///
+    /// **The editor's warm `0x120E0A` was retired 2026-08-12** in favour of one neutral
+    /// background everywhere. That is a deliberate visual change, not a refactor — the editor
+    /// gets slightly lighter and loses its warm cast.
     static let surfaceBase = Color(hex: 0x171717)
 
-    /// The editor screen background — warmer and darker than `surfaceBase`.
-    ///
-    /// **The two screens genuinely differ**, which was not obvious before tokenising: the gallery
-    /// is a neutral `0x171717` and the editor a warm `0x120E0A`. Written as
-    /// `Color(red: 18/255, green: 14/255, blue: 10/255)` at the call site, so it did not even look
-    /// like the same *kind* of value. Recorded here rather than "fixed" — matching them is a
-    /// design decision, not a refactor.
-    static let editorBackground = Color(hex: 0x120E0A)
 
     /// A raised pill or card sitting on a screen background. The most duplicated surface in the
     /// app — eight hand-rolled copies across the editor and gallery.
@@ -73,20 +74,35 @@ extension Color {
     /// theme would have to *darken* rather than lighten.
     static let divider = Color(hex: 0xD9D9D9)
 
-    /// The selected segment in `SegmentedBar`. Applied at `.opacity(0.7)` by that component, which
-    /// is left at the call site because it is a compositing decision rather than the colour.
+    /// The app's one secondary green: the selected segment in `SegmentedBar`, the secondary
+    /// button fill, and the GIF badge.
+    ///
+    /// **`buttonSecondary` and `badgeGreen` were retired into this 2026-08-12.** Three greens had
+    /// been invented at three call sites and were never the same colour; seeing them side by side
+    /// in the Figma spec sheet is what settled it. Call sites keep their own opacity — 0.7 on the
+    /// segment, 0.8 on the badge — because that is compositing, not colour.
     static let segmentSelected = Color(red: 100 / 255, green: 148 / 255, blue: 122 / 255)
 
-    /// The secondary (non-accent) button fill.
-    static let buttonSecondary = Color(red: 0.20, green: 0.411, blue: 0.298)
+    // MARK: - Content
 
-    /// The GIF badge's fill, applied at `.opacity(0.8)` by that component.
+    /// Default text and glyph colour.
     ///
-    /// A third distinct green, and deliberately kept distinct: `segmentSelected`,
-    /// `buttonSecondary` and this were each invented at their own call site and are *not* the same
-    /// colour. Converging them is a design decision for a later commit — Phase 1 only moves them
-    /// somewhere they can be compared.
-    static let badgeGreen = Color(red: 0, green: 0.51, blue: 0.298)
+    /// Closes the gap the spec sheet made obvious: 83 raw `.white` calls with no token, which is
+    /// what would have made light mode impossible. **Selected** text uses `enhanceMint` directly
+    /// rather than an alias — one value, one name.
+    ///
+    /// Secondary text is still untokenised. `.white` at 0.5 / 0.4 / 0.3 / 0.25 opacity all appear
+    /// in the app and no single one is canonical; picking a scale is its own decision.
+    static let textPrimary = Color.white
+
+    /// An icon that is present but not available — the dimmest of the three icon states.
+    ///
+    /// The other two reuse existing tokens by design: an ordinary icon is `textPrimary`, a
+    /// selected one is `enhanceMint`. Note the shipped assets bake their fill into the SVG, so
+    /// these only apply where the icon is template-rendered.
+    static let iconInactive = Color(hex: 0xD1D1D1)
+
+
 }
 
 extension UIColor {

@@ -33,7 +33,7 @@ struct SegmentedBar<T: Hashable>: View {
                     onChange?()
                 } label: {
                     Text(label(item))
-                        .font(.silkscreenControl)
+                        .font(.silkscreenBody)
                         .foregroundColor(isSelected ? mintGreen : .white)
                         .frame(maxWidth: .infinity)
                         .frame(height: rowHeight)

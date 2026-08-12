@@ -39,7 +39,7 @@ struct ParameterSliderRow: View {
     var body: some View {
         HStack(spacing: 12) {
             Text(label)
-                .font(.silkscreenControl)
+                .font(.silkscreenBody)
                 .foregroundColor(.white)
                 .lineLimit(1)
                 .frame(width: labelWidth, alignment: .leading)
@@ -83,7 +83,7 @@ struct ParameterSliderRow: View {
                     .frame(width: knobSize, height: knobSize)
                     .overlay(
                         Text(valueText ?? "\(EffectParameter.displayValue(value))")
-                            .font(.silkscreenControlEmphasis)
+                            .font(.silkscreenBody)
                             .foregroundColor(.onAccent)
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)

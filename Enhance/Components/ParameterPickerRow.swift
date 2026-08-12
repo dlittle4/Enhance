@@ -18,7 +18,7 @@ struct ParameterPickerRow<Content: View>: View {
     var body: some View {
         HStack(spacing: 12) {
             Text(label)
-                .font(.silkscreenControl)
+                .font(.silkscreenBody)
                 .foregroundColor(.white)
                 .lineLimit(1)
                 .frame(width: labelWidth, alignment: .leading)

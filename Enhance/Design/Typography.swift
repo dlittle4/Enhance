@@ -15,22 +15,18 @@ extension Font {
     static var silkscreenCaption: Font { .custom("Silkscreen-Regular", size: 12) }
     static var silkscreenButton: Font { .custom("Silkscreen-Bold", size: 18) }
     static var silkscreenButtonLabel: Font { .custom("Silkscreen-Regular", size: 16) }
-    static var silkscreenControl: Font { .custom("Silkscreen-Regular", size: 13) }
 
     // MARK: - Added by the Phase 1 token migration
 
-    /// Section headings — Bold 16. The most-written inline pair in the app, tied with
-    /// `silkscreenLabel` at six call sites each.
+    /// Section headings — Bold 16.
+    ///
+    /// `silkscreenControl` (Regular 13) and `silkscreenControlEmphasis` (Bold 13) were retired
+    /// on 2026-08-12 — their nine call sites now use `silkscreenBody` (Regular 14). That is a
+    /// visible change: control labels grow a point, and the slider knob's numeral stops being
+    /// bold.
     static var silkscreenSectionTitle: Font { .custom("Silkscreen-Bold", size: 16) }
 
     /// Field and row labels — Regular 16.
     static var silkscreenLabel: Font { .custom("Silkscreen-Regular", size: 16) }
 
-    /// The numeral inside a slider knob — **Bold** 13.
-    ///
-    /// Deliberately separate from `silkscreenControl`, which is *Regular* 13. The migration plan
-    /// listed `ParameterSliderRow`'s knob as a `silkscreenControl` swap with a note to "verify
-    /// Bold vs Regular"; it is Bold, so that swap would have quietly de-emphasised the one number
-    /// the user is actually reading while dragging. One call site, and worth its own role.
-    static var silkscreenControlEmphasis: Font { .custom("Silkscreen-Bold", size: 13) }
 }

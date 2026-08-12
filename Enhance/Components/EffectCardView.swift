@@ -43,7 +43,7 @@ struct EffectCardView<Background: View>: View {
                 background()
 
                 Text(title)
-                    .font(.silkscreenControl)
+                    .font(.silkscreenBody)
                     // SwiftUI prefers wrapping over scaling, so the floor has to be low
                     // enough that a long single word ("HALFTONE") still fits on one line
                     // at a small card size — otherwise it breaks mid-word as "HALFTON/E".

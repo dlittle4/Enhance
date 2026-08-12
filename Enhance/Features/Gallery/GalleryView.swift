@@ -62,7 +62,7 @@ struct GalleryView: View {
         .overlay(alignment: .top) {
             if showCopiedToast {
                 Text("COPIED TO CLIPBOARD")
-                    .font(.silkscreenControl)
+                    .font(.silkscreenBody)
                     .foregroundColor(.white)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
@@ -436,7 +436,7 @@ struct GalleryView: View {
         HStack(spacing: 8) {
             Button { copySelectedGifs() } label: {
                 Text("COPY")
-                    .font(.silkscreenControl)
+                    .font(.silkscreenBody)
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 60)
@@ -449,7 +449,7 @@ struct GalleryView: View {
 
             Button { shareSelectedGifs() } label: {
                 Text("SHARE")
-                    .font(.silkscreenControl)
+                    .font(.silkscreenBody)
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 60)
@@ -462,7 +462,7 @@ struct GalleryView: View {
 
             Button { showDeleteConfirmation = true } label: {
                 Text("DELETE")
-                    .font(.silkscreenControl)
+                    .font(.silkscreenBody)
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 60)

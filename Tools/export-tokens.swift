@@ -70,6 +70,13 @@ for m in matches(#"static let (\w+) = Color\.white\.opacity\(([\d.]+)\)"#, in: c
     tokens.append(Token(name: m[1], kind: "color", value: "#FFFFFF", detail: "alpha \(m[2])"))
 }
 
+// `static let name = Color.white` — a bare system colour, no constructor.
+// Added when `textPrimary` landed and the counts below caught it going missing: none of the
+// patterns above match a plain `Color.white`, so it exported as nothing at all.
+for m in matches(#"static let (\w+) = Color\.white\n"#, in: colours) {
+    tokens.append(Token(name: m[1], kind: "color", value: "#FFFFFF", detail: nil))
+}
+
 // MARK: - Radius
 
 let constants = try read("Constants.swift")
@@ -102,7 +109,11 @@ for m in matches(#"static let (\w+) = Animation\.(\w+)\(response: ([\d.]+), damp
 // quietly shrink and the Figma sync would silently stop covering something. These floors
 // turn that into a failure. Raise them when tokens are added.
 
-let expected: [(String, Int)] = [("color", 12), ("radius", 5), ("type", 11), ("motion", 4)]
+// Updated 2026-08-12 when the design decisions retired editorBackground, buttonSecondary,
+// badgeGreen, silkscreenControl and silkscreenControlEmphasis, and added textPrimary and
+// iconInactive. Raise these when tokens are added; lower them only when one is deliberately
+// retired, never to make a failure go away.
+let expected: [(String, Int)] = [("color", 11), ("radius", 5), ("type", 9), ("motion", 4)]
 for (kind, count) in expected {
     let found = tokens.filter { $0.kind == kind }.count
     if found < count {

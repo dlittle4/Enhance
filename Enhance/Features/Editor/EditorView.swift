@@ -33,7 +33,7 @@ struct EditorView: View {
 
     var body: some View {
         ZStack {
-            Color(red: 18/255, green: 14/255, blue: 10/255).ignoresSafeArea()
+            Color.surfaceBase.ignoresSafeArea()
 
             VStack(spacing: 16) {
                 topBar
@@ -846,7 +846,7 @@ struct EditorView: View {
                     viewModel.pixelShape = shape
                 } label: {
                     Text(shape.rawValue)
-                        .font(.silkscreenControl)
+                        .font(.silkscreenBody)
                         .foregroundColor(viewModel.pixelShape == shape ? .enhanceMint : .white.opacity(0.6))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
