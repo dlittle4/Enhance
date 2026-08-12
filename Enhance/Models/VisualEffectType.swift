@@ -59,6 +59,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     case sliceShift    = "SLICE SHIFT"
     case risoPrint     = "RISO"
     case caustic       = "CAUSTIC"
+    case stretch       = "STRETCH"
 
     // MARK: - Retired
     // Hidden from the picker but kept compiled and tested — see `retired` below.
@@ -144,6 +145,10 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "SCALE"))
             params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "SPEED"))
             params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "SHARPNESS"))
+        case .stretch:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "ANGLE"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "POSITION"))
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "REACH"))
         default:
             break
         }
@@ -213,6 +218,10 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
                                                    misregistration: max(0, min(1, options.tertiary)),
                                                    grain: max(0, min(1, options.quaternary)),
                                                    contrast: max(0, min(1, options.quinary)))
+        case .stretch:      return StretchEffect(intensity: clamped,
+                                                 angle: max(0, min(1, options.size)),
+                                                 position: max(0, min(1, options.tertiary)),
+                                                 reach: max(0, min(1, options.quaternary)))
         case .caustic:      return CausticEffect(intensity: clamped,
                                                  size: max(0, min(1, options.size)),
                                                  speed: max(0, min(1, options.tertiary)),

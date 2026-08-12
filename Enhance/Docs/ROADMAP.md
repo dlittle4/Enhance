@@ -50,11 +50,11 @@ is no in-flight work anywhere, so nothing below is owned by another session.
 1. 🔍 **Confirm RISO's six-row panel on a real device** (§2c). Everything else about the effect is
    done and verified; this is the one open question, and it decides whether the params cap stays
    at 6 or the panel needs a fix first.
-2. **The `CIDisplacementDistortion` spike** (§2b) — now the best-value item in §2. It is cheap, and
-   it decides whether Pattern Refraction and Pixel Stretch are stock work or kernel work.
+2. **Pattern Refraction** (§2c) is the last effect on the list, with the displacement spike (§2b)
+   worth running first for that one.
    **Ask before starting another effect outright**: three have been declined on the user's call
-   (HATCHING, BOKEH, and now Water Caustic), so the constraint is taste, not capability — the
-   kernel path itself is proved twice over.
+   (HATCHING, BOKEH, Water Caustic), so the constraint is taste, not capability — the kernel path
+   is now proved three times over. Show a render early rather than polishing alone.
 
 **CI shipped on 2026-08-12** (§1b) and guards `EnhanceTests` on every push to `main` and every PR.
 **The kernel gate passed the same day** (§1c) — and note it shipped with a real bug that only RISO
@@ -326,11 +326,17 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
 
 ### 2b. Needs a spike first
 
-- [ ] **Test whether `CIDisplacementDistortion` covers Pattern Refraction and Pixel Stretch.** Both
-      are per-pixel UV remaps, which is what a displacement map expresses: build the procedural
-      height field as a CIImage, displace by it, and run three passes at different scales for
-      per-channel dispersion — the same trick LENS uses with `CIZoomBlur`. If it works, both leave
-      §2c and the kernel gate's remaining justification narrows sharply.
+- [x] ~~**Pixel Stretch**~~ — **shipped 2026-08-12 as STRETCH.** Built as a kernel, not a
+      displacement field. **The spike was deliberately skipped for this one**, and the reasoning
+      should be checked before reusing it: the spike existed to avoid *building* kernel
+      infrastructure, and §1c has since made a kernel ordinary work. A displacement route would
+      still need its offset field built as an image at 8 bits per channel, which bands on long
+      smears, to express what the kernel does exactly in about ten lines.
+- [ ] **Test whether `CIDisplacementDistortion` covers Pattern Refraction.** Still worth doing for
+      *that* effect: it needs a procedural height field, three passes at different scales for
+      per-channel dispersion, and that is the trick LENS already uses with `CIZoomBlur`. The
+      pay-off is now "one fewer kernel to maintain" rather than "avoid the gate", so it is a
+      smaller prize than when it was written.
 
 ### 2c. Kernel effects — **unblocked 2026-08-12**, the gate in §1c passed
 

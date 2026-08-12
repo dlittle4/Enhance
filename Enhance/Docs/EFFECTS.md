@@ -10,20 +10,21 @@
 
 ## Current state
 
-**14 effects live**, in carousel order:
+**15 effects live**, in carousel order:
 
 `CHROMA SHIFT` · `LENS` · `HALFTONE` · `FISHEYE` · `SWIRL` · `PIXELATE` · `RAINBOW` ·
-`HEAT HAZE` · `MOTION BLUR` · `GRADIENT` · `EDGES` · `DITHER` · `SLICE SHIFT` · `RISO`
+`HEAT HAZE` · `MOTION BLUR` · `GRADIENT` · `EDGES` · `DITHER` · `SLICE SHIFT` · `RISO` · `STRETCH`
 
-**6 retired** (compiled and tested, hidden from the picker — remove from
+**7 retired** (compiled and tested, hidden from the picker — remove from
 `VisualEffectType.retired` to bring one back): Monotone, Duotone, Bloom, Inversion,
-Vintage Grain, Pop Art.
+Vintage Grain, Pop Art, and **Caustic** — the last withdrawn on the user's call after being
+built, not before.
 
 **15 face filters**, all shipped. LENS is the seventh effect living in *both* carousels, via
 `FaceVisualEffect`.
 
-Every effect **except RISO** is composed from stock `CIFilter`s, and that is still the default —
-rule zero below has not changed. **Custom Core Image kernel infrastructure now exists** as of
+Every effect **except RISO and STRETCH** is composed from stock `CIFilter`s, and that is still the
+default — rule zero below has not changed. **Custom Core Image kernel infrastructure now exists** as of
 2026-08-12: a build rule scoped to `*.ci.metal`, with `Shaders/CI/` holding the kernels.
 `Shaders/Pixellate.metal` remains a SwiftUI `[[stitchable]]` shader for the animated canvas
 border and deliberately does *not* go through that rule — keeping the two apart is the whole
