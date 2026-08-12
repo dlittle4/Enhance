@@ -166,7 +166,7 @@ literal→token swaps. No new primitives, no feature-file restructuring.
 
 | File | Change |
 |---|---|
-| `Design/Colors.swift` | Add surface/neutral tokens equal to today's literals: `background`=`0x171717`, `surfaceRaised`=`0x202020`, `surfacePanel`=`0x1C1815`, `surfaceActive`=`0x323232`, `onAccent`=`0x120E0A`, `hairline`=`white.opacity(0.04)`, `toggleTrack`=`0xD9D9D9`, `segmentSelected`=`rgb(100,148,122)`. Keep `enhanceMint`. |
+| `Design/Colors.swift` | Add surface/neutral tokens equal to today's literals: `background`=`0x171717`, `surfaceRaised`=`0x202020`, `surfacePanel`=`0x1C1815`, `surfaceActive`=`0x323232`, `onAccent`=`0x120E0A`, `hairline`=`white.opacity(0.04)`, `divider`=`0xD9D9D9` *(the plan called this `toggleTrack`; there is no toggle in the app)*, `segmentSelected`=`rgb(100,148,122)`. Keep `enhanceMint`. |
 | `Design/Constants.swift` | Add `CornerRadius.card = 16` (the radius used in 21 places). Keep `standard 8 / large 12 / circle 100` and `Layout.panelCornerRadius 20`. |
 | `Design/Typography.swift` | Add the two missing roles call sites use: `silkscreenSectionTitle` = Bold 16, `silkscreenLabel` = Regular 16. |
 | `Design/Motion.swift` *(new)* | Named springs: `press` (response 0.3, damping 0.6), `panel` (0.3, 0.8), `carousel` (0.35, 0.85). |
@@ -224,7 +224,7 @@ Params: fill (`.raised`=`surfaceRaised`, `.panel`, `.active`), `opacity`, `corne
 
 **2c — migrate remaining inline typography in screens**
 
-- `Views/SettingsView.swift:43/56/67/82` fonts → tokens; `:141` `0xD9D9D9` → `.toggleTrack`.
+- `Views/SettingsView.swift:43/56/67/82` fonts → tokens; `:141` `0xD9D9D9` → `.divider`.
 - `Features/Gallery/GalleryView.swift` (10 sites: `:136/164/170/192/231/246/259/291/302/423`) → tokens.
 - `Features/Editor/EditorView.swift:219/252` → `.silkscreenSectionTitle` / `.silkscreenTitle`.
 

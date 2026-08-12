@@ -62,8 +62,16 @@ extension Color {
 
     // MARK: - Controls
 
-    /// The unfilled track of the settings toggle.
-    static let toggleTrack = Color(hex: 0xD9D9D9)
+    /// The 1pt rule between sections in Settings.
+    ///
+    /// **Named `toggleTrack` in the migration plan, which was wrong** — there is no toggle
+    /// anywhere in the app. Its only use is `SettingsView.divider`, a 1pt `Rectangle`. Caught by
+    /// rebuilding the screen in Figma from the source, which is exactly the kind of error a spec
+    /// sheet is for. Renamed before anything referenced it.
+    ///
+    /// It is also the app's only light-coloured element, which makes it the one token a light
+    /// theme would have to *darken* rather than lighten.
+    static let divider = Color(hex: 0xD9D9D9)
 
     /// The selected segment in `SegmentedBar`. Applied at `.opacity(0.7)` by that component, which
     /// is left at the call site because it is a compositing decision rather than the colour.
