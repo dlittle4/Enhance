@@ -931,6 +931,28 @@ class EditorViewModel {
                         let scaledFace = face.scaled(x: scaleX, y: scaleY)
                         result = faceEffect.apply(to: result, face: scaledFace, progress: previewProg, frameIndex: 5)
                     }
+
+                    // Bring the face pass back into [0,1] before any visual effect sees it.
+                    //
+                    // Face effects build their glow with `CIAdditionCompositing` — LAZER EYES
+                    // stacks five layers per eye, THIRD EYE its rays — which pushes the brightest
+                    // pixels well past 1.0. Rendering straight to screen hides that, because the
+                    // rasteriser clamps on the way out. A visual effect chained *after* it does
+                    // not: SLICE SHIFT composites bands with source-over, and over-range
+                    // premultiplied pixels came out **black** exactly where the glow was
+                    // brightest, so laser eyes turned into black blobs.
+                    //
+                    // The GIF path never had this because it rasterises between the two stages
+                    // (`GIFGenerator.faceEffectedSource` renders a CGImage), which clamps for
+                    // free. This is that same normalisation, done lazily — the divergence
+                    // between the paths was the bug, not either stage on its own.
+                    if let clamped = CIFilter(name: "CIColorClamp", parameters: [
+                        kCIInputImageKey: result,
+                        "inputMinComponents": CIVector(x: 0, y: 0, z: 0, w: 0),
+                        "inputMaxComponents": CIVector(x: 1, y: 1, z: 1, w: 1)
+                    ])?.outputImage {
+                        result = clamped.cropped(to: result.extent)
+                    }
                 }
 
                 if !visualEffects.isEmpty {

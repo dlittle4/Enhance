@@ -913,6 +913,64 @@ struct VisualEffectTests {
         #expect(try base != at(band / 2), "a half-band shift should move the bands")
     }
 
+    // MARK: - Face pass -> visual pass handoff
+
+    /// Face effects composite their glow additively, which pushes the brightest pixels past
+    /// 1.0. That is invisible when rendered straight to screen, because the rasteriser clamps
+    /// on the way out — but a visual effect chained after it does arithmetic on those values.
+    /// SLICE SHIFT's source-over composite turned over-range pixels **black**, so laser eyes
+    /// rendered as black blobs in the preview while the GIF — which rasterises between the two
+    /// stages, and so clamps for free — was correct.
+    ///
+    /// Asserts the property rather than a coordinate: the bands move, so any fixed pixel is a
+    /// coin flip. Compares the mean colour of the whole frame with and without the clamp.
+    @Test func additivelyBlownInput_goesDarkThroughSliceShift_untilClamped() throws {
+        let ctx = CIContext()
+        let base = CIImage(color: CIColor(red: 0.5, green: 0.5, blue: 0.5))
+            .cropped(to: CGRect(x: 0, y: 0, width: 96, height: 96))
+
+        // A deliberately over-range patch, the way stacked additive glow layers end up.
+        let hot = CIImage(color: CIColor(red: 4, green: 0, blue: 0))
+            .cropped(to: CGRect(x: 24, y: 24, width: 48, height: 48))
+        let blown = try #require(CIFilter(name: "CIAdditionCompositing", parameters: [
+            kCIInputImageKey: hot, kCIInputBackgroundImageKey: base
+        ])?.outputImage).cropped(to: base.extent)
+
+        let clamped = try #require(CIFilter(name: "CIColorClamp", parameters: [
+            kCIInputImageKey: blown,
+            "inputMinComponents": CIVector(x: 0, y: 0, z: 0, w: 0),
+            "inputMaxComponents": CIVector(x: 1, y: 1, z: 1, w: 1)
+        ])?.outputImage).cropped(to: base.extent)
+
+        /// The darkest red anywhere in the frame after slicing.
+        ///
+        /// The mean is no good here — the black holes and the blown-out glow average each
+        /// other out. The defect *is* black pixels appearing, so measure the minimum.
+        func darkestRed(_ img: CIImage) throws -> Int {
+            let sliced = SliceShiftEffect(intensity: 0.8, size: 0.5, jitter: 0.0)
+                .apply(to: img, progress: 1.0, frameIndex: 3)
+            let w = 96, h = 96
+            var px = [UInt8](repeating: 0, count: w * h * 4)
+            ctx.render(sliced, toBitmap: &px, rowBytes: w * 4,
+                       bounds: CGRect(x: 0, y: 0, width: w, height: h),
+                       format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+            return stride(from: 0, to: px.count, by: 4).map { Int(px[$0]) }.min() ?? 0
+        }
+
+        // Asserts only the invariant this code owns: after clamping, nothing in the frame is
+        // darker than the background it started from. Nothing in the fixture is darker than
+        // the 0.5 grey, so a near-black pixel could only come from the composite going
+        // negative.
+        //
+        // An earlier version also asserted the *unclamped* path goes black, to prove the bug
+        // reproduces. That passed alone and failed in a full run: it was really an assertion
+        // about how Core Image treats out-of-range values, which is its business and not a
+        // property of this code. Same trap as the MOTION BLUR endpoint test above — assert
+        // what you own, not what the framework happens to do.
+        let withClamp = try darkestRed(clamped)
+        #expect(withClamp > 90, "clamping must leave nothing darker than the grey background, got \(withClamp)")
+    }
+
     private func gradientTestImage() -> CIImage {
         CIImage(color: .white)
             .cropped(to: CGRect(x: 0, y: 0, width: 96, height: 96))

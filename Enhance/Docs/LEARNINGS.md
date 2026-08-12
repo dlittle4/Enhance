@@ -1501,3 +1501,43 @@ looked. When you introduce a shared answer, grep every use of what it replaced.
 Related: [ROADMAP](ROADMAP.md) §4 records `previewProgress` implemented three times, and the
 memoisation-key entry above is the same family — a claim about what something depends on, drifting
 from what it actually depends on.
+
+---
+
+## 2026-08-11: The preview must clamp between the face pass and the visual pass — the GIF gets it free
+
+**Problem:** with SLICE SHIFT applied, selecting LAZER EYES made the laser glow render as **black
+blobs in the live preview**. The same combination was correct in the generated GIF.
+
+**Root cause:** face effects build their glow with `CIAdditionCompositing` — LAZER EYES stacks five
+layers per eye, THIRD EYE its rays — which pushes the brightest pixels well past 1.0. That is
+invisible when the image goes straight to screen, because the rasteriser clamps on the way out. It
+is *not* invisible to another effect chained afterwards, which does arithmetic on those values:
+SLICE SHIFT composites its bands with source-over, and over-range premultiplied pixels came out
+black exactly where the glow was brightest.
+
+**Why the GIF was fine, and this is the important part.** The two paths are not the same shape. The
+GIF pipeline **rasterises between the stages** — `GIFGenerator.faceEffectedSource` renders a
+`CGImage` before visual effects run — which clamps to [0,1] for free. The preview chains `CIImage`s
+end to end with no intermediate render, so nothing normalised the values. **The divergence between
+the paths was the bug, not either stage on its own.**
+
+**Fix:** a `CIColorClamp` to [0,1] at the end of the preview's face pass, before any visual effect
+sees the result. Lazy, so it costs no render, and it is exactly the normalisation the GIF path
+already performs.
+
+**Rule:** when a face effect and a visual effect can compose, the *preview* is the path that will
+break, because the export rasterises between stages and the preview does not. Any effect that
+composites additively is a source of out-of-range values, and any effect that does arithmetic on
+its input — source-over, blends, displacement — is a consumer that will misbehave on them.
+
+**Two testing notes, both learned the hard way here:**
+
+- **A flat-colour fixture hid this completely.** The first reproduction used solid grey and rendered
+  correctly; only the real photo showed it. This is the same warning EFFECTS.md gives about
+  verifying by looking, arriving from a different direction.
+- **Do not assert that the bug reproduces.** The first regression test also checked that the
+  *unclamped* path goes black. That passed alone and failed in a full suite run, because it was
+  really an assertion about how Core Image treats out-of-range values — the framework's business,
+  not this code's. Assert only the invariant you own: after clamping, nothing is darker than the
+  background it started from.
