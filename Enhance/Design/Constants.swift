@@ -27,12 +27,20 @@ enum AppConstants {
     enum CornerRadius {
         /// Standard corner radius (8pt)
         static let standard: CGFloat = 8
-        
+
         /// Large corner radius (12pt)
         static let large: CGFloat = 12
-        
+
         /// Circle radius for buttons (100pt)
         static let circle: CGFloat = 100
+
+        /// Cards, pills and raised surfaces (16pt).
+        ///
+        /// The app's de-facto radius and, until now, its most-repeated un-tokenised number:
+        /// 21 literal `cornerRadius: 16` sites across 6 files. Note this is *not*
+        /// `Layout.panelCornerRadius` (20pt) — the detail panel is deliberately rounder than the
+        /// cards inside it.
+        static let card: CGFloat = 16
     }
     
     /// Animation durations
