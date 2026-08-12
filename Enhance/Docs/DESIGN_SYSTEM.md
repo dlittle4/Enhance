@@ -44,7 +44,7 @@ What is missing or inconsistent:
 | Typography leaks | Screens bypass the font tokens with raw `.custom("Silkscreen…", size:)` | `SettingsView` (4), `GalleryView` (10), `EditorView` (2), `BottomSheet` (2), `EffectDetailPanel` (1), `ParameterSliderRow` (1) |
 | Secondary colours | Greens invented per call-site, none in `Colors.swift` | `AppButton` `0.20,0.411,0.298`; `SegmentedBar` `100/148/122`; `GifBadge` `0,0.51,0.298` |
 | Motion | The spring `response 0.3, damping 0.6/0.8` is re-typed inline in ~11 places | `ButtonModifiers`, `AppButton`, `GalleryView`, `ShowcaseCarousel` |
-| Surface duplication | The `0x202020` + radius-16 "pill" is hand-rolled 8+ times in feature files | `EditorView:726/765/781`, `GalleryView:71/265/445/458/471` |
+| Surface duplication | The `0x202020` + radius-16 "pill" is hand-rolled 8 times in feature files | `EditorView.saveShareButtons` ×1, `EditorView.saveSheetContent` ×2, `GalleryView:71/265/445/458/471` |
 | Component APIs | `AppButton` uses 4 style booleans; `CircleButton` hard-codes the glyph `"X"` and a 62×60 frame | `Components/AppButton.swift`, `Components/CircleButton.swift` |
 | Light/dark | Dark-only via a single `.preferredColorScheme(.dark)`; `AccentColor.colorset` is an empty stub; dead theme scaffolding never rendered | `GalleryView.swift:59`, `SettingsView.swift:53` |
 | Accessibility | **Zero** `accessibilityLabel`/traits; **zero** Dynamic Type / `@ScaledMetric`; fixed-pt bitmap font | whole app |
@@ -53,6 +53,43 @@ What is missing or inconsistent:
 **The core opportunity:** almost every gap is a literal that *should* be a token, and the app's
 own dominant pattern teaches a coding agent to keep writing literals. Closing this makes the app
 both consistent and safe for agents to extend.
+
+### How big is it, exactly *(re-measured 2026-08-12)*
+
+FEATURE-THEMES claims "~340 colour literals across ~22 files". **Both numbers are wrong, and the
+file count — the one that sets migration scope — is understated.** Method, so this can be
+re-run rather than argued about:
+
+```bash
+cd Enhance
+PAT='0x[0-9A-Fa-f]{6}|Color\(red:|\.white|\.black'
+grep -rEno "$PAT" --include="*.swift" . | grep -v 'Services/Animators/' | wc -l   # occurrences
+grep -rEl "$PAT" --include="*.swift" . | grep -v 'Services/Animators/' | wc -l    # files
+```
+
+| Scope | Occurrences | Files |
+|---|---|---|
+| UI chrome (excludes `Services/Animators/**`, which is image processing) | **178** | **27** |
+| Everything | 236 | 43 |
+
+Concentration matters more than the total: `EditorView` (37), `GradientViews` (32) and
+`GalleryView` (25) hold **more than half** of the UI-chrome literals between them, so Phase 2's
+value is front-loaded into three files.
+
+Narrower counts, for the specific Phase 1 swaps:
+
+| What | Count | Files |
+|---|---|---|
+| Hex literals `0xNNNNNN` | 20 | 8 |
+| Inline `.custom("Silkscreen…")` | 28 | 7 |
+| Numeric `cornerRadius:` | 32 | 10 |
+| `cornerRadius: 16` specifically | 21 | 6 |
+| Inline spring `response:` | 16 | 5 |
+
+> **A note on the exclusion.** `Services/Animators/**` is 58 occurrences across 16 files and is
+> deliberately out of scope — those are effect colour maths, not design. A lint rule added in
+> Phase 3 must carry the same exclusion or it will fail on RISO's paper colour and LAZER EYES'
+> glow.
 
 ---
 
@@ -127,7 +164,12 @@ Params: fill (`.raised`=`surfaceRaised`, `.panel`, `.active`), `opacity`, `corne
 
 **2b — migrate inline pills/panels onto `Surface`**
 
-- `Features/Editor/EditorView.swift:726–727 / 764–765 / 780–781` — three `0x202020.opacity(0.8)` + radius-16 pills → `.surface(.raised, opacity: 0.8)`.
+- `Features/Editor/EditorView.swift` — three `0x202020.opacity(0.8)` + radius-16 pills →
+  `.surface(.raised, opacity: 0.8)`. **Anchored by symbol, not line**: one in
+  `saveShareButtons`, two in `saveSheetContent`. *(These were `:726/765/781` when the plan was
+  written and are `:1124/1162/1178` today — text overlays rewrote the file in between. Re-find
+  them with `grep -n '0x202020' Features/Editor/EditorView.swift` rather than trusting either
+  number.)*
 - `Features/Gallery/GalleryView.swift:71 / 265 / 445 / 458 / 471` — `0x202020` pills (`:71` at `.opacity(0.95)`) → `.surface(.raised)`.
 - `Features/Gallery/GalleryView.swift:45 / 417` — `0x171717` full-bleed → `.background`.
 - Remaining radius-16 clip-shapes in `GalleryView` (`:198/252/264/429/444/457/470`) and `EditorView` (`:694/743`) → `CornerRadius.card`.

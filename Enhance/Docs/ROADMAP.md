@@ -233,14 +233,18 @@ equals the literal it replaces, so the app should render pixel-identical. Full p
       `Design/Motion.swift`; route existing components through them via 1:1 swaps. Self-contained.
 - [ ] **Phase 2 — migrate the duplicated patterns.** A `Surface` primitive; move the inline
       `0x202020` pills and the inline Silkscreen fonts onto tokens.
-- [ ] **Re-derive the plan's `EditorView` line references first.** They were captured 28 commits ago
-      and text overlays has since rewritten that file: `EditorView.swift:726` and `:765` no longer
-      point at what the plan says, while the `GalleryView` and `SettingsView` references still hold.
-      Prefer symbol anchors over line numbers in a doc that will outlive several refactors.
-- [ ] **Re-measure the literal count, with a stated method.** FEATURE-THEMES claims ~340 across ~22
-      files; the reproducible counts are **192 across 28 files** excluding `Services/Animators/**`,
-      or **253 across 44** including it. The file count — the number that sets migration scope — is
-      understated either way.
+- [x] ~~**Re-derive the plan's `EditorView` line references first.**~~ Done 2026-08-12, and the
+      prediction was exactly right: the three `0x202020` pills moved from `:726/765/781` to
+      `:1124/1162/1178`, while **every** `GalleryView`, `SettingsView` and `Components` reference
+      still held. They are now anchored by symbol (`saveShareButtons`, `saveSheetContent`) with the
+      grep that re-finds them, so the next refactor cannot rot them again.
+- [x] ~~**Re-measure the literal count, with a stated method.**~~ Done 2026-08-12 — the method and
+      the table are in [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) §1 so they can be re-run. **178
+      occurrences across 27 files** of UI chrome, or 236 across 43 including
+      `Services/Animators/**`. FEATURE-THEMES' "~340 across ~22 files" was wrong in both
+      directions, and the file count was indeed understated. The useful finding is the
+      concentration: `EditorView` (37), `GradientViews` (32) and `GalleryView` (25) hold more than
+      half of it, so Phase 2 is front-loaded into three files.
 
 ### 1e. Return the new asset id from the save callback ✓ shipped 2026-08-11
 
