@@ -24,7 +24,7 @@ struct BottomSheet<Content: View>: View {
         VStack(spacing: 0) {
             header
                 .padding(.horizontal, 16)
-                .background(Color.black)
+                .background(Color.surfaceCard)
 
             content()
 
@@ -32,7 +32,7 @@ struct BottomSheet<Content: View>: View {
         }
         .presentationDetents(expandable ? [.medium, .large] : [.medium])
         .presentationDragIndicator(.hidden)
-        .presentationBackground(.black)
+        .presentationBackground(Color.surfaceCard)
     }
 
     private var header: some View {

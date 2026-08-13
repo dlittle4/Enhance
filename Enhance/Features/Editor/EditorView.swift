@@ -836,35 +836,20 @@ struct EditorView: View {
     /// The two PIXELATE cell shapes. Same zero-spacing Spacer distribution as the colour
     /// swatches — see `colorSwatchContent` for why both the spacing and the `minLength`
     /// have to be zero.
+    /// PIXELATE's cell shape, drawn with the same segmented control as every other toggle.
+    ///
+    /// It used to be bare text buttons with an 8pt outline on the selection — a fourth
+    /// treatment for a control that is the same thing as `SegmentedToggle`. Routing it through
+    /// the shared component is what stops the panel accumulating one-off styles.
     private var pixelShapeContent: some View {
-        HStack(spacing: 0) {
-            ForEach(PixelShape.allCases) { shape in
-                Spacer(minLength: 0)
-                Button {
-                    viewModel.pushUndo()
-                    HapticService.light()
-                    viewModel.pixelShape = shape
-                } label: {
-                    Text(shape.rawValue)
-                        .font(.silkscreenBody)
-                        .foregroundColor(viewModel.pixelShape == shape ? .enhanceMint : .textPrimary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                .stroke(viewModel.pixelShape == shape ? Color.enhanceMint : .clear,
-                                        lineWidth: 2)
-                        )
-                }
-                .buttonStyle(.plain)
-                Spacer(minLength: 0)
-            }
-        }
+        SegmentedToggle(
+            items: PixelShape.allCases,
+            selection: $viewModel.pixelShape,
+            label: { $0.rawValue },
+            onWillChange: { viewModel.pushUndo() }
+        )
     }
 
-    /// Colour swatches for a `.tintColor` parameter. Used by visual effects (writing
-    /// `tintColor`) and face filters (writing `laserColor`). Content only — the label
-    /// column and row height come from `ParameterPickerRow`.
     private func colorSwatchContent(selection: Binding<LaserColor>) -> some View {
         // The zeroed spacing and `minLength` are both load-bearing. The
         // Spacer-on-both-sides pattern distributes the swatches evenly, but a bare
