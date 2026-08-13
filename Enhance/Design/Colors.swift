@@ -79,8 +79,10 @@ extension Color {
     /// surface is behind it, so it reads correctly on `surfacePrimary` and on `surfaceCard`.
     static let divider = Color(hex: 0xD9D9D9).opacity(0.15)
 
-    /// Drop shadow beneath raised elements. Not yet used — exported by the design for the next
-    /// component pass.
+    /// Drop shadow beneath raised elements — gallery tiles and the Settings app-icon thumbnails.
+    ///
+    /// Both wrote `Color(white: 0.12, opacity: 0.15)` before, a very dark grey rather than black.
+    /// This is marginally darker; the alpha is unchanged.
     static let shadow = Color.black.opacity(0.15)
 
     /// Dimming behind a modal or sheet. Not yet used — same.

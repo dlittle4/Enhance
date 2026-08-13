@@ -110,7 +110,7 @@ struct SettingsView: View {
             RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous)
                 .strokeBorder(mintGreen, lineWidth: isSelected ? 4 : 0)
         )
-        .shadow(color: Color(white: 0.12, opacity: 0.15), radius: 22, x: 0, y: 22)
+        .shadow(color: Color.shadow, radius: 22, x: 0, y: 22)
     }
 
     // MARK: - Helpers

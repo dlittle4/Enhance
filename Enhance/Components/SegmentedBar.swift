@@ -50,8 +50,8 @@ struct SegmentedBar<T: Hashable>: View {
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous)
-                .fill(Color.white.opacity(0.04))
+            RoundedRectangle(cornerRadius: AppConstants.CornerRadius.control, style: .continuous)
+                .fill(Color.surfaceControl)
         )
     }
 }

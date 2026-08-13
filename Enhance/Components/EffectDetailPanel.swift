@@ -142,10 +142,14 @@ struct EffectDetailPanel<Rows: View>: View {
                     onCancel()
                 } label: {
                     // Matches the editor's existing "X" close treatment.
+                    // 44pt stays the tap target, but the glyph is pinned to the leading
+                    // edge of it rather than centred — otherwise the frame adds 10pt of
+                    // visual inset on top of the panel's own 16pt padding and the chevron
+                    // drifts into the title.
                     Text("<")
                         .font(.silkscreenTitle)
-                        .foregroundColor(.white)
-                        .frame(width: 44, height: 44)
+                        .foregroundColor(.textPrimary)
+                        .frame(width: 44, height: 44, alignment: .leading)
                 }
                 .buttonStyle(.plain)
             }
@@ -157,7 +161,7 @@ struct EffectDetailPanel<Rows: View>: View {
                     Image("icon-check")
                         .renderingMode(.template)
                         .foregroundColor(.enhanceMint)
-                        .frame(width: 44, height: 44)
+                        .frame(width: 44, height: 44, alignment: .trailing)
                 }
                 .buttonStyle(.plain)
             }

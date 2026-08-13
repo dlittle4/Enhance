@@ -55,7 +55,7 @@ struct GifGridItem: View {
                     .strokeBorder(Color.enhanceMint, lineWidth: 4)
                     .opacity(isSelected ? 1 : 0)
             )
-            .shadow(color: Color(white: 0.12, opacity: 0.15), radius: 22, x: 0, y: 22)
+            .shadow(color: Color.shadow, radius: 22, x: 0, y: 22)
             .contentShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
         }
         .buttonStyle(GifGridItemButtonStyle())

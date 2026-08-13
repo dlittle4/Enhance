@@ -882,14 +882,13 @@ struct EditorView: View {
                     HapticService.light()
                     selection.wrappedValue = color
                 } label: {
+                    // Selection is *size*, not a ring — 30pt against 26pt, per the
+                    // 2026-08-12 design. A ring competed with the swatch's own colour;
+                    // scale reads at a glance and costs no extra chrome.
                     Circle()
                         .fill(color.swiftUIColor)
-                        .frame(width: 26, height: 26)
-                        .overlay(
-                            Circle()
-                                .stroke(selection.wrappedValue == color ? mintGreen : .clear, lineWidth: 2)
-                                .frame(width: 32, height: 32)
-                        )
+                        .frame(width: selection.wrappedValue == color ? 30 : 26,
+                               height: selection.wrappedValue == color ? 30 : 26)
                 }
                 .buttonStyle(.plain)
                 Spacer(minLength: 0)
@@ -1046,7 +1045,7 @@ struct EditorView: View {
     // MARK: - Effect Category Icon Tabs
 
     private var effectCategoryTabs: some View {
-        HStack(spacing: 40) {
+        HStack(spacing: AppConstants.Spacing.standard) {
             effectCategoryIcon("icon-zoom-in", category: .zoomEffects)
             effectCategoryIcon("icon-smile", category: .faceFilters)
             effectCategoryIcon("icon-image", category: .visualEffects)
@@ -1068,7 +1067,18 @@ struct EditorView: View {
         } label: {
             Image(assetName)
                 .renderingMode(.template)
-                .foregroundColor(isActive ? mintGreen : Color(white: 0.82))
+                .foregroundColor(isActive ? mintGreen : .textInactive)
+                .frame(width: 48, height: 34)
+                .background(
+                    RoundedRectangle(cornerRadius: AppConstants.CornerRadius.large,
+                                     style: .continuous)
+                        .fill(isActive ? Color.mintDim : Color.clear)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppConstants.CornerRadius.large,
+                                     style: .continuous)
+                        .stroke(isActive ? Color.enhanceMint : Color.clear, lineWidth: 2)
+                )
         }
         .buttonStyle(.plain)
     }
