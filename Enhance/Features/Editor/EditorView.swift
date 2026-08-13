@@ -1045,10 +1045,15 @@ struct EditorView: View {
     // MARK: - Effect Category Icon Tabs
 
     private var effectCategoryTabs: some View {
-        HStack(spacing: AppConstants.Spacing.standard) {
+        // Space-between, not a fixed gap: the design distributes the four tabs across the
+        // full width with the first and last flush to the edges.
+        HStack(spacing: 0) {
             effectCategoryIcon("icon-zoom-in", category: .zoomEffects)
+            Spacer(minLength: 0)
             effectCategoryIcon("icon-smile", category: .faceFilters)
+            Spacer(minLength: 0)
             effectCategoryIcon("icon-image", category: .visualEffects)
+            Spacer(minLength: 0)
             effectCategoryIcon("icon-text", category: .text)
         }
         .frame(maxWidth: .infinity)
@@ -1065,19 +1070,19 @@ struct EditorView: View {
                 viewModel.selectedEffectCategory = category
             }
         } label: {
+            // 72x40 on every tab, selected or not — the design gives each the same
+            // 24pt icon inside 24pt horizontal and 8pt vertical padding, and only the
+            // selected one paints a background. Sizing them all identically is what keeps
+            // the row from shifting when the selection moves.
             Image(assetName)
                 .renderingMode(.template)
                 .foregroundColor(isActive ? mintGreen : .textInactive)
-                .frame(width: 48, height: 34)
+                .frame(width: 72, height: 40)
                 .background(
-                    RoundedRectangle(cornerRadius: AppConstants.CornerRadius.large,
-                                     style: .continuous)
-                        .fill(isActive ? Color.mintDim : Color.clear)
+                    Capsule().fill(isActive ? Color.mintDim : Color.clear)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: AppConstants.CornerRadius.large,
-                                     style: .continuous)
-                        .stroke(isActive ? Color.enhanceMint : Color.clear, lineWidth: 2)
+                    Capsule().stroke(isActive ? Color.enhanceMint : Color.clear, lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
