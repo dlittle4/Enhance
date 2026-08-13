@@ -33,7 +33,17 @@ struct EditorSnapshot {
 class EditorViewModel {
     var content: DetailContent
     private let gifGenerator: GIFGenerating
-    
+
+    /// Whether ENHANCE may run before the user has pinched the canvas — the
+    /// `FeatureFlags.zoomOptional` experiment.
+    ///
+    /// Read once at construction rather than on every use. The editor is built fresh each time a
+    /// photo is opened, so a toggle in Settings still takes effect on the next photo; and holding
+    /// the answer here rather than reaching into `UserDefaults` from the generation path is what
+    /// lets a test drive both branches without writing to the shared defaults, where a leaked
+    /// value would silently change the behaviour of every later test in the process.
+    let allowsGenerationWithoutZoom: Bool
+
     var scale: CGFloat = 1.0
     var lastScale: CGFloat = 1.0
     var offset: CGSize = .zero
@@ -56,6 +66,44 @@ class EditorViewModel {
     var saveMessage: String = ""
     var showControls: Bool = false
     var selectedAnimatorType: AnimatorType? = .zoomIn
+
+    /// Which ZOOM card is selected when the editor opens, and what RESET returns to.
+    ///
+    /// ZOOM IN normally — the app's whole premise is a zoom. With the "make GIFs without zooming"
+    /// experiment on, NO ZOOM instead: the point of that flag is that zooming is a choice, and
+    /// opening on a zoom type would pre-make it.
+    ///
+    /// Also the baseline `hasNonDefaultSettings` compares against, so RESET does not appear on an
+    /// untouched editor just because the default moved.
+    var defaultAnimatorType: AnimatorType? {
+        allowsGenerationWithoutZoom ? nil : .zoomIn
+    }
+
+    /// The PAUSE a GIF should start at, which depends on whether it zooms — see
+    /// `ZoomPlayback.noZoomPause` for why the two differ.
+    var defaultPauseDuration: Double {
+        selectedAnimatorType == nil ? ZoomPlayback.noZoomPause : ZoomPlayback.defaultPause
+    }
+
+    /// Whether PAUSE is still at whatever the current selection's default is. Tolerant for the
+    /// same reason `ZoomPlayback.isDefaultPause` is: a slider round-trip is not bit-exact.
+    var isPauseAtDefault: Bool {
+        abs(pauseDuration - defaultPauseDuration) < 1e-6
+    }
+
+    /// Applies a zoom choice the **user** made, carrying an untouched PAUSE to the new default.
+    ///
+    /// Only for direct selections — the zoom cards call this and nothing else does. Undo, redo
+    /// and panel-cancel restore a whole `EditorSnapshot` including its pause, and routing them
+    /// through here would let this rewrite the very value they are restoring.
+    ///
+    /// A pause the user has moved is left alone: the default follows the selection, an explicit
+    /// choice does not.
+    func selectAnimator(_ type: AnimatorType?) {
+        let wasAtDefault = isPauseAtDefault
+        selectedAnimatorType = type
+        if wasAtDefault { pauseDuration = defaultPauseDuration }
+    }
     var selectedModifier: ModifierType? = nil
     var isPlaying: Bool = true
     var playbackSpeed: Double = ZoomPlayback.defaultSpeed
@@ -238,14 +286,16 @@ class EditorViewModel {
         case .zoomEffects:   return 3
         case .visualEffects: return selectedVisualEffect?.parameters.count ?? 0
         case .faceFilters:   return selectedFaceFilter?.parameters.count ?? 0
-        // FILL, the swatches it selects between, and the per-preset tunable — plus FROM for the
-        // presets that travel. STYLE is held back until decoration renders correctly.
+        // FILL — which now carries its own swatches rather than pushing them into a second,
+        // blank-labelled row — and the per-preset tunable, plus FROM for the presets that
+        // travel. STYLE is held back until decoration renders correctly.
         //
-        // Four rows is over the budget §1a is deciding: the arithmetic there says four rows need
-        // 234pt against an SE 3 panel of ~190–200pt, so SLIDE overflows into a scroll on the
-        // shortest device, where a slider drag scrolls the panel instead of moving the knob
-        // (LEARNINGS 2026-08-08). Only SLIDE is affected, and only on that device class.
-        case .text:          return (textOverlay?.animation.usesFromRow == true) ? 4 : 3
+        // The old counts were 3 and 4; folding the swatches into FILL took one off each. The
+        // note that used to live here, about four rows overflowing an SE 3 into a scroll where a
+        // slider drag would fight it, is doubly obsolete: `ParameterSliderRow` scoped its drag to
+        // the knob on 2026-08-12, so the conflict cannot arise, and ROADMAP §1a accepts the
+        // scroll regardless.
+        case .text:          return (textOverlay?.animation.usesFromRow == true) ? 3 : 2
         }
     }
 
@@ -253,6 +303,9 @@ class EditorViewModel {
         switch selectedEffectCategory {
         case .visualEffects: return selectedVisualEffect?.rawValue ?? ""
         case .faceFilters:   return selectedFaceFilter?.rawValue ?? ""
+        // Matches the card that opened the panel. The other three categories call their
+        // no-effect card ORIGINAL; ZOOM calls it NO ZOOM, because "original" describes a picture
+        // and what is being switched off here is a movement *(user's call, 2026-08-13)*.
         case .zoomEffects:   return selectedAnimatorType?.rawValue.uppercased() ?? "NO ZOOM"
         case .text:          return textOverlay?.animation.rawValue ?? "TEXT"
         }
@@ -508,14 +561,21 @@ class EditorViewModel {
         return [effect.effect(intensity: value(EffectParameter.intensityID, for: effect), options: options)]
     }
 
+    /// The zoom, with the motion modifier layered over it.
+    ///
+    /// The no-zoom case used to return a bare `StaticAnimator()` and **discard the modifier**.
+    /// That was unreachable while one of the three zoom types was always selected, and ROADMAP
+    /// §3f flagged it as the thing to fix first if the state was ever re-exposed. The ORIGINAL
+    /// card re-exposes it: SHAKE over a held framing is a real request — `hasEffectsWithoutZoom`
+    /// counts the modifier as reason enough to generate — so dropping it would have produced a
+    /// still for a user who explicitly asked for movement.
+    ///
+    /// The modifier composes over whichever base is in play, which is what the two-`guard` shape
+    /// obscured by returning early on a condition the modifier does not depend on.
     var activeAnimator: Animator {
-        guard let animType = selectedAnimatorType else {
-            return StaticAnimator()
-        }
-        guard let mod = selectedModifier, mod != .straight else {
-            return animType.animator
-        }
-        return CompositeAnimator(base: animType.animator, modifier: mod.modifier)
+        let base: Animator = selectedAnimatorType?.animator ?? StaticAnimator()
+        guard let mod = selectedModifier, mod != .straight else { return base }
+        return CompositeAnimator(base: base, modifier: mod.modifier)
     }
 
     var hasNonDefaultSettings: Bool {
@@ -525,9 +585,11 @@ class EditorViewModel {
         // Tolerant comparison, not `!=`. Speed used to be one of four exact literals so
         // equality worked; with a continuous geometric slider, moving the knob off the
         // default and back yields 0.5000000000000001 and RESET would never disappear.
-        let timingChanged = !ZoomPlayback.isDefaultSpeed(playbackSpeed)
-            || !ZoomPlayback.isDefaultPause(pauseDuration)
-        let base = selectedAnimatorType != .zoomIn || hasActiveModifier || timingChanged
+        // PAUSE compares against the *selection's* default, not a fixed 1s — a no-zoom GIF
+        // starts at 3s, and comparing to the wrong baseline would show RESET on an untouched
+        // editor and hide it on a genuinely edited one.
+        let timingChanged = !ZoomPlayback.isDefaultSpeed(playbackSpeed) || !isPauseAtDefault
+        let base = selectedAnimatorType != defaultAnimatorType || hasActiveModifier || timingChanged
             || hasVisualEffect || hasFaceFilter || hasText
 
         if case .newImage = content {
@@ -565,10 +627,11 @@ class EditorViewModel {
     func resetEffects() {
         pushUndo()
 
-        selectedAnimatorType = .zoomIn
+        selectedAnimatorType = defaultAnimatorType
         selectedModifier = nil
         playbackSpeed = ZoomPlayback.defaultSpeed
-        pauseDuration = ZoomPlayback.defaultPause
+        // After the animator, which is what `defaultPauseDuration` reads.
+        pauseDuration = defaultPauseDuration
         selectedVisualEffect = nil
         isEditingEffect = false
         editEntrySnapshot = nil
@@ -578,6 +641,9 @@ class EditorViewModel {
         previewSourceCGImage = nil
         effectThumbnails = [:]
         faceFilterThumbnails = [:]
+        // `originalThumbnail` is deliberately kept — it depends on the photo alone, which RESET
+        // cannot change. The face crop goes, because detection does.
+        originalFaceThumbnail = nil
         textThumbnailFrames = [:]
         thumbnailSourceCGImage = nil
         selectedFaceFilter = nil
@@ -646,6 +712,7 @@ class EditorViewModel {
         selectedFaceIndex = nil
         // Thumbnails are cropped to a specific face; a new detection invalidates them.
         faceFilterThumbnails = [:]
+        originalFaceThumbnail = nil
         isDetectingFaces = true
         Task {
             let faces = await faceDetectionService.redetect(in: source)
@@ -681,6 +748,35 @@ class EditorViewModel {
     var faceFilterThumbnails: [FaceFilterType: UIImage] = [:]
     private var thumbnailSourceCGImage: CGImage?
     private let thumbnailDimension: Int = 120
+
+    /// The photo with nothing applied, at card-thumbnail size: the ORIGINAL card's backdrop on
+    /// the IMAGE and TEXT carousels.
+    ///
+    /// Deliberately *not* cleared by `resetEffects`, unlike every other thumbnail here. Those
+    /// are invalidated because they depend on state RESET clears; this one depends only on the
+    /// photo, which cannot change for the life of the editor.
+    var originalThumbnail: UIImage?
+
+    /// The same, cropped to the first detected face, for the FACE carousel — whose every other
+    /// card is a face crop, so a full-frame ORIGINAL there would not read as the same photo.
+    ///
+    /// Built alongside `faceFilterThumbnails` and invalidated wherever those are, since the crop
+    /// is only meaningful against the detection that produced it.
+    var originalFaceThumbnail: UIImage?
+
+    /// Renders `originalThumbnail` once. Called from each carousel's `onAppear` rather than the
+    /// editor's, for the reason `extractSourceImage` documents: an existing GIF's source lands
+    /// asynchronously, well after the editor itself has appeared.
+    func generateOriginalThumbnail() {
+        guard originalThumbnail == nil else { return }
+        guard let source = image ?? sourceImage else { return }
+
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self, let thumb = self.getThumbnailSourceCGImage(from: source) else { return }
+            let plain = UIImage(cgImage: thumb)
+            DispatchQueue.main.async { self.originalThumbnail = plain }
+        }
+    }
 
     /// The un-effected photo behind the ZOOM cards, at preview resolution.
     ///
@@ -848,6 +944,10 @@ class EditorViewModel {
                 .intersection(base.extent)
             guard !crop.isNull, crop.width > 1, crop.height > 1 else { return }
 
+            // The same crop with no effect on it, so the ORIGINAL card is the *comparison* the
+            // rest of the carousel is judged against rather than a differently-framed photo.
+            let plain = self.ciContext.createCGImage(base, from: crop).map(UIImage.init(cgImage:))
+
             var results: [FaceFilterType: UIImage] = [:]
             for filter in FaceFilterType.allCases {
                 let effect = filter.effect(intensity: 0.7, secondValue: 0.5, laserColor: .red)
@@ -864,6 +964,7 @@ class EditorViewModel {
 
             DispatchQueue.main.async {
                 self.faceFilterThumbnails = results
+                self.originalFaceThumbnail = plain
             }
         }
     }
@@ -1055,9 +1156,20 @@ class EditorViewModel {
         }
     }
     
-    init(content: DetailContent, gifGenerator: GIFGenerating = GIFGenerator()) {
+    init(
+        content: DetailContent,
+        gifGenerator: GIFGenerating = GIFGenerator(),
+        allowsGenerationWithoutZoom: Bool = FeatureFlags.zoomOptional
+    ) {
         self.content = content
         self.gifGenerator = gifGenerator
+        self.allowsGenerationWithoutZoom = allowsGenerationWithoutZoom
+        // After the stored property above, which `defaultAnimatorType` reads.
+        self.selectedAnimatorType = allowsGenerationWithoutZoom ? nil : .zoomIn
+        // And after the animator, which decides which pause default applies.
+        self.pauseDuration = allowsGenerationWithoutZoom
+            ? ZoomPlayback.noZoomPause
+            : ZoomPlayback.defaultPause
         if case .existingGif(let url, _, _) = content {
             enhanceState = .share
             extractSourceImage(from: url)
@@ -1120,14 +1232,50 @@ class EditorViewModel {
             || textOverlay?.isActive == true
     }
 
+    /// The zoom the GIF is generated with: normally the user's own pinch.
+    ///
+    /// The exception is the `allowsGenerationWithoutZoom` experiment. With it on, a zoom type
+    /// selected and no pinch behind it, generation uses `ZoomFraming.fallback` instead of the
+    /// untouched 1× canvas.
+    ///
+    /// **That substitution is what makes the experiment mean anything.** At 1× the generator's
+    /// two endpoint framings — `fullViewParams` and `userZoomParams` — are the same framing, so
+    /// ZOOM IN would interpolate between a value and itself and hand back a still. Lifting the
+    /// nag without this would trade "the app refuses" for "the app agrees and does nothing",
+    /// which is worse.
+    ///
+    /// The fallback is not an arbitrary default either: it is exactly the framing the ZOOM cards
+    /// already show while no pinch has been made (`zoomCardFraming`), so the GIF that comes out
+    /// matches the card the user tapped.
+    /// The whole frame. At 1× the visible region *is* the entire image, by definition.
+    static let fullFrameRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+
+    var generationFraming: (scale: CGFloat, rect: CGRect) {
+        // Un-zoomed: the full frame, **never** whatever `visibleRect` happens to hold.
+        //
+        // That field is published by the canvas's scroll delegate, and a callback arriving before
+        // the scroll view has bounds could leave it describing a zero-sized region off-centre —
+        // which the generator renders as the image shifted right and down (fixed at source in
+        // `ImageCanvasView.syncBindings`). Deriving it here instead of trusting the field means a
+        // future regression in that publisher cannot move an un-zoomed GIF off-centre again: at
+        // 1× there is only one correct answer and this states it.
+        guard currentScale > 1.0 else {
+            guard allowsGenerationWithoutZoom, selectedAnimatorType != nil else {
+                return (currentScale, Self.fullFrameRect)
+            }
+            return (ZoomFraming.fallback.scale, ZoomFraming.fallback.rect)
+        }
+        return (currentScale, visibleRect)
+    }
+
     func generateGIF() {
         guard let imageToUse = image else {
             showToast("Error: No image selected")
             return
         }
-        
+
         let needsZoom = selectedAnimatorType != nil
-        if needsZoom && currentScale <= 1.0 {
+        if needsZoom && currentScale <= 1.0 && !allowsGenerationWithoutZoom {
             showToast("Zoom in on the image first!")
             withAnimation(.spring(response: AppConstants.Animation.standard, dampingFraction: 0.6)) {
                 currentScale = 1.2
@@ -1143,8 +1291,9 @@ class EditorViewModel {
             return
         }
         
-        generationScale = currentScale
-        generationVisibleRect = visibleRect
+        let framing = generationFraming
+        generationScale = framing.scale
+        generationVisibleRect = framing.rect
 
         withAnimation(.spring(response: AppConstants.Animation.slow, dampingFraction: 0.7)) {
             enhanceState = .generating
@@ -1399,6 +1548,11 @@ class EditorViewModel {
     }
 
     var showsZoomHint: Bool {
+        // Silent while zooming is optional. This hint is the ENHANCE nag arriving early — it
+        // exists so a first-time user is not told off for tapping ENHANCE without pinching. With
+        // the experiment on there is nothing to be told off for, so instructing them to pinch
+        // is advice for a requirement that no longer exists *(user's call, 2026-08-13)*.
+        guard !allowsGenerationWithoutZoom else { return false }
         // An existing GIF opens with its saved zoom already applied, so its user has
         // made this choice before and does not need telling.
         guard case .newImage = content else { return false }

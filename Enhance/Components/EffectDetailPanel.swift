@@ -6,6 +6,9 @@ import SwiftUI
 /// generic over its rows, and Swift does not allow static stored properties on generic types.
 private let panelBottomAnchor = "panel-bottom"
 
+/// Diameter of the scroll nudge. File-level for the same reason as `panelBottomAnchor`.
+private let panelNudgeDiameter: CGFloat = 32
+
 /// The effect's control panel: a pinned header over a list of parameter rows.
 ///
 /// Generic over its rows so the caller keeps ownership of building them from an
@@ -26,6 +29,8 @@ struct EffectDetailPanel<Rows: View>: View {
     var onConfirm: () -> Void
     @ViewBuilder var rows: () -> Rows
 
+    /// The **header's** height. Named for what it still does: the rows themselves are fixed-height
+    /// as of 2026-08-13 (see `PanelMetrics`), so this no longer sizes anything below the title.
     private var rowHeight: CGFloat {
         AppConstants.Layout.parameterRowHeight(forPanelHeight: availableHeight, rowCount: rowCount)
     }
@@ -61,7 +66,12 @@ struct EffectDetailPanel<Rows: View>: View {
                         .frame(height: 0)
                         .id(panelBottomAnchor)
                 }
-                .environment(\.panelRowHeight, rowHeight)
+                // Replaces the panel's bottom padding, which had to go so the rows could scroll
+                // all the way to the panel's edge — see the overlay note below. Applied to the
+                // *content* so it scrolls with the rows, and only while scrolling, so a panel
+                // that fits is untouched. Padding can only add overflow, so it cannot flip
+                // `needsScroll` off and oscillate.
+                .padding(.bottom, needsScroll ? AppConstants.Spacing.grid : 0)
                 .frame(maxWidth: .infinity)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
             }
@@ -80,14 +90,39 @@ struct EffectDetailPanel<Rows: View>: View {
               }
               .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
               .frame(maxHeight: .infinity, alignment: .top)
+
+              // The nudge **floats** over the rows rather than taking a slot below them.
+              //
+              // Arrangements tried here, because each failure is invisible until you tap or look
+              // closely at the thing underneath:
+              //
+              // 1. *Its own slot below the viewport.* Nothing could be covered, but it cost 40pt
+              //    of a viewport that measures 72pt on an SE 3, pushing a whole row off the fold.
+              //    Traded an unreachable control for an invisible one.
+              // 2. *Floating, offset half into the panel's 16pt bottom padding.* The padding kept
+              //    the scroll viewport 16pt short of the panel's edge, so the rows were clipped on
+              //    a straight line running through the middle of the chevron. That reads as the
+              //    nudge resting on a cut edge — the opposite of floating *(user-reported)*.
+              // 3. *This.* The panel has **no bottom padding**, so the viewport runs to its
+              //    rounded edge and the rows clip there instead — against the panel's own
+              //    boundary, where a clip reads as the panel ending. The nudge then sits just
+              //    inside that edge with content passing beneath it. The 16pt of breathing room
+              //    the padding used to give moved onto the scroll *content*, so it travels with
+              //    the rows rather than shortening the viewport.
+              //
+              // **Overlapping a control is accepted, not prevented** *(user's call, 2026-08-13:
+              // "it's okay if the middle swatch buttons are untappable when the scroll nudge is
+              // present")*.
               .overlay(alignment: .bottom) {
                   if needsScroll && !isAtBottom {
                       scrollNudge(proxy: proxy)
+                          .padding(.bottom, AppConstants.Spacing.small)
                   }
               }
             }
         }
-        .padding(AppConstants.Spacing.grid)
+        .padding(.horizontal, AppConstants.Spacing.grid)
+        .padding(.top, AppConstants.Spacing.grid)
         .background(
             RoundedRectangle(cornerRadius: AppConstants.Spacing.standard, style: .continuous)
                 .fill(Color.surfaceCard)
@@ -115,11 +150,10 @@ struct EffectDetailPanel<Rows: View>: View {
             Image(systemName: "chevron.down")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundColor(.textPrimary)
-                .frame(width: 32, height: 32)
+                .frame(width: panelNudgeDiameter, height: panelNudgeDiameter)
                 .background(Circle().fill(Color.surfacePrimary))
         }
         .buttonStyle(.plain)
-        .padding(.bottom, AppConstants.Spacing.small)
         .transition(.opacity)
         .accessibilityLabel("Scroll to more controls")
     }

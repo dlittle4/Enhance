@@ -189,7 +189,13 @@ literal→token swaps. No new primitives, no feature-file restructuring.
   as written would have de-emphasised the one number the user reads while dragging. ✓ done
 - `Components/EffectCardView.swift:92` `0x323232` → `.surfaceActive`, `white.opacity(0.04)` → `.hairline`.
 - `Components/EffectDetailPanel.swift:61` `0x1C1815` → `.surfacePanel`; `:84` inline font → `.silkscreenTitle`.
-- `Components/SegmentedBar.swift:41/45/53` radius → `.card`; selected green → `.segmentSelected`.
+- ~~`Components/SegmentedBar.swift:41/45/53` radius → `.card`; selected green → `.segmentSelected`.~~
+  **Moot — the file was deleted on 2026-08-13.** `SegmentedBar` was a second implementation of
+  `SegmentedToggle`, and its four call sites (zoom MOTION, text FILL, text FROM ×2) now render
+  through that one component, which already uses the tokens this line asked for. The two differed
+  in type size, selected-fill opacity, unselected colour, haptics and — visibly — height, since
+  `SegmentedBar` tracked `\.panelRowHeight` and shrank to 34pt on a short device while the
+  identical control in PIXELATE stayed 46. See `SegmentedToggle`'s doc comment.
 - `Components/BottomSheet.swift:41/46` inline fonts → `.silkscreenSectionTitle` / `.silkscreenTitle`.
 - `Components/GifGridItem.swift:52/54/59`, `Components/ShowcaseCarousel.swift:103` radius → `.card`; `ShowcaseCarousel.swift:155` spring → `Motion.carousel`.
 - `Design/ButtonModifiers.swift:11/33`, `Components/AppButton.swift:43` springs → `Motion.press`. ✓ done

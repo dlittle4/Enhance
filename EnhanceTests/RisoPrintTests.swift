@@ -141,7 +141,9 @@ struct RisoPrintTests {
     func riso_parameterShape() {
         let params = VisualEffectType.risoPrint.parameters
         #expect(params.count == 6)
-        #expect(params.first?.id == EffectParameter.intensityID)
+        // COLORS leads as of 2026-08-13; intensity is the first slider behind it.
+        #expect(params.first?.kind == .gradientStops)
+        #expect(params.first { $0.kind == .slider }?.id == EffectParameter.intensityID)
         #expect(params.filter { $0.kind == .slider }.count == 5)
         #expect(params.filter { $0.kind != .slider }.count == 1)
         #expect(VisualEffectType.risoPrint.colorPickerKind == .gradientStops)

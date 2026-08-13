@@ -87,4 +87,16 @@ struct ZoomFraming: Equatable {
     /// Stand-in used until the user picks a zoom. Without it the two endpoint framings
     /// are identical and all three cards show the same untouched photo.
     static let fallback = ZoomFraming(scale: 2.5, center: CGPoint(x: 0.5, y: 0.5))
+
+    /// The normalized rect this framing implies, in the shape the editor's `visibleRect`
+    /// carries, so a framing can be handed straight to the generator.
+    ///
+    /// Only the rect's **centre** reaches the output — `GIFGenerator.calculateAnimationParameters`
+    /// reads its midpoint and takes the magnification from `currentScale` — but the size is
+    /// derived honestly anyway rather than left at the full frame, so the value still describes
+    /// the region it names if anything else ever reads it.
+    var rect: CGRect {
+        let side = 1 / max(scale, 1)
+        return CGRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side)
+    }
 }

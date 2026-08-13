@@ -6,6 +6,11 @@ struct SettingsView: View {
     @AppStorage("appTheme") private var selectedTheme: String = "PIXEL"
     @AppStorage("selectedAppIcon") private var selectedAppIcon: String = "AppIcon"
 
+    /// Bound straight to the flag's own key rather than passed down like `autoPlayGifs`, because
+    /// its reader is `EditorViewModel` — which is not a view and cannot hold an `@AppStorage`.
+    /// `UserDefaults` is the shared surface between the two; see `FeatureFlags`.
+    @AppStorage(FeatureFlags.zoomOptionalKey) private var zoomOptional: Bool = false
+
     private let mintGreen = Color.enhanceMint
     private let themes = ["PIXEL", "THEME 2", "THEME 3"]
     private let appIcons: [(name: String, preview: String, identifier: String?)] = [
@@ -20,6 +25,9 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     divider
                     autoPlayRow
+                    divider
+
+                    experimentsSection
                     divider
 
                     appIconSection
@@ -46,6 +54,32 @@ struct SettingsView: View {
             .padding(.vertical, 10)
         }
         .buttonStyle(.plain)
+    }
+
+    // MARK: - Experiments
+
+    /// Behaviour still being evaluated, kept under its own heading so it is not mistaken for a
+    /// settled preference. See `FeatureFlags` for what each one gates.
+    private var experimentsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("EXPERIMENTS")
+                .font(.silkscreenSectionTitle)
+                .foregroundColor(.white)
+
+            Button {
+                HapticService.selection()
+                zoomOptional.toggle()
+            } label: {
+                HStack(spacing: 10) {
+                    checkmark(isSelected: zoomOptional)
+                    Text("MAKE GIFS WITHOUT ZOOMING")
+                        .font(.silkscreenLabel)
+                        .foregroundColor(zoomOptional ? mintGreen : .textPrimary)
+                }
+                .padding(.vertical, 10)
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     // MARK: - Themes

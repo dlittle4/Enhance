@@ -51,6 +51,13 @@ struct ZoomPlaybackTests {
         #expect(abs(unit - 4.0 / steps) < 1e-9, "1s should be step 4 of 20, got \(unit * steps)")
     }
 
+    /// The no-zoom default has to sit on a step for the same reason 1s does, or opening a
+    /// no-zoom editor and touching PAUSE would jerk the value the user never set.
+    @Test func noZoomPause_landsOnALatticeStep() {
+        let unit = ZoomPlayback.unit(pause: ZoomPlayback.noZoomPause)
+        #expect(abs(unit - 12.0 / steps) < 1e-9, "3s should be step 12 of 20, got \(unit * steps)")
+    }
+
     // MARK: - Round trips
 
     @Test func speedUnit_roundTripsAtEveryLatticeStep() {

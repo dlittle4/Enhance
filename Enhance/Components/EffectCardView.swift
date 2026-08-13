@@ -63,6 +63,19 @@ struct EffectCardView<Background: View>: View {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .stroke(isActive ? Color.enhanceMint : .clear, lineWidth: 2)
             )
+            // A card must never claim more touch area than the square you can see.
+            //
+            // `clipShape` bounds the *drawing* and not the touch region, and the ZOOM cards put a
+            // `scaleEffect` of up to 2.5× inside the frame (`ZoomCardThumbnail`) — so their button
+            // was interactive across a region far wider than the card, silently swallowing taps
+            // aimed at whatever sat beside it. It went unnoticed while ZOOM IN was leftmost and
+            // its overspill fell off-screen; adding ORIGINAL in front of it put a real card under
+            // that overspill, and roughly two thirds of ORIGINAL selected ZOOM IN instead.
+            //
+            // Fixed here rather than in `ZoomCardThumbnail` because the rule belongs to the card:
+            // any backdrop is free to transform its content, and none of them should be able to
+            // reach outside the frame to do it.
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .disabled(isBlocked)

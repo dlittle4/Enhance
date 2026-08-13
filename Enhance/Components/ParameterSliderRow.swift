@@ -34,9 +34,22 @@ struct ParameterSliderRow: View {
     /// flag across rows was never the right shape.
     @State private var didPushUndo = false
 
-    /// From the design spec. The knob shrank from 34pt and the dots grew from 3pt — together
-    /// they make the track read as a scale the knob sits *on*, rather than a handle on a bar.
-    private let knobSize: CGFloat = 24
+    /// The lattice step the last haptic fired for.
+    ///
+    /// The drag emits a value on every frame, but the knob only *moves between dots* occasionally
+    /// — so the tick has to be keyed to the step changing rather than to the gesture updating, or
+    /// the Taptic Engine is asked to fire 60 times a second and the result is a buzz rather than
+    /// a series of detents.
+    @State private var lastHapticStep: Int?
+
+    /// From the design spec. The dots grew from 3pt so the track reads as a scale the knob sits
+    /// *on*, rather than a handle on a bar.
+    ///
+    /// The knob is a **40 × 24 capsule** as of 2026-08-13, up from a 24pt circle. A circle that
+    /// size had to shrink its label to fit — `0.25X` is five characters — and the wider capsule
+    /// gives the readout room without making the knob taller than the dots it rides over.
+    private let knobWidth: CGFloat = 40
+    private let knobHeight: CGFloat = 24
     private let dotSize: CGFloat = 4
     private let trackHeight: CGFloat = 49
 
@@ -56,15 +69,26 @@ struct ParameterSliderRow: View {
 
     private var track: some View {
         GeometryReader { geo in
-            // The knob is inset by half its width at each end, so its centre travels
-            // `width - knobSize`, not the full width. Every position below is derived
-            // from this one value — mixing the two spaces is what makes a knob lag the
-            // finger at the extremes.
-            let travel = max(1, geo.size.width - knobSize)
+            // **The dots own the geometry, not the knob** *(user's call, 2026-08-13: the dots
+            // should fill the panel's width out to its 16pt margin)*.
+            //
+            // Both used to share a travel of `width - knobWidth`, which inset the first and last
+            // dot by half a knob — 20pt of dead track at each end. The scale now spans the full
+            // width, inset only by half a dot so the end dots are drawn whole, and every position
+            // below derives from that one value. Mixing the two spaces is what makes a knob lag
+            // the finger at the extremes.
+            let travel = max(1, geo.size.width - dotSize)
             let progress = max(0, min(1, value))
-            let knobCentre = knobSize / 2 + progress * travel
             let midY = geo.size.height / 2
             let filledSteps = Int((progress * Double(steps)).rounded())
+
+            // The knob rides the same scale, but is held inside the track: centred on its dot it
+            // would hang 18pt past each end, and the enclosing `ScrollView` clips. Only the first
+            // and last step or two are affected — the dots are ~15pt apart and the knob's half
+            // width is 20 — and there the knob's *edge* lining up with the track's edge is what
+            // you would want anyway.
+            let dotCentre = dotSize / 2 + progress * travel
+            let knobCentre = min(max(dotCentre, knobWidth / 2), geo.size.width - knobWidth / 2)
 
             ZStack(alignment: .leading) {
                 // Dots sit on the same lattice the knob snaps to, so the knob always
@@ -75,7 +99,7 @@ struct ParameterSliderRow: View {
                         .fill(step <= filledSteps ? Color.enhanceMint : Color.textInactive)
                         .frame(width: dotSize, height: dotSize)
                         .position(
-                            x: knobSize / 2 + (CGFloat(step) / CGFloat(steps)) * travel,
+                            x: dotSize / 2 + (CGFloat(step) / CGFloat(steps)) * travel,
                             y: midY
                         )
                 }
@@ -88,8 +112,11 @@ struct ParameterSliderRow: View {
             .contentShape(Rectangle())
             .onTapGesture(coordinateSpace: .local) { location in
                 onBeginDrag()
-                let raw = (location.x - knobSize / 2) / travel
-                value = Self.quantise(raw, allowingZero: allowsZero)
+                let raw = (location.x - dotSize / 2) / travel
+                let snapped = Self.quantise(raw, allowingZero: allowsZero)
+                // One tick for a tap: it is a single discrete jump, however far it travels.
+                if snapped != value { HapticService.selection() }
+                value = snapped
                 onCommit()
             }
             .coordinateSpace(name: Self.trackSpace)
@@ -111,12 +138,12 @@ struct ParameterSliderRow: View {
     /// `minimumDistance: 0` so a scrub starts immediately, and because it is attached to the knob
     /// alone it can claim the touch without stealing the rest of the row.
     ///
-    /// The hit area is 44pt around a 24pt circle — the visual knob is well under Apple's minimum
-    /// target, and this is now the only way to drag.
+    /// The hit area is 40 × 44 around the 40 × 24 capsule — the knob is under Apple's minimum
+    /// target vertically, and this is the only way to drag.
     private func knob(travel: CGFloat) -> some View {
-        Circle()
+        Capsule(style: .continuous)
             .fill(Color.enhanceMint)
-            .frame(width: knobSize, height: knobSize)
+            .frame(width: knobWidth, height: knobHeight)
             .overlay(
                 Text(valueText ?? "\(EffectParameter.displayValue(value))")
                     .font(.silkscreenSmall)
@@ -124,24 +151,44 @@ struct ParameterSliderRow: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
             )
-            .frame(width: 44, height: 44)
-            .contentShape(Circle())
+            // 44pt tall for the touch target; the capsule is already 40 wide, so the hit area
+            // only needs to match it horizontally rather than pad it into its neighbours.
+            .frame(width: knobWidth, height: 44)
+            .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.trackSpace))
                     .onChanged { drag in
                         if !didPushUndo {
                             onBeginDrag()
                             didPushUndo = true
+                            HapticService.prepareSelection()
+                            lastHapticStep = Self.step(of: value, steps: steps)
                         }
                         // Map back out of knob-centre space before quantising.
-                        let raw = (drag.location.x - knobSize / 2) / travel
-                        value = Self.quantise(raw, allowingZero: allowsZero)
+                        let raw = (drag.location.x - dotSize / 2) / travel
+                        let snapped = Self.quantise(raw, allowingZero: allowsZero)
+
+                        // One tick per dot crossed, so the track feels like detents under the
+                        // thumb rather than a continuous slide.
+                        let step = Self.step(of: snapped, steps: steps)
+                        if step != lastHapticStep {
+                            HapticService.selection()
+                            lastHapticStep = step
+                        }
+
+                        value = snapped
                     }
                     .onEnded { _ in
                         didPushUndo = false
+                        lastHapticStep = nil
                         onCommit()
                     }
             )
+    }
+
+    /// Which dot a 0…1 value sits on. Used to decide when a drag has crossed a detent.
+    static func step(of value: Double, steps: Int) -> Int {
+        Int((max(0, min(1, value)) * Double(steps)).rounded())
     }
 
     /// Names the track's coordinate space so the knob's drag reports positions in it rather

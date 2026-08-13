@@ -170,6 +170,30 @@ Center position remains linearly interpolated, which works naturally: at low zoo
 
 **Rule:** Never attach gestures directly to a view that has `.scaleEffect`. Move gestures to a fixed-frame parent and clip that parent with `.clipShape` + `.contentShape(Rectangle())` to contain the interactive area.
 
+### Recurrence, 2026-08-12: the same bug with a `Button` instead of a gesture
+
+The rule above says "gestures", and that let the same defect back in somewhere it did not look like it
+applied. `EffectCardView` is a `Button`; `ZoomCardThumbnail` puts a `.scaleEffect` of up to 2.5×
+*inside* its label. No gesture is attached to the scaled view at all — and the button's hit region
+still grew to the scaled content, reaching well outside the 67pt card.
+
+It went unnoticed for months because ZOOM IN was the leftmost card, so its overspill fell off-screen
+(it was already stealing touches from ZOOM OUT and PULSE on its other side, just never caught).
+Adding an ORIGINAL card in front of it put a real, tappable card underneath that overspill: roughly
+two thirds of ORIGINAL selected ZOOM IN instead, while its left sliver worked — which reads exactly
+like a broken action rather than a hit-test problem, and cost most of an hour chasing state bugs
+that were not there.
+
+**The diagnostic that ended it:** put a toast in the shared card action and tap. No toast means the
+tap never reached the view you think it did. Reach for that *before* theorising about state — an
+action that "runs but does nothing" and an action that never ran look identical from the outside,
+and only one of them is worth debugging.
+
+**Rule (restated):** `.clipShape` and `.clipped()` bound drawing, never touch. Any view holding a
+`.scaleEffect` — under a gesture, a `Button`, or anything else interactive — needs
+`.contentShape(Rectangle())` on the fixed-size frame. Put it on the *container* component rather
+than the transformed child, so every backdrop the component accepts is contained by construction.
+
 ---
 
 ## 2026-03-08: PBXFileSystemSynchronizedRootGroup — no project file edits needed for file moves

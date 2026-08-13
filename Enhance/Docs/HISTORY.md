@@ -804,3 +804,236 @@ several small defects composing into one user-visible failure that looked like d
       dimensions in the GIF pipeline. All three now `.cropped(to: image.extent)`, and
       `allEffects_preserveInputExtent` guards every effect at two progress values through
       both entry points.
+
+---
+
+## ORIGINAL cards, and optional zoom (2026-08-12)
+
+Two user-requested features, landed together because the second is only coherent with the first.
+
+### Every carousel opens with an ORIGINAL card
+
+Choosing *nothing* was unreachable from the gallery: a visual effect or face filter could only be
+cleared with undo or RESET, and a zoom type could not be cleared at all. Each of the four
+carousels now leads with an ORIGINAL card that clears its category's selection.
+
+- [x] **`EffectChoice<Effect>` wraps the item type** rather than adding a `none` case to
+      `AnimatorType` / `VisualEffectType` / `FaceFilterType` / `TextAnimationType`. The enum case
+      looks cheaper and is not: all four are walked by `allCases` in the generator, the thumbnail
+      passes and the tests, and every one of those walks would then have to remember to skip a case
+      with no effect behind it. The absence stays where it already was — a `nil` selection.
+- [x] **ORIGINAL leads the carousel.** It is where the scroll rests before a choice is made, so a
+      trailing card would start every session scrolled away from the selection.
+- [x] **The backdrop is the untouched photo**, per category: the 650pt zoom preview on ZOOM (its
+      neighbours magnify that source, and a 120pt thumbnail would read visibly softer beside them),
+      the plain thumbnail on IMAGE and TEXT, and the plain *face crop* on FACE — where every other
+      card is a crop, so a full-frame ORIGINAL would not read as the same photo.
+- [x] ~~**ORIGINAL on ZOOM opens the panel**~~ — **reversed later the same day, see the
+      zoom-optional follow-ups below.** It briefly did, on the argument that SPEED, PAUSE and
+      MOTION are output settings rather than properties of a zoom and so should not be stranded by
+      the one card that switches the zoom off. The user's call went the other way: no no-effect
+      card opens a panel. The reachability point stands and is recorded there.
+- [x] **`activeAnimator` no longer discards the modifier when no zoom is selected.** ROADMAP §3f
+      had flagged this as the thing to fix first if the state was re-exposed, and it was right:
+      `hasEffectsWithoutZoom` counts the modifier as reason enough to generate, so ORIGINAL + SHAKE
+      would have produced a still for a user who explicitly asked for movement.
+
+**Known consequence, deliberately not fixed:** SHAKE over ORIGINAL with no pinch jitters a 1×
+framing, so up to ~4% of the frame edge can read black before the shake decays. The pan needs
+headroom to hide in, which any zoom provides and 1× does not.
+
+**It also uncovered a months-old hit-test bug**, found by driving the simulator rather than by any
+test. `EffectCardView` is a `Button` whose label could hold a `.scaleEffect` — `ZoomCardThumbnail`
+scales up to 2.5× — and `.clipShape` bounds drawing but not touch, so a ZOOM card was interactive
+across a region far wider than the card. ZOOM IN was leftmost, so its overspill fell off-screen and
+nobody noticed it was already stealing touches from ZOOM OUT and PULSE. Putting ORIGINAL in front of
+it made two thirds of that card select ZOOM IN. Fixed with `.contentShape(Rectangle())` on
+`EffectCardView`'s frame — on the container, so every backdrop it accepts is contained by
+construction. Full write-up in LEARNINGS (2026-03-08 entry, "Recurrence, 2026-08-12"), including the
+diagnostic that found it.
+
+### MAKE GIFS WITHOUT ZOOMING (`FeatureFlags.zoomOptional`)
+
+An experiment, off by default, toggled under EXPERIMENTS in GENERAL SETTINGS. With it on, ENHANCE
+no longer refuses and nags "Zoom in on the image first!".
+
+- [x] **Lifting the nag is not enough on its own.** At 1× the generator's two endpoint framings —
+      `fullViewParams` and `userZoomParams` — are the same framing, so ZOOM IN interpolates between
+      a value and itself and hands back a still. Trading "the app refuses" for "the app agrees and
+      does nothing" would be worse than the nag.
+- [x] **So an unpinched zoom generates against `ZoomFraming.fallback`** (2.5× on the centre).
+      Not an arbitrary default: it is exactly what the ZOOM cards already display in that state, so
+      the GIF matches the card the user tapped. `EditorViewModel.generationFraming` is the whole of
+      it, which also makes ROADMAP §3e's "auto-zoom toward a detected face" a one-property change.
+- [x] **The flag lifts the zoom requirement, not the requirement that the GIF do something.**
+      ORIGINAL everywhere with no pinch is still refused with "Select an effect or zoom type
+      first!" — it is a request to render a photograph.
+- [x] **The flag is read once at construction and held on the view model**, not read from
+      `UserDefaults` on the generation path. The editor is built fresh per photo so a toggle still
+      takes effect on the next one, and an injected value is what lets a test drive both branches
+      without leaving a default behind that would change every later test in the process.
+
+---
+
+## One segmented control, one button height (2026-08-13)
+
+*(User's call: "anywhere we have a button action the height of the buttons should be consistent,
+the buttons in pixelate are correct — let's make sure this is a component and not a series of one
+off implementations.")*
+
+An audit of every effect settings panel found **five** button-action rows across **two**
+components: PIXELATE's SHAPE on `SegmentedToggle`, and the zoom panel's MOTION plus the text
+panel's FILL and both FROM variants on `SegmentedBar`. Same control, two sets of values — 12pt
+type vs 14, `mintDim` vs `mintDim.opacity(0.7)`, `textPrimary` vs `.white`, a selection haptic on
+one and not the other — and two different heights.
+
+- [x] **`SegmentedBar` deleted; its four call sites now use `SegmentedToggle`.** Every button row
+      in every panel is 46pt, verified on an SE 3 (MOTION, SHAPE, FILL, FROM all measured 46).
+- [x] **The height gap had a stale cause worth recording.** `SegmentedBar` read
+      `\.panelRowHeight` — the panel's adaptive row height — "so it lines up with slider rows".
+      That reason had expired: the 2026-08-12 redesign gave `ParameterSliderRow` a fixed 49pt
+      track and stopped it reading the value, leaving `SegmentedBar` as its only consumer. It was
+      shrinking to as little as 34pt to match something that no longer shrank, which is precisely
+      what made two rows in one panel disagree.
+- [x] **`\.panelRowHeight` removed** — after the migration nothing read it, and a live-looking
+      environment value is how the same inconsistency comes back. `parameterRowHeight(forPanel‑
+      Height:rowCount:)` stays; the panel header still uses it.
+- [x] **PIXELATE stopped passing `onWillChange: { pushUndo() }`.** It was the only one of the four
+      call sites to pass the hook, and it contradicts the rule `parameterRows` documents: panel
+      rows exist only while the panel is open and `commitEditing()` already records one entry for
+      the visit, so the extra push left the stack as `[shapePreChange, entrySnapshot]` — change a
+      slider, then the shape, and the second undo re-applied the slider move.
+
+- [x] **`colorSwatchContent` stopped pushing undo per tap** *(same day, on the user's call — it
+      had been reported as the known remaining instance rather than folded in unasked).* The
+      six-swatch `LaserColor` row had the identical defect PIXELATE shed, for the identical
+      reason. Every control in the panel now leaves undo to `commitEditing()`.
+      `gradientStopsContent` remains deliberately exempt: its coalesced push exists for the system
+      colour wheel's continuous value stream and is its own documented mechanism.
+
+### FILL and its swatches are one row
+
+*(User's call, same day: "the space between the color swatches and the segmented controller
+buttons is too big — the color swatches should be 4pts below.")*
+
+The text panel's FILL toggle and the swatches it switches between were two `ParameterPickerRow`s,
+the second with an empty label. That bought a full 24pt inter-row gap **plus** a blank label
+line's height between a control and the thing it controls.
+
+- [x] **The swatches moved inside the FILL row, 4pt below the toggle** (`Spacing.xsmall`). They
+      are not a separate parameter — they are what FILL currently resolves to.
+- [x] **`editingRowCount` for text dropped from 3/4 to 2/3** to match. It only sizes the panel
+      header now, but a row count that disagrees with the rows is a trap for whoever next relies
+      on it.
+- [x] The obsolete note about four rows overflowing an SE 3 into a scroll "where a slider drag
+      scrolls the panel instead of moving the knob" was deleted with it: the drag was scoped to
+      the knob on 2026-08-12, so that conflict cannot arise.
+
+**This is the only place the two controls meet.** The effects carrying a colour picker
+(DUOTONE, EDGES, CAUSTIC, GRADIENT, RISO) have no segmented control, and PIXELATE — the only
+effect with one — has no colour picker.
+
+### The scroll nudge moved out of the way — a regression the tightening exposed
+
+Tightening the FILL row moved the swatches up into the scroll nudge, which is a `Button` in an
+`.overlay(alignment: .bottom)` on the scroll viewport. It won the touch: **the middle gradient
+well could not be tapped at all** — the tap scrolled the panel instead. Caught by tapping it in
+the simulator; no test sees this.
+
+Three arrangements were tried, in this order. The first two are recorded because each failure is
+invisible until you tap the thing underneath.
+
+1. **Bottom padding on the scroll *content*.** Does nothing. The nudge is positioned against the
+   viewport, so at rest what sits under it is whatever the rows put there, never the padding at
+   their end.
+2. **Its own slot below the viewport.** Nothing could be covered — but measured on an SE 3 it cost
+   40pt of a **72pt** viewport, which pushed the swatch row (73pt into a ~105pt FILL row) off the
+   fold entirely. It traded an unreachable control for an invisible one.
+3. **Floating again, offset down by half its diameter** *(user's call: "could the nudge button
+   float above the other content so that it's not a slot in the panel")*. Half the circle sits in
+   the panel's 16pt padding, where there is nothing to cover. Costs the viewport nothing, so the
+   whole FILL row is visible at rest again, and on an SE 3 it clears the swatch row entirely —
+   the mint swatch was verified tappable after the change.
+
+**Overlap is accepted, not prevented** *(user's call: "it's okay if the middle swatch buttons are
+untappable when the scroll nudge is present")*. The offset is a courtesy, not a guarantee: on a
+panel whose rows fill the viewport the nudge will sit over one, and that is fine. Do not treat the
+offset as load-bearing.
+
+**Measured on an SE 3** (panel 465→651pt = 186pt tall): toggle track exactly 46pt, swatch row top
+4pt below it, panel padding 16pt. The slot version's viewport was 186 − 32 padding − 34 header −
+8 spacing − 40 slot = 72pt against a ~105pt FILL row; without the slot it is ~112pt and the row
+fits. Larger devices never scroll this panel and were unaffected throughout.
+
+---
+
+## Zoom-optional follow-ups, and an off-centre GIF (2026-08-13)
+
+Three notes from using the `FeatureFlags.zoomOptional` build.
+
+### The un-zoomed GIF was shifted right and down
+
+*(User-reported: "the images without a zoom effect applied are shifted to the right and down when
+the gif is created.")*
+
+**Cause:** `ImageCanvasView.syncBindings` publishes `visibleRect` from the scroll view's delegate,
+normalising `contentOffset` by `contentSize`. A callback can arrive while the scroll view is still
+being laid out, when `bounds` is `.zero` — and `min(1, viewW / contentW)` is then **0**, so the
+published rect has zero size and its origin is the at-rest centring offset. For a portrait photo
+that put the rect's *centre* near `(0, 0.12)` instead of `(0.5, 0.5)`, and
+`GIFGenerator.calculateAnimationParameters` reads exactly that centre. A centre below 0.5 renders
+as a translation right and down.
+
+**Why only without a zoom:** `StaticAnimator` returns `userZoomParams` for every frame, so the
+whole GIF carries it. The zoom animators interpolate *from* `fullViewParams`, which is always
+correct, so the error only appeared at the end of their travel and read as part of the movement.
+
+- [x] **Fixed at source:** `syncBindings` now requires non-zero bounds as well as non-zero content
+      before publishing. A zero-size viewport describes nothing and must not be written.
+- [x] **And made unreachable by construction:** `generationFraming` derives the full frame at
+      `currentScale <= 1` instead of trusting the field. At 1× the visible region *is* the whole
+      image — there is one correct answer, so a future regression in that publisher cannot move an
+      un-zoomed GIF off-centre again.
+- [x] Regressions tests cover both: a degenerate `visibleRect` still yields a centred framing.
+
+**Verified by measurement, not eye.** With the fix, the letterbox band's left edge lands on the
+same pixel (701) in the canvas preview and in the generated GIF at two independent rows, and
+vertical cross-correlation across three columns puts the best alignment at 0px (r ≈ 0.985).
+
+### NO ZOOM, not ORIGINAL, and selected by default under the flag
+
+- [x] **The ZOOM carousel's no-effect card reads NO ZOOM** *(user's call)*. The other three
+      categories still say ORIGINAL. "Original" describes a picture; this card switches off a
+      *movement*, and the panel title matches.
+- [x] **With the flag on, the editor opens on NO ZOOM**, via `defaultAnimatorType`. Opening on a
+      zoom type would pre-make the choice the experiment exists to offer.
+- [x] `hasNonDefaultSettings` and `resetEffects` both compare against that flag-aware default, so
+      RESET does not greet an untouched editor and reset returns to the right card.
+
+### The pinch hint is suppressed while zooming is optional
+
+- [x] `showsZoomHint` returns false when the flag is on. That hint is the ENHANCE nag arriving
+      early — it exists so a first-timer is not told off for tapping ENHANCE without pinching.
+      With no nag to pre-empt, it instructs the user to satisfy a requirement that no longer
+      exists. (The nag itself was already gone: the gate it fired from is bypassed by the flag.)
+
+### No no-effect card opens a settings panel
+
+*(User's call: "tapping the no zoom card shouldn't pull up an effects panel.")*
+
+ZOOM's card was the exception — it cleared the animator and then called `beginEditing()`, so the
+SPEED / PAUSE / MOTION panel appeared. Choosing "no effect" is a complete action, and a panel of
+controls for the effect just switched off does not follow from it. All four categories now behave
+alike: the card clears its selection and nothing opens.
+
+- [x] `zoomEffectsGrid`'s ORIGINAL branch no longer calls `beginEditing()`.
+
+**Known consequence, recorded rather than solved:** the zoom panel opens only from a zoom card, so
+while NO ZOOM is selected, SPEED, PAUSE and MOTION cannot be reached — and they do still shape a
+static GIF (duration, hold, and shake/spiral over the held framing). Under
+`FeatureFlags.zoomOptional` the editor *opens* on NO ZOOM, so a user who never picks a zoom type
+never sees them. If those controls need a home that does not belong to the zoom, this is the
+reason why.
+
+`editingTitle`'s `"NO ZOOM"` fallback is kept as a defensive default even though no path now opens
+the panel with a nil animator.
