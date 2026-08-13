@@ -34,13 +34,6 @@ struct ParameterSliderRow: View {
     /// flag across rows was never the right shape.
     @State private var didPushUndo = false
 
-    /// Which way the current drag was going when it first exceeded the slop.
-    ///
-    /// Latched for the whole gesture rather than re-evaluated per frame: a scrub that drifts
-    /// vertically must not hand control back to the scroll view mid-drag, and a scroll that
-    /// drifts sideways must not start moving the knob.
-    @State private var isHorizontalDrag: Bool? = nil
-
     /// From the design spec. The knob shrank from 34pt and the dots grew from 3pt — together
     /// they make the track read as a scale the knob sits *on*, rather than a handle on a bar.
     private let knobSize: CGFloat = 24
@@ -87,53 +80,55 @@ struct ParameterSliderRow: View {
                         )
                 }
 
-                Circle()
-                    .fill(Color.enhanceMint)
-                    .frame(width: knobSize, height: knobSize)
-                    .overlay(
-                        Text(valueText ?? "\(EffectParameter.displayValue(value))")
-                            .font(.silkscreenSmall)
-                            .foregroundColor(.textOnGradient)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.6)
-                    )
+                knob(travel: travel)
                     .position(x: knobCentre, y: midY)
             }
+            // The track takes taps but **no drag**, which is the whole point: a drag that
+            // starts anywhere except the knob belongs to the enclosing `ScrollView`.
             .contentShape(Rectangle())
-            // A tap sets the value outright. This exists because the drag below can no
-            // longer claim the touch immediately — see the note on `minimumDistance`.
             .onTapGesture(coordinateSpace: .local) { location in
                 onBeginDrag()
                 let raw = (location.x - knobSize / 2) / travel
                 value = Self.quantise(raw, allowingZero: allowsZero)
                 onCommit()
             }
-            // **`simultaneousGesture`, and the axis latch, are both load-bearing.**
-            //
-            // This used to be `.gesture(DragGesture(minimumDistance: 0))`, which claims the
-            // touch on contact and always beats the enclosing `ScrollView` — so a vertical
-            // swipe starting on a slider scrubbed the value instead of scrolling the panel.
-            // That was survivable while rows had a 96pt label column to drag on; the
-            // 2026-08-12 design made every row a full-width slider, leaving no neutral area
-            // and no way to scroll by drag at all.
-            //
-            // Raising `minimumDistance` alone does *not* fix it: SwiftUI does not arbitrate a
-            // custom drag against a scroll view by direction, so once the gesture recognises
-            // it is still exclusive. `simultaneousGesture` lets both see the touch, and this
-            // one then declines anything vertical — the scroll view keeps those, and the
-            // slider only acts on a drag that was horizontal when it crossed the slop.
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 6)
-                    .onChanged { drag in
-                        if isHorizontalDrag == nil {
-                            let dx = abs(drag.translation.width)
-                            let dy = abs(drag.translation.height)
-                            // Ignore the ambiguous first frames; wait until one axis leads.
-                            guard max(dx, dy) > 6 else { return }
-                            isHorizontalDrag = dx > dy
-                        }
-                        guard isHorizontalDrag == true else { return }
+            .coordinateSpace(name: Self.trackSpace)
+        }
+        .animation(.easeOut(duration: 0.1), value: value)
+    }
 
+    /// The knob, and the only part of the row that scrubs.
+    ///
+    /// **Dragging is scoped to the knob deliberately** *(user's call, 2026-08-12)*. Two earlier
+    /// approaches failed: a `minimumDistance: 0` drag over the whole track claimed every touch
+    /// and made the panel unscrollable, and raising `minimumDistance` changed nothing because
+    /// SwiftUI does not arbitrate a custom drag against a scroll view by direction — once it
+    /// recognises, it is exclusive. Guessing intent from the drag's axis worked but was still a
+    /// guess.
+    ///
+    /// Scoping the gesture removes the ambiguity instead of resolving it: grab the knob and you
+    /// are scrubbing, touch anywhere else and the panel scrolls. The knob's own gesture keeps
+    /// `minimumDistance: 0` so a scrub starts immediately, and because it is attached to the knob
+    /// alone it can claim the touch without stealing the rest of the row.
+    ///
+    /// The hit area is 44pt around a 24pt circle — the visual knob is well under Apple's minimum
+    /// target, and this is now the only way to drag.
+    private func knob(travel: CGFloat) -> some View {
+        Circle()
+            .fill(Color.enhanceMint)
+            .frame(width: knobSize, height: knobSize)
+            .overlay(
+                Text(valueText ?? "\(EffectParameter.displayValue(value))")
+                    .font(.silkscreenSmall)
+                    .foregroundColor(.textOnGradient)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+            )
+            .frame(width: 44, height: 44)
+            .contentShape(Circle())
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.trackSpace))
+                    .onChanged { drag in
                         if !didPushUndo {
                             onBeginDrag()
                             didPushUndo = true
@@ -143,15 +138,15 @@ struct ParameterSliderRow: View {
                         value = Self.quantise(raw, allowingZero: allowsZero)
                     }
                     .onEnded { _ in
-                        let wasScrubbing = isHorizontalDrag == true
-                        isHorizontalDrag = nil
                         didPushUndo = false
-                        if wasScrubbing { onCommit() }
+                        onCommit()
                     }
             )
-        }
-        .animation(.easeOut(duration: 0.1), value: value)
     }
+
+    /// Names the track's coordinate space so the knob's drag reports positions in it rather
+    /// than in its own 44pt frame.
+    private static let trackSpace = "slider-track"
 
     /// Snaps to the dot lattice so the knob's integer is honest — a continuous value
     /// would show "10" across a range of positions.
