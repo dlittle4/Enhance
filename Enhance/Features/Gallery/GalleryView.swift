@@ -42,7 +42,7 @@ struct GalleryView: View {
     
     var body: some View {
         ZStack {
-            Color(hex: 0x171717).ignoresSafeArea()
+            Color.surfaceBase.ignoresSafeArea()
             
             VStack(spacing: 0) {
                 if photoManager.isAuthorized && !photoManager.hasLoadedGifs {
@@ -66,10 +66,7 @@ struct GalleryView: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color(hex: 0x202020).opacity(0.95))
-                    )
+                    .surface(.raised, opacity: 0.95, cornerRadius: AppConstants.CornerRadius.large)
                     .padding(.top, 60)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -133,7 +130,7 @@ struct GalleryView: View {
     
     private var showcaseHeader: some View {
         Text("ENHANCE")
-            .font(.custom("Silkscreen-Bold", size: 16))
+            .font(.silkscreenSectionTitle)
             .foregroundColor(.white)
             .frame(maxWidth: .infinity)
             .padding(.top, 32)
@@ -161,13 +158,13 @@ struct GalleryView: View {
 
             VStack(spacing: 28) {
                 Text("Create animated GIFs from your photos with dramatic zooms and special effects.")
-                    .font(.custom("Silkscreen-Bold", size: 18))
+                    .font(.silkscreenButton)
                     .foregroundColor(.white)
                     .multilineTextAlignment(.center)
                     .lineSpacing(6)
 
                 Text("Enhance the moment.\nElevate the vibe.")
-                    .font(.custom("Silkscreen-Bold", size: 18))
+                    .font(.silkscreenButton)
                     .foregroundColor(.white)
                     .multilineTextAlignment(.center)
                     .lineSpacing(6)
@@ -189,13 +186,13 @@ struct GalleryView: View {
                 }
             } label: {
                 Text("MAKE YOUR FIRST GIF")
-                    .font(.custom("Silkscreen-Regular", size: 16))
-                    .foregroundColor(Color(red: 0.09, green: 0.09, blue: 0.09))
+                    .font(.silkscreenButtonLabel)
+                    .foregroundColor(Color.onAccent)
                     .frame(maxWidth: .infinity)
                     .frame(height: 60)
                     .background(
                         SimpleGradientBackground()
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                            .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
                     )
             }
             .buttonStyle(EnhancePressButtonStyle())
@@ -228,7 +225,7 @@ struct GalleryView: View {
             Spacer()
             
             Text("Allow photo access so\nENHANCE can save and display\nyour animated masterpieces")
-                .font(.custom("Silkscreen-Bold", size: 18))
+                .font(.silkscreenButton)
                 .foregroundColor(.white)
                 .multilineTextAlignment(.center)
                 .lineSpacing(6)
@@ -243,27 +240,24 @@ struct GalleryView: View {
                     }
                 } label: {
                     Text("OPEN SETTINGS")
-                        .font(.custom("Silkscreen-Regular", size: 16))
+                        .font(.silkscreenButtonLabel)
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 60)
                         .background(
                             SimpleGradientBackground()
-                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
                         )
                 }
                 .buttonStyle(EnhancePressButtonStyle())
                 
                 PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
                     Text("CREATE GIF WITHOUT SAVING")
-                        .font(.custom("Silkscreen-Regular", size: 13))
+                        .font(.silkscreenBody)
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 60)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Color(hex: 0x202020))
-                        )
+                        .surface(.raised)
                 }
                 .buttonStyle(EnhancePressButtonStyle())
             }
@@ -288,7 +282,7 @@ struct GalleryView: View {
                         .contentTransition(.numericText())
                 }
             }
-            .font(.custom("Silkscreen-Bold", size: 16))
+            .font(.silkscreenSectionTitle)
             .foregroundColor(.white)
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -299,7 +293,7 @@ struct GalleryView: View {
                     }
                 } label: {
                     Text("X")
-                        .font(.custom("Silkscreen-Regular", size: 24))
+                        .font(.silkscreenTitle)
                         .foregroundColor(.white)
                 }
                 .buttonStyle(.plain)
@@ -414,19 +408,19 @@ struct GalleryView: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isSelectMode)
         .padding(.horizontal, 10)
         .padding(.vertical, 16)
-        .background(Color(hex: 0x171717))
+        .background(Color.surfaceBase)
     }
     
     private var normalBottomBar: some View {
         PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
             Text("MAKE A GIF")
-                .font(.custom("Silkscreen-Regular", size: 16))
-                .foregroundColor(Color(red: 0.09, green: 0.09, blue: 0.09))
+                .font(.silkscreenButtonLabel)
+                .foregroundColor(Color.onAccent)
                 .frame(maxWidth: .infinity)
                 .frame(height: 60)
                 .background(
                     SimpleGradientBackground()
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
                 )
         }
         .buttonStyle(EnhancePressButtonStyle())
@@ -440,10 +434,7 @@ struct GalleryView: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 60)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color(hex: 0x202020))
-                    )
+                    .surface(.raised)
             }
             .buttonStyle(EnhancePressButtonStyle())
 
@@ -453,10 +444,7 @@ struct GalleryView: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 60)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color(hex: 0x202020))
-                    )
+                    .surface(.raised)
             }
             .buttonStyle(EnhancePressButtonStyle())
 
@@ -466,10 +454,7 @@ struct GalleryView: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 60)
-                    .background(
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color(hex: 0x202020))
-                    )
+                    .surface(.raised)
             }
             .buttonStyle(EnhancePressButtonStyle())
         }

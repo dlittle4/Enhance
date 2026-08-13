@@ -26,7 +26,7 @@ struct AppButton: View {
         Button(action: action) {
             Text(animatedText)
                 .font(.silkscreenButton)
-                .foregroundColor(Color(red: 0.09, green: 0.09, blue: 0.09))
+                .foregroundColor(.onAccent)
                 .frame(maxWidth: fullWidth ? .infinity : nil)
                 .frame(height: noBackground ? nil : 80)
                 .background(

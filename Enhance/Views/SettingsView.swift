@@ -40,7 +40,7 @@ struct SettingsView: View {
             HStack(spacing: 10) {
                 checkmark(isSelected: autoPlayGifs)
                 Text("AUTO PLAY GIFS IN GALLERY")
-                    .font(.custom("Silkscreen-Regular", size: 16))
+                    .font(.silkscreenLabel)
                     .foregroundColor(autoPlayGifs ? mintGreen : .textPrimary)
             }
             .padding(.vertical, 10)
@@ -53,7 +53,7 @@ struct SettingsView: View {
     private var themesSection: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text("THEMES")
-                .font(.custom("Silkscreen-Bold", size: 16))
+                .font(.silkscreenSectionTitle)
                 .foregroundColor(.white)
 
             ForEach(themes, id: \.self) { theme in
@@ -64,7 +64,7 @@ struct SettingsView: View {
                     HStack(spacing: 10) {
                         checkmark(isSelected: selectedTheme == theme)
                         Text(theme)
-                            .font(.custom("Silkscreen-Regular", size: 16))
+                            .font(.silkscreenLabel)
                             .foregroundColor(selectedTheme == theme ? mintGreen : .textPrimary)
                     }
                     .padding(.vertical, 10)
@@ -79,7 +79,7 @@ struct SettingsView: View {
     private var appIconSection: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("APP ICON")
-                .font(.custom("Silkscreen-Bold", size: 16))
+                .font(.silkscreenSectionTitle)
                 .foregroundColor(.white)
 
             HStack(spacing: 0) {
@@ -105,9 +105,9 @@ struct SettingsView: View {
             .resizable()
             .aspectRatio(contentMode: .fill)
         .frame(width: 100, height: 100)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous)
                 .strokeBorder(mintGreen, lineWidth: isSelected ? 4 : 0)
         )
         .shadow(color: Color(white: 0.12, opacity: 0.15), radius: 22, x: 0, y: 22)
@@ -138,7 +138,7 @@ struct SettingsView: View {
 
     private var divider: some View {
         Rectangle()
-            .fill(Color(hex: 0xD9D9D9))
+            .fill(Color.divider)
             .frame(height: 1)
     }
 }
