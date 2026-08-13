@@ -288,7 +288,7 @@ struct EditorView: View {
                         viewModel.resetEffects()
                     } label: {
                         Text("RESET")
-                            .font(.custom("Silkscreen-Bold", size: 16))
+                            .font(.silkscreenSectionTitle)
                             .foregroundColor(historyEnabled ? .textPrimary : .contentInactive)
                     }
                     .disabled(!historyEnabled)
@@ -321,7 +321,7 @@ struct EditorView: View {
                 }
             } label: {
                 Text("X")
-                    .font(.custom("Silkscreen-Regular", size: 24))
+                    .font(.silkscreenTitle)
                     .foregroundColor(.white)
             }
         }
@@ -1084,11 +1084,11 @@ struct EditorView: View {
                 } label: {
                     Text(viewModel.enhanceState == .generating ? "GENERATING..." : "ENHANCE")
                         .font(.silkscreenButtonLabel)
-                        .foregroundColor(Color(red: 0.09, green: 0.09, blue: 0.09))
+                        .foregroundColor(Color.onAccent)
                         .frame(maxWidth: .infinity)
                         .frame(height: buttonHeight)
                         .background(SimpleGradientBackground())
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
                 }
                 .enhanceButtonAnimation()
                 .disabled(viewModel.enhanceState == .generating)
@@ -1119,10 +1119,7 @@ struct EditorView: View {
                         .foregroundColor(viewModel.isSaveEnabled ? .textPrimary : .contentInactive)
                         .frame(maxWidth: .infinity)
                         .frame(height: buttonHeight)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Color(hex: 0x202020).opacity(0.8))
-                        )
+                        .surface(.raised, opacity: 0.8)
                 }
                 .enhanceButtonAnimation()
                 .disabled(!viewModel.isSaveEnabled)
@@ -1133,11 +1130,11 @@ struct EditorView: View {
             } label: {
                 Text("SHARE")
                     .font(.silkscreenButtonLabel)
-                    .foregroundColor(Color(red: 0.09, green: 0.09, blue: 0.09))
+                    .foregroundColor(Color.onAccent)
                     .frame(maxWidth: .infinity)
                     .frame(height: buttonHeight)
                     .background(SimpleGradientBackground())
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
             }
             .enhanceButtonAnimation()
         }
@@ -1157,10 +1154,7 @@ struct EditorView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 60)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Color(hex: 0x202020).opacity(0.8))
-                        )
+                        .surface(.raised, opacity: 0.8)
                 }
                 .buttonStyle(.plain)
 
@@ -1173,10 +1167,7 @@ struct EditorView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 60)
-                        .background(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .fill(Color(hex: 0x202020).opacity(0.8))
-                        )
+                        .surface(.raised, opacity: 0.8)
                 }
                 .buttonStyle(.plain)
             }
