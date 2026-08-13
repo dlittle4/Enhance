@@ -47,8 +47,13 @@ struct EffectParameterTests {
             guard let expected = Self.expectedFaceLabels[type] else { continue }
             let params = type.parameters
 
-            #expect(params.first?.id == EffectParameter.intensityID, "\(type.rawValue) must lead with intensity")
-            #expect(params.first?.label == expected.primary, "\(type.rawValue) primary")
+            // COLOR leads when the filter has one; the first *slider* is still the primary.
+            if let colorPicker = params.first(where: { $0.kind == .tintColor || $0.kind == .gradientStops }) {
+                #expect(params.first?.id == colorPicker.id, "\(type.rawValue) must lead with COLOR")
+            }
+            let firstSlider = params.first { $0.kind == .slider }
+            #expect(firstSlider?.id == EffectParameter.intensityID, "\(type.rawValue) must lead its sliders with intensity")
+            #expect(firstSlider?.label == expected.primary, "\(type.rawValue) primary")
 
             let secondary = params.first { $0.id == EffectParameter.secondaryID }
             #expect(secondary?.label == expected.secondary, "\(type.rawValue) secondary")
@@ -83,7 +88,7 @@ struct EffectParameterTests {
         }
     }
 
-    /// LAZER EYES and THIRD EYE (both colour-swatch pickers) are the only filters with a
+    /// LAZER EYES and THIRD EYE (both color-swatch pickers) are the only filters with a
     /// picker row; this fails loudly if another filter claims one without the panel gaining
     /// a matching row and a height budget for it.
     @Test func onlyLazerEyesAndThirdEyeDeclareAPicker() {
@@ -94,16 +99,20 @@ struct EffectParameterTests {
         }
     }
 
-    /// THIRD EYE has three rows — SIZE, INTENSITY (ray count), and a COLOUR swatch picker.
-    @Test func thirdEyeDeclaresSizeIntensityAndColour() {
+    /// THIRD EYE has three rows — a COLOR swatch picker, then SIZE and INTENSITY (ray count).
+    /// COLOR is first as of 2026-08-13; the sliders keep their own order behind it.
+    @Test func thirdEyeDeclaresColorSizeAndIntensity() {
         let params = FaceFilterType.thirdEye.parameters
         #expect(params.count == 3)
-        #expect(params.first?.id == EffectParameter.intensityID)
-        #expect(params.first?.label == "SIZE")
+        #expect(params.first?.kind == .tintColor, "COLOR must lead")
+        #expect(params.first?.label == "COLOR")
+        let firstSlider = params.first { $0.kind == .slider }
+        #expect(firstSlider?.id == EffectParameter.intensityID)
+        #expect(firstSlider?.label == "SIZE")
         #expect(params.contains { $0.id == EffectParameter.secondaryID && $0.label == "INTENSITY" })
         let picker = params.first { $0.kind != .slider }
         #expect(picker?.kind == .tintColor)
-        #expect(picker?.label == "COLOUR")
+        #expect(picker?.label == "COLOR")
     }
 
     // MARK: - Storage keys
@@ -213,7 +222,16 @@ struct EffectParameterTests {
             let params = type.parameters
             #expect(!params.isEmpty, "\(type.rawValue) declares no parameters")
             #expect(params.count <= 6, "\(type.rawValue) declares \(params.count) parameters")
-            #expect(params.first?.id == EffectParameter.intensityID, "\(type.rawValue) must lead with intensity")
+            // COLOR leads when the effect has one, and the first slider is always intensity.
+            //
+            // Specifically a *colour* picker. PIXELATE's `.pixelShape` is a picker row that is
+            // not a colour, and it keeps its declared position among the sliders — the rule the
+            // user set is about colour, not about pickers in general.
+            if let colorPicker = params.first(where: { $0.kind == .tintColor || $0.kind == .gradientStops }) {
+                #expect(params.first?.id == colorPicker.id, "\(type.rawValue) must lead with COLOR")
+            }
+            #expect(params.first { $0.kind == .slider }?.id == EffectParameter.intensityID,
+                    "\(type.rawValue) must lead its sliders with intensity")
 
             let ids = params.map(\.id)
             #expect(Set(ids).count == ids.count, "\(type.rawValue) has duplicate parameter ids")
@@ -233,7 +251,7 @@ struct EffectParameterTests {
 
     // MARK: - Panel fit
 
-    /// THIRD EYE's three rows (SIZE + INTENSITY + COLOUR) must not floor-and-overflow on the
+    /// THIRD EYE's three rows (COLOR + SIZE + INTENSITY) must not floor-and-overflow on the
     /// shortest supported panel, which would re-enable the scroll and let it steal slider
     /// drags. The panel on an iPhone SE 3 is ~190–200pt; at the roomy end a 3-row panel is
     /// not floored, so rows shrink to fit. (True on-device fit is a QA item.)

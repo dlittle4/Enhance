@@ -20,6 +20,16 @@ enum ZoomPlayback {
     static let defaultSpeed: Double = 0.5
     static let defaultPause: Double = 1.0
 
+    /// The default pause for a GIF with **no zoom** *(user's call, 2026-08-13)*.
+    ///
+    /// Longer than `defaultPause` because the two shapes are different. A zoom carries the eye
+    /// and its pause is a beat at the end of a journey; a no-zoom GIF is an effect settling, so
+    /// the settled state *is* the payload and 1s reads as a flicker before the loop restarts.
+    ///
+    /// 3s lands on step 12 of the slider's 20-step lattice, exactly as 1s lands on step 4 — so
+    /// the knob starts on a dot and does not jump the first time it is touched.
+    static let noZoomPause: Double = 3.0
+
     // MARK: - Slider position → real units
 
     /// Speed is **geometric**, not linear: `0.25 · 16^u`.

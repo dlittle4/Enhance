@@ -101,7 +101,25 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     /// all that is needed for it to appear — no layout changes, and no per-effect
     /// branching in the view.
     var parameters: [EffectParameter] {
-        var params = [EffectParameter(id: EffectParameter.intensityID, label: "INTENSITY")]
+        // COLOR leads when the effect has one *(user's call, 2026-08-13)*. It is the choice that
+        // changes the effect most, and a swatch row reads as a heading for the sliders that
+        // follow rather than a footnote to them. Built first rather than appended last, which is
+        // where it used to go.
+        //
+        // The ids stay `"tint"` / `"stops"` — they are storage keys, and `EffectParameter` warns
+        // that renaming one silently resets that control to its default. Only the label changed.
+        var params: [EffectParameter] = []
+
+        switch colorPickerKind {
+        case .tintColor:
+            params.append(EffectParameter(id: "tint", label: "COLOR", kind: .tintColor))
+        case .gradientStops:
+            params.append(EffectParameter(id: "stops", label: "COLORS", kind: .gradientStops))
+        case .none:
+            break
+        }
+
+        params.append(EffectParameter(id: EffectParameter.intensityID, label: "INTENSITY"))
 
         switch self {
         case .fisheye:
@@ -150,15 +168,6 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "POSITION"))
             params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "REACH"))
         default:
-            break
-        }
-
-        switch colorPickerKind {
-        case .tintColor:
-            params.append(EffectParameter(id: "tint", label: "COLOUR", kind: .tintColor))
-        case .gradientStops:
-            params.append(EffectParameter(id: "stops", label: "COLOURS", kind: .gradientStops))
-        case .none:
             break
         }
 

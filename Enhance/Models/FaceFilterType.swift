@@ -31,16 +31,23 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         self == .rainbow || self == .heartVignette || self == .thirdEye
     }
 
-    /// Primary slider label.
     /// The controls this filter exposes, in display order. Single source of truth for
     /// its UI — see `VisualEffectType.parameters` for the visual-effect twin.
+    ///
+    /// **COLOR leads when present** *(user's call, 2026-08-13)*, ahead of the sliders. It is the
+    /// choice that changes the effect most, and a swatch row reads as a heading for what follows
+    /// rather than a footnote to it.
+    ///
+    /// The `id` stays `"tint"` — it is the storage key, and `EffectParameter` warns that renaming
+    /// one silently resets that control to its default. Only the label is the user's business.
     var parameters: [EffectParameter] {
-        var params = [EffectParameter(id: EffectParameter.intensityID, label: primaryLabel)]
+        var params: [EffectParameter] = []
+        if self == .lazerEyes || self == .thirdEye {
+            params.append(EffectParameter(id: "tint", label: "COLOR", kind: .tintColor))
+        }
+        params.append(EffectParameter(id: EffectParameter.intensityID, label: primaryLabel))
         if let secondary = secondaryLabel {
             params.append(EffectParameter(id: EffectParameter.secondaryID, label: secondary))
-        }
-        if self == .lazerEyes || self == .thirdEye {
-            params.append(EffectParameter(id: "tint", label: "COLOUR", kind: .tintColor))
         }
         return params
     }

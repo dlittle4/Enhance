@@ -386,7 +386,27 @@ struct EditorViewModelTests {
         let animator = vm.activeAnimator
         #expect(animator is CompositeAnimator)
     }
-    
+
+    /// ORIGINAL on the ZOOM tab still composes the modifier. This path used to return a bare
+    /// `StaticAnimator` and drop it (ROADMAP §3f) — harmless while it was unreachable, wrong the
+    /// moment ORIGINAL became a card, because `hasEffectsWithoutZoom` treats the modifier as
+    /// reason enough to generate and the user would have got a still they asked to shake.
+    @Test func activeAnimator_withNoZoomButAModifier_stillComposes() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedAnimatorType = nil
+        vm.selectedModifier = .shake
+
+        #expect(vm.activeAnimator is CompositeAnimator)
+    }
+
+    @Test func activeAnimator_withNoZoomAndNoModifier_isStatic() {
+        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        vm.selectedAnimatorType = nil
+
+        #expect(vm.activeAnimator is StaticAnimator)
+    }
+
+
     // MARK: - activeVisualEffectList
     
     @Test func activeVisualEffectList_withNone_isEmpty() {
@@ -896,6 +916,9 @@ struct EditorViewModelTests {
         vm.selectedAnimatorType = .pulse
         #expect(vm.editingTitle == "PULSE")
 
+        // Matches the card that opens the panel — the absence of a zoom is a card the user can
+        // point at now, so the panel must call it what the card calls it. NO ZOOM rather than
+        // ORIGINAL here: this family switches off a movement, not a treatment of the image.
         vm.selectedAnimatorType = nil
         #expect(vm.editingTitle == "NO ZOOM")
     }
@@ -1031,6 +1054,258 @@ struct EditorViewModelTests {
         vm.selectedModifier = .shake
         #expect(vm.hasActiveModifier == true)
         #expect(vm.hasNonDefaultSettings == true)
+    }
+
+    // MARK: - Generating without a zoom (FeatureFlags.zoomOptional)
+    //
+    // The flag is injected rather than read from `UserDefaults`, so these drive both branches
+    // without leaving a value behind that would change every later test in the process.
+
+    private func makeGenerationViewModel(zoomOptional: Bool) -> EditorViewModel {
+        EditorViewModel(
+            content: .newImage(makeImage()),
+            gifGenerator: StubGIFGenerator(),
+            allowsGenerationWithoutZoom: zoomOptional
+        )
+    }
+
+    /// The flag off is the shipped behaviour: ENHANCE refuses and nags rather than generating.
+    @Test func generateGIF_withoutZoom_andFlagOff_refuses() {
+        let vm = makeGenerationViewModel(zoomOptional: false)
+        #expect(vm.currentScale == 1.0)
+
+        vm.generateGIF()
+
+        #expect(vm.enhanceState == .ready, "generation must not have started")
+        #expect(vm.saveMessage == "Zoom in on the image first!")
+    }
+
+    /// The whole point of the flag: a zoom type chosen, no pinch behind it, and ENHANCE runs.
+    ///
+    /// The zoom is selected **explicitly** because the flag also makes NO ZOOM the opening
+    /// selection — without this line the view model has neither a zoom nor an effect, which is
+    /// the "render a photograph" case that is still refused on purpose.
+    ///
+    /// Asserted as "not `.ready`" rather than "`.generating`": the state is set synchronously but
+    /// the stub finishes on the main queue, and a test running off the main thread can observe
+    /// either `.generating` or the completed `.share`. Both mean the request was accepted; only
+    /// `.ready` means it was refused.
+    @Test func generateGIF_withoutZoom_andFlagOn_generates() {
+        let vm = makeGenerationViewModel(zoomOptional: true)
+        vm.selectedAnimatorType = .zoomIn
+        #expect(vm.currentScale == 1.0)
+
+        vm.generateGIF()
+
+        #expect(vm.enhanceState != .ready)
+        #expect(vm.saveMessage != "Zoom in on the image first!")
+    }
+
+    /// The load-bearing one. Lifting the nag is not enough on its own: at 1× the generator's two
+    /// endpoint framings are identical, so ZOOM IN would interpolate between a framing and itself
+    /// and hand back a still. Substituting the fallback is what makes the GIF actually zoom — and
+    /// it is the same framing the ZOOM cards already display in this state.
+    @Test func generationFraming_withoutZoom_andFlagOn_isTheCardFallback() {
+        let vm = makeGenerationViewModel(zoomOptional: true)
+        vm.selectedAnimatorType = .zoomIn
+
+        let framing = vm.generationFraming
+        #expect(framing.scale == ZoomFraming.fallback.scale)
+        #expect(framing.scale > 1.0, "a zoom that does not zoom is worse than a refusal")
+        #expect(abs(framing.rect.midX - 0.5) < 1e-9)
+        #expect(abs(framing.rect.midY - 0.5) < 1e-9)
+    }
+
+    /// The user's own framing always wins — the fallback is for the case where there isn't one.
+    @Test func generationFraming_afterTheUserZooms_isTheirOwnFraming() {
+        let vm = makeGenerationViewModel(zoomOptional: true)
+        vm.selectedAnimatorType = .zoomIn
+        vm.currentScale = 3.0
+        vm.visibleRect = CGRect(x: 0.1, y: 0.2, width: 0.3, height: 0.3)
+
+        let framing = vm.generationFraming
+        #expect(framing.scale == 3.0)
+        #expect(framing.rect == CGRect(x: 0.1, y: 0.2, width: 0.3, height: 0.3))
+    }
+
+    /// ORIGINAL on the ZOOM tab means "hold still", so there is no zoom to rescue and the
+    /// fallback must not invent one — the GIF holds the photo as the canvas shows it.
+    @Test func generationFraming_withOriginalZoomSelected_isNotSubstituted() {
+        let vm = makeGenerationViewModel(zoomOptional: true)
+        vm.selectedAnimatorType = nil
+
+        #expect(vm.generationFraming.scale == 1.0)
+    }
+
+    @Test func generationFraming_withFlagOff_isNeverSubstituted() {
+        let vm = makeGenerationViewModel(zoomOptional: false)
+        vm.selectedAnimatorType = .zoomIn
+
+        #expect(vm.generationFraming.scale == 1.0)
+    }
+
+    /// The regression this exists for *(user-reported, 2026-08-13: "the images without a zoom
+    /// effect applied are shifted to the right and down when the gif is created")*.
+    ///
+    /// `visibleRect` is published by the canvas's scroll delegate, and a callback arriving before
+    /// the scroll view had bounds left it describing a zero-sized region off-centre. The generator
+    /// reads that rect's **centre**, and a centre below 0.5 renders as a translation right and
+    /// down — on every frame, because a no-zoom GIF holds one framing throughout.
+    @Test func generationFraming_unzoomed_ignoresADegenerateVisibleRect() {
+        let vm = makeGenerationViewModel(zoomOptional: false)
+        vm.selectedAnimatorType = nil
+        // Exactly what the canvas published for a portrait photo during initial layout.
+        vm.visibleRect = CGRect(x: 0, y: 0.1247, width: 0, height: 0)
+
+        let rect = vm.generationFraming.rect
+        #expect(abs(rect.midX - 0.5) < 1e-9, "an un-zoomed GIF must be centred")
+        #expect(abs(rect.midY - 0.5) < 1e-9, "an un-zoomed GIF must be centred")
+    }
+
+    /// The same guarantee with the canvas behaving: at 1× the visible region *is* the whole image,
+    /// so there is only one correct answer whatever the field holds.
+    @Test func generationFraming_unzoomed_isTheWholeFrame() {
+        let vm = makeGenerationViewModel(zoomOptional: false)
+        vm.selectedAnimatorType = nil
+
+        #expect(vm.generationFraming.rect == EditorViewModel.fullFrameRect)
+    }
+
+    // MARK: - Default zoom selection under the flag
+
+    /// With zooming optional, the editor opens on NO ZOOM rather than pre-choosing a zoom.
+    @Test func defaultAnimator_withFlagOn_isNoZoom() {
+        let vm = makeGenerationViewModel(zoomOptional: true)
+        #expect(vm.selectedAnimatorType == nil)
+        #expect(vm.defaultAnimatorType == nil)
+    }
+
+    @Test func defaultAnimator_withFlagOff_isZoomIn() {
+        let vm = makeGenerationViewModel(zoomOptional: false)
+        #expect(vm.selectedAnimatorType == .zoomIn)
+        #expect(vm.defaultAnimatorType == .zoomIn)
+    }
+
+    /// The baseline moves with the default, or RESET would greet an untouched editor.
+    @Test func hasNonDefaultSettings_onAFreshEditor_isFalseUnderBothFlagStates() {
+        #expect(!makeGenerationViewModel(zoomOptional: true).hasNonDefaultSettings)
+        #expect(!makeGenerationViewModel(zoomOptional: false).hasNonDefaultSettings)
+    }
+
+    /// And picking a zoom while the flag is on *is* a change, so RESET appears.
+    @Test func hasNonDefaultSettings_withFlagOn_afterChoosingAZoom_isTrue() {
+        let vm = makeGenerationViewModel(zoomOptional: true)
+        vm.selectedAnimatorType = .zoomIn
+        #expect(vm.hasNonDefaultSettings)
+    }
+
+    @Test func resetEffects_returnsToTheFlagAwareDefault() {
+        let vm = makeGenerationViewModel(zoomOptional: true)
+        vm.selectedAnimatorType = .pulse
+        vm.resetEffects()
+        #expect(vm.selectedAnimatorType == nil)
+    }
+
+    // MARK: - No-zoom pause default
+
+    /// A no-zoom GIF is an effect settling rather than a journey, so it holds longer.
+    @Test func pauseDefault_withNoZoom_isThreeSeconds() {
+        let vm = makeGenerationViewModel(zoomOptional: true)
+        #expect(vm.selectedAnimatorType == nil)
+        #expect(vm.pauseDuration == ZoomPlayback.noZoomPause)
+        #expect(vm.isPauseAtDefault)
+    }
+
+    @Test func pauseDefault_withAZoom_isOneSecond() {
+        let vm = makeGenerationViewModel(zoomOptional: false)
+        #expect(vm.pauseDuration == ZoomPlayback.defaultPause)
+        #expect(vm.isPauseAtDefault)
+    }
+
+    /// Neither default should light up RESET on an untouched editor.
+    @Test func hasNonDefaultSettings_withTheNoZoomPause_isFalse() {
+        #expect(!makeGenerationViewModel(zoomOptional: true).hasNonDefaultSettings)
+    }
+
+    @Test func selectAnimator_movesAnUntouchedPauseToTheNewDefault() {
+        let vm = makeGenerationViewModel(zoomOptional: false)
+        #expect(vm.pauseDuration == ZoomPlayback.defaultPause)
+
+        vm.selectAnimator(nil)
+        #expect(vm.pauseDuration == ZoomPlayback.noZoomPause)
+
+        vm.selectAnimator(.zoomIn)
+        #expect(vm.pauseDuration == ZoomPlayback.defaultPause)
+    }
+
+    /// The load-bearing one: a pause the user chose is theirs, and the default must not
+    /// overwrite it when the zoom selection changes.
+    @Test func selectAnimator_leavesAUserChosenPauseAlone() {
+        let vm = makeGenerationViewModel(zoomOptional: false)
+        vm.pauseDuration = 4.25
+
+        vm.selectAnimator(nil)
+        #expect(vm.pauseDuration == 4.25)
+    }
+
+    /// Undo restores a whole snapshot including its pause, so it must not route through
+    /// `selectAnimator` — that would rewrite the value being restored.
+    @Test func undo_restoresThePauseItSnapshotted() {
+        let vm = makeGenerationViewModel(zoomOptional: false)
+        vm.pushUndo()
+        vm.selectAnimator(nil)
+        #expect(vm.pauseDuration == ZoomPlayback.noZoomPause)
+
+        vm.undo()
+        #expect(vm.selectedAnimatorType == .zoomIn)
+        #expect(vm.pauseDuration == ZoomPlayback.defaultPause)
+    }
+
+    @Test func resetEffects_restoresTheSelectionAwarePause() {
+        let vm = makeGenerationViewModel(zoomOptional: true)
+        vm.pauseDuration = 0.5
+        vm.resetEffects()
+        #expect(vm.pauseDuration == ZoomPlayback.noZoomPause)
+    }
+
+    /// The pinch hint is the ENHANCE nag arriving early. With no nag to pre-empt it is noise.
+    @Test func showsZoomHint_withFlagOn_isFalse() {
+        let vm = makeGenerationViewModel(zoomOptional: true)
+        vm.showControls = true
+        #expect(vm.currentScale == 1.0)
+        #expect(!vm.showsZoomHint)
+    }
+
+    @Test func showsZoomHint_withFlagOff_stillAppears() {
+        let vm = makeGenerationViewModel(zoomOptional: false)
+        vm.showControls = true
+        #expect(vm.showsZoomHint)
+    }
+
+    /// The flag lifts the *zoom* requirement, not the requirement that the GIF do something.
+    /// ORIGINAL everywhere with no pinch is a request to render a photo, and still refused.
+    @Test func generateGIF_withNoZoomTypeAndNoEffects_stillRefuses() {
+        let vm = makeGenerationViewModel(zoomOptional: true)
+        vm.selectedAnimatorType = nil
+
+        vm.generateGIF()
+
+        #expect(vm.enhanceState == .ready)
+        #expect(vm.saveMessage == "Select an effect or zoom type first!")
+    }
+
+    /// ORIGINAL zoom plus an effect that animates on its own is a legitimate GIF, and was
+    /// already allowed before the flag existed — it must stay allowed with the flag on.
+    @Test func generateGIF_withNoZoomTypeButAnEffect_generates() {
+        let vm = makeGenerationViewModel(zoomOptional: true)
+        vm.selectedAnimatorType = nil
+        vm.selectedVisualEffect = .dither
+
+        vm.generateGIF()
+
+        // "Not refused" rather than "`.generating`" — see the note on
+        // `generateGIF_withoutZoom_andFlagOn_generates` for why the exact state is racy.
+        #expect(vm.enhanceState != .ready)
     }
 
     // MARK: - Face selection

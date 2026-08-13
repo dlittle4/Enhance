@@ -1,26 +1,19 @@
 import SwiftUI
 
-/// Row height for the effect detail panel, adapted to the space the panel actually got.
-///
-/// The panel's rows are fixed-height, so on a short device three of them plus the header
-/// simply do not fit — and because `needsScroll` is measured, an overflow silently
-/// enables the `ScrollView`, where `DragGesture(minimumDistance: 0)` loses to the scroll
-/// and dragging a slider scrolls the panel instead. Shrinking the rows to fit keeps the
-/// scroll disabled, which is what makes that gesture conflict impossible rather than
-/// merely unlikely.
-///
-/// Same reasoning as `AppConstants.Layout.effectCardSize(forControlsHeight:)`: one layout
-/// that adapts, rather than a constant that fits the largest device.
-private struct PanelRowHeightKey: EnvironmentKey {
-    static let defaultValue = AppConstants.Layout.parameterRowHeight
-}
-
-extension EnvironmentValues {
-    var panelRowHeight: CGFloat {
-        get { self[PanelRowHeightKey.self] }
-        set { self[PanelRowHeightKey.self] = newValue }
-    }
-}
+// A `\.panelRowHeight` environment value used to live here, so the panel could shrink its rows
+// to fit a short device and keep its `ScrollView` disabled — back when a slider drag would have
+// lost to that scroll.
+//
+// **Every part of that has since been superseded, and it was removed on 2026-08-13.**
+// `ParameterSliderRow` scoped its drag to the knob (2026-08-12), so the gesture conflict the
+// shrinking existed to prevent cannot arise and the scroll is merely accepted (ROADMAP §1a). The
+// same redesign gave that row a fixed 49pt track, which left `SegmentedBar` as the value's only
+// reader — one control quietly shrinking to 34pt while the identical control in PIXELATE stayed
+// 46, which is the inconsistency that got both folded into `SegmentedToggle`.
+//
+// Rows are fixed-height now. If a row ever needs to adapt again, note what this cost: an
+// adaptive height on *one* control is indistinguishable from a bug on every panel that shows it
+// next to a fixed one.
 
 extension AppConstants.Layout {
     /// Floor. The slider knob shrinks with the row (see `ParameterSliderRow`), so this

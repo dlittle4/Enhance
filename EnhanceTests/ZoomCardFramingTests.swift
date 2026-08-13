@@ -160,4 +160,23 @@ struct ZoomCardFramingTests {
         }
         #expect(Set(scales).count == AnimatorType.allCases.count, "got \(scales)")
     }
+
+    /// `rect` is how a framing reaches the generator, which reads only its **centre** and takes
+    /// the magnification from the scale alongside it. The size still has to describe the region
+    /// the framing names, or the value lies to any later reader.
+    @Test func rect_isCentredOnTheFramingAndSizedByItsScale() {
+        let framing = ZoomFraming(scale: 4, center: CGPoint(x: 0.25, y: 0.75))
+
+        #expect(abs(framing.rect.midX - 0.25) < 1e-9)
+        #expect(abs(framing.rect.midY - 0.75) < 1e-9)
+        #expect(abs(framing.rect.width - 0.25) < 1e-9)
+    }
+
+    /// At or below 1× there is nothing cropped away, so the rect is the whole frame rather than
+    /// something inverted by a scale under one.
+    @Test func rect_atNoZoom_isTheWholeFrame() {
+        #expect(ZoomFraming(scale: 1, center: CGPoint(x: 0.5, y: 0.5)).rect
+            == CGRect(x: 0, y: 0, width: 1, height: 1))
+        #expect(ZoomFraming(scale: 0.5, center: CGPoint(x: 0.5, y: 0.5)).rect.width == 1)
+    }
 }

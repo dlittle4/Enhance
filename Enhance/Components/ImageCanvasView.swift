@@ -234,7 +234,14 @@ private struct ScrollableCanvasView: UIViewRepresentable {
             let viewW = scrollView.bounds.width
             let viewH = scrollView.bounds.height
 
-            guard contentW > 0, contentH > 0 else { return }
+            // **Bounds too, not just content.** A delegate callback can arrive while the scroll
+            // view is still being laid out, when `bounds` is `.zero` — and the arithmetic below
+            // then yields a rect of zero size whose origin is the at-rest centring offset. Its
+            // *centre* is what the generator reads, and for a portrait photo that centre came out
+            // around (0, 0.12) instead of (0.5, 0.5), which the generator renders as a translation
+            // right and down. Visible only without a zoom type, because `StaticAnimator` uses that
+            // framing for every frame while the zoom animators start from the full view.
+            guard contentW > 0, contentH > 0, viewW > 0, viewH > 0 else { return }
 
             let normalizedX = scrollView.contentOffset.x / contentW
             let normalizedY = scrollView.contentOffset.y / contentH

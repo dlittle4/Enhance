@@ -526,6 +526,12 @@ Both are more feasible than they look, because groundwork landed for other reaso
 - [ ] **Effects rethink** (needs design): an IG-style colour-filter category; auto-zoom toward a
       detected face when no zoom is set; and making "toggle off all zoom types" reset the canvas to
       1× rather than holding the user's position.
+      **The auto-zoom half now has a first step shipped**, behind the MAKE GIFS WITHOUT ZOOMING
+      experiment (`FeatureFlags.zoomOptional`): with no pinch, generation falls back to
+      `ZoomFraming.fallback` — 2.5× on the centre, the framing the ZOOM cards already preview in
+      that state. Aiming that fallback at a *detected face* rather than the centre is the same
+      substitution with a better target, and touches one property
+      (`EditorViewModel.generationFraming`).
 - [ ] **Onboarding**: five default photos demonstrating the app; a "give the gift of a GIF" viral
       unlock for face effects.
 - [ ] **Settings & social**: RATE THE APP (`SKStoreReviewController`), SHARE WITH FRIENDS.
@@ -542,12 +548,16 @@ Both are more feasible than they look, because groundwork landed for other reaso
 
 - [ ] **`ColorPicker` aesthetics.** The system colour wheel is a modal iOS sheet, against Silkscreen
       pixel-art styling. Accepted deliberately for the colour freedom; revisit if it grates in use.
-- [ ] **Zoom is always on.** One of the three zoom types is always selected; there is no NONE card.
-      **Consequence: effects-only GIFs at 1× are impossible.** The `nil`-animator paths are kept
-      intact but unreachable (`EditorViewModel.swift:444, 957, 980, 1036`), so reversing this is a UI
-      change rather than a re-implementation. **If it is re-exposed, note that `activeAnimator`
-      returns a bare `StaticAnimator()` and silently discards the modifier** — that path was already
-      broken before it became unreachable.
+- [x] ~~**Zoom is always on.**~~ **Decided 2026-08-12: it is not.** Every carousel now opens with an
+      ORIGINAL card that clears its selection (`EffectChoice`), so the `nil`-animator paths are
+      reachable and effects-only GIFs at 1× are possible. This section predicted correctly that
+      reversing it would be a UI change rather than a re-implementation, and its warning was live:
+      `activeAnimator` did discard the modifier when no zoom was selected, so ORIGINAL + SHAKE
+      would have generated a still for a user who asked for movement. Fixed in the same change
+      (`EditorViewModel.swift`, `activeAnimator`).
+      **One known consequence, not fixed:** SHAKE over ORIGINAL with no pinch behind it jitters a
+      1× framing, so up to ~4% of the frame edge can read black before the shake decays. It needs
+      headroom to hide the pan, which any zoom provides and 1× does not.
 - [ ] **Undo does not capture zoom.** `EditorSnapshot` has no `currentScale` / `visibleRect`, so
       pinch/pan is not undoable, and undo after a zoom restores effects against different framing.
       May be intentional — needs a decision either way.

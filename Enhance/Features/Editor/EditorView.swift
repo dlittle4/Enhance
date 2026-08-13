@@ -203,27 +203,33 @@ struct EditorView: View {
             // colour, so a shadow renders in the text's own colour and a block plate fills solid
             // over the glyphs. Those decorations need a second, contrasting fill pass before they
             // are worth a control. `TextDecoration` stays in the model for that work.
+            // The toggle and the swatches it switches between are **one row**, 4pt apart.
+            //
+            // They used to be two `ParameterPickerRow`s, the second with an empty label — which
+            // bought a full inter-row gap (24pt) *plus* the height of a blank label line between
+            // a control and the thing it controls. The swatches are not a separate parameter;
+            // they are what FILL currently resolves to, so they belong inside its row, tight
+            // enough to read as one group.
             ParameterPickerRow(label: "FILL") {
-                SegmentedBar(
-                    items: TextFillMode.allCases,
-                    selection: textFillModeBinding,
-                    label: { $0.rawValue }
-                )
-            }
-            // Unlabelled: the FILL row above already names what these are, and a second label
-            // would repeat it while stealing width from the swatches.
-            ParameterPickerRow(label: "") {
-                if viewModel.textOverlay?.fillMode == .gradient {
-                    textGradientSwatchContent()
-                } else {
-                    textColorSwatchContent()
+                VStack(spacing: AppConstants.Spacing.xsmall) {
+                    SegmentedToggle(
+                        items: TextFillMode.allCases,
+                        selection: textFillModeBinding,
+                        label: { $0.rawValue }
+                    )
+
+                    if viewModel.textOverlay?.fillMode == .gradient {
+                        textGradientSwatchContent()
+                    } else {
+                        textColorSwatchContent()
+                    }
                 }
             }
             // One slot, two possible controls: SLIDE picks a travel direction, GRID picks the
             // origin its fill spreads from. They never both apply.
             if viewModel.textOverlay?.animation.usesDirection == true {
                 ParameterPickerRow(label: "FROM") {
-                    SegmentedBar(
+                    SegmentedToggle(
                         items: TextSlideDirection.allCases,
                         selection: textDirectionBinding,
                         label: { $0.rawValue }
@@ -231,7 +237,7 @@ struct EditorView: View {
                 }
             } else if viewModel.textOverlay?.animation.usesGridOrigin == true {
                 ParameterPickerRow(label: "FROM") {
-                    SegmentedBar(
+                    SegmentedToggle(
                         items: TextGridOrigin.allCases,
                         selection: textGridOriginBinding,
                         label: { $0.rawValue }
@@ -264,7 +270,7 @@ struct EditorView: View {
                 valueText: viewModel.pauseLabel
             )
             ParameterPickerRow(label: "MOTION") {
-                SegmentedBar(
+                SegmentedToggle(
                     items: ModifierType.allCases,
                     selection: $viewModel.modifierSelection,
                     label: { $0.rawValue }
@@ -487,13 +493,74 @@ struct EditorView: View {
 
     private func zoomEffectsGrid(cardSize: CGFloat) -> some View {
         EffectCarousel(
-            items: AnimatorType.allCases,
-            scrollTo: viewModel.selectedAnimatorType,
+            items: EffectChoice.gallery(AnimatorType.allCases),
+            scrollTo: EffectChoice(viewModel.selectedAnimatorType),
             contentInset: canvasInset
-        ) { animType in
-            zoomToggle(animType, cardSize: cardSize)
+        ) { choice in
+            switch choice {
+            case .original:
+                originalCard(
+                    isActive: viewModel.selectedAnimatorType == nil,
+                    // The zoom cards magnify a 650pt preview rather than a 120pt thumbnail, so
+                    // ORIGINAL borrows the same source — at thumbnail resolution it would read
+                    // visibly softer than the card sitting next to it.
+                    //
+                    // Untransformed, which makes it look like ZOOM OUT's card. That collision is
+                    // unavoidable rather than an oversight: there are only two endpoint framings
+                    // for four cards, so ORIGINAL either matches ZOOM OUT (the whole photo) or
+                    // ZOOM IN (the framing a still would hold). The whole photo wins because it
+                    // is what ORIGINAL means on the other three tabs, and consistency across the
+                    // tabs is worth more than distinctness within one.
+                    thumbnail: viewModel.zoomPreviewImage,
+                    cardSize: cardSize,
+                    title: "NO ZOOM"
+                ) {
+                    guard viewModel.selectedAnimatorType != nil else { return }
+                    viewModel.pushUndo()
+                    // Via `selectAnimator`, so an untouched PAUSE moves to the no-zoom default.
+                    viewModel.selectAnimator(nil)
+                }
+            case .effect(let animType):
+                zoomToggle(animType, cardSize: cardSize)
+            }
         }
         .onAppear { viewModel.generateZoomPreviewImage() }
+    }
+
+    /// The "no effect" card every carousel opens with.
+    ///
+    /// Deliberately an ordinary `EffectCardView` over the untouched photo. A card's backdrop is
+    /// its promise — "this is what you get" — and for ORIGINAL that promise is the photo itself,
+    /// which also makes it the comparison the rest of the carousel is read against.
+    ///
+    /// **None of them open the settings panel** *(user's call, 2026-08-13)*, including ZOOM's:
+    /// choosing "no effect" is a complete action, and a panel of controls for the effect you just
+    /// switched off is a non-sequitur. ZOOM briefly did open one, on the argument that SPEED,
+    /// PAUSE and MOTION still shape a GIF that holds still — which is true, and they are now
+    /// unreachable while NO ZOOM is selected, since the panel only opens from a zoom card. Worth
+    /// knowing if those controls ever need a home that does not belong to the zoom.
+    private func originalCard(
+        isActive: Bool,
+        thumbnail: UIImage?,
+        cardSize: CGFloat,
+        /// ZOOM overrides this to NO ZOOM: "original" describes a picture, and what that card
+        /// switches off is a movement rather than a treatment of the image.
+        title: String = "ORIGINAL",
+        action: @escaping () -> Void
+    ) -> some View {
+        EffectCardView(
+            title: title,
+            thumbnail: thumbnail,
+            isActive: isActive,
+            // Never blocked for want of a face, unlike its neighbours on the FACE tab: removing
+            // an effect is exactly what a photo with no faces might need. Only an in-flight
+            // regeneration holds it, for the same reason it holds every other card.
+            isBlocked: viewModel.isRegenerating,
+            size: cardSize
+        ) {
+            HapticService.selection()
+            action()
+        }
     }
 
     private func zoomToggle(_ animType: AnimatorType, cardSize: CGFloat) -> some View {
@@ -527,7 +594,8 @@ struct EditorView: View {
             HapticService.selection()
             if viewModel.selectedAnimatorType != animType {
                 viewModel.pushUndo()
-                viewModel.selectedAnimatorType = animType
+                // Carries an untouched PAUSE back off the no-zoom default when leaving NO ZOOM.
+                viewModel.selectAnimator(animType)
             }
             viewModel.beginEditing()
         }
@@ -539,13 +607,38 @@ struct EditorView: View {
     /// separate ADD TEXT step, matching how selecting any effect card applies that effect (§4).
     private func textPresetsGrid(cardSize: CGFloat) -> some View {
         EffectCarousel(
-            items: TextAnimationType.allCases,
-            scrollTo: viewModel.textOverlay?.animation,
+            items: EffectChoice.gallery(TextAnimationType.allCases),
+            scrollTo: EffectChoice(viewModel.textOverlay?.animation),
             contentInset: canvasInset
-        ) { preset in
-            textPresetCard(preset, cardSize: cardSize)
+        ) { choice in
+            switch choice {
+            case .original:
+                originalCard(
+                    // Presence of an overlay, **not** `isActive`. The two differ only while the
+                    // keyboard is up, where a freshly created overlay still has empty text — and
+                    // `isActive` there lit ORIGINAL *and* the chosen preset at the same time,
+                    // visible through the entry scrim. There is no settled state where they
+                    // disagree: `commitTextEntry` discards a blank draft outright.
+                    isActive: viewModel.textOverlay == nil,
+                    thumbnail: viewModel.originalThumbnail,
+                    cardSize: cardSize
+                ) {
+                    guard viewModel.textOverlay != nil else { return }
+                    viewModel.pushUndo()
+                    viewModel.textOverlay = nil
+                    // The text categories have no `.onChange` regeneration hook — every text path
+                    // asks explicitly — so removing the words has to ask too, or the GIF keeps
+                    // showing a title the editor no longer has.
+                    viewModel.regenerateIfNeeded()
+                }
+            case .effect(let preset):
+                textPresetCard(preset, cardSize: cardSize)
+            }
         }
-        .onAppear { viewModel.generateTextThumbnails() }
+        .onAppear {
+            viewModel.generateTextThumbnails()
+            viewModel.generateOriginalThumbnail()
+        }
     }
 
     private func textPresetCard(_ preset: TextAnimationType, cardSize: CGFloat) -> some View {
@@ -833,20 +926,23 @@ struct EditorView: View {
 
     // MARK: - Pickers
 
-    /// The two PIXELATE cell shapes. Same zero-spacing Spacer distribution as the colour
-    /// swatches — see `colorSwatchContent` for why both the spacing and the `minLength`
-    /// have to be zero.
     /// PIXELATE's cell shape, drawn with the same segmented control as every other toggle.
     ///
     /// It used to be bare text buttons with an 8pt outline on the selection — a fourth
     /// treatment for a control that is the same thing as `SegmentedToggle`. Routing it through
     /// the shared component is what stops the panel accumulating one-off styles.
+    ///
+    /// **No `onWillChange: { pushUndo() }`**, for the reason `parameterRows` spells out: these
+    /// rows exist only while the panel is open, and `commitEditing()` already records one entry
+    /// for the whole visit. A push here left the stack as `[shapePreChange, entrySnapshot]`, so
+    /// after changing a slider *and then* the shape, the second undo re-applied the slider move
+    /// — stepping the user forward. It was the only one of this control's four call sites that
+    /// passed the hook, which is exactly the divergence a shared component is meant to prevent.
     private var pixelShapeContent: some View {
         SegmentedToggle(
             items: PixelShape.allCases,
             selection: $viewModel.pixelShape,
-            label: { $0.rawValue },
-            onWillChange: { viewModel.pushUndo() }
+            label: { $0.rawValue }
         )
     }
 
@@ -863,7 +959,12 @@ struct EditorView: View {
             ForEach(LaserColor.allCases) { color in
                 Spacer(minLength: 0)
                 Button {
-                    viewModel.pushUndo()
+                    // No `pushUndo()` here, for the reason `parameterRows` spells out and
+                    // `pixelShapeContent` repeats: this row exists only while the panel is open,
+                    // and `commitEditing()` already records one entry for the whole visit. The
+                    // per-tap push left the stack as `[swatchPreChange, entrySnapshot]`, so
+                    // moving a slider and *then* a swatch made the second undo re-apply the
+                    // slider move — stepping the user forward instead of back.
                     HapticService.light()
                     selection.wrappedValue = color
                 } label: {
@@ -966,12 +1067,28 @@ struct EditorView: View {
 
     private func visualEffectsGrid(cardSize: CGFloat) -> some View {
         EffectCarousel(
-            items: VisualEffectType.selectable,
-            scrollTo: viewModel.selectedVisualEffect,
+            items: EffectChoice.gallery(VisualEffectType.selectable),
+            scrollTo: EffectChoice(viewModel.selectedVisualEffect),
             contentInset: canvasInset
-        ) { effectType in
-            visualEffectToggle(effectType, cardSize: cardSize)
+        ) { choice in
+            switch choice {
+            case .original:
+                originalCard(
+                    isActive: viewModel.selectedVisualEffect == nil,
+                    thumbnail: viewModel.originalThumbnail,
+                    cardSize: cardSize
+                ) {
+                    guard viewModel.selectedVisualEffect != nil else { return }
+                    viewModel.pushUndo()
+                    // The `.onChange(of: selectedVisualEffect)` handler refreshes the preview and
+                    // regenerates, so clearing it is all this has to do.
+                    viewModel.selectedVisualEffect = nil
+                }
+            case .effect(let effectType):
+                visualEffectToggle(effectType, cardSize: cardSize)
+            }
         }
+        .onAppear { viewModel.generateOriginalThumbnail() }
     }
 
     private func visualEffectToggle(_ effectType: VisualEffectType, cardSize: CGFloat) -> some View {
@@ -997,11 +1114,29 @@ struct EditorView: View {
 
     private func faceFiltersGrid(cardSize: CGFloat) -> some View {
         EffectCarousel(
-            items: FaceFilterType.allCases,
-            scrollTo: viewModel.selectedFaceFilter,
+            items: EffectChoice.gallery(FaceFilterType.allCases),
+            scrollTo: EffectChoice(viewModel.selectedFaceFilter),
             contentInset: canvasInset
-        ) { filterType in
-            faceFilterToggle(filterType, cardSize: cardSize)
+        ) { choice in
+            switch choice {
+            case .original:
+                originalCard(
+                    isActive: viewModel.selectedFaceFilter == nil,
+                    // The face crop, not the whole frame: every other card on this tab is
+                    // cropped to the detected face, and a full-frame ORIGINAL among them would
+                    // not read as the same photo. Nil until detection finishes, or when the
+                    // photo has no faces — the card falls back to a flat fill, as its
+                    // neighbours already do.
+                    thumbnail: viewModel.originalFaceThumbnail,
+                    cardSize: cardSize
+                ) {
+                    guard viewModel.selectedFaceFilter != nil else { return }
+                    viewModel.pushUndo()
+                    viewModel.selectedFaceFilter = nil
+                }
+            case .effect(let filterType):
+                faceFilterToggle(filterType, cardSize: cardSize)
+            }
         }
     }
 

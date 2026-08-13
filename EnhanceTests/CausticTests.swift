@@ -152,7 +152,9 @@ struct CausticTests {
     func caustic_parameterShape() {
         let params = VisualEffectType.caustic.parameters
         #expect(params.count == 5)
-        #expect(params.first?.id == EffectParameter.intensityID)
+        // COLOR leads as of 2026-08-13; intensity is the first slider behind it.
+        #expect(params.first?.kind == .tintColor)
+        #expect(params.first { $0.kind == .slider }?.id == EffectParameter.intensityID)
         #expect(params.filter { $0.kind != .slider }.count == 1)
         #expect(VisualEffectType.caustic.colorPickerKind == .tintColor)
     }
