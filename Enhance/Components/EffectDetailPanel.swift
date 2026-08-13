@@ -58,7 +58,7 @@ struct EffectDetailPanel<Rows: View>: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: AppConstants.Layout.panelCornerRadius, style: .continuous)
-                .fill(Color.surfacePanel)
+                .fill(Color.surfaceCard)
         )
     }
 

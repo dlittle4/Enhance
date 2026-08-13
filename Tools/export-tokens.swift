@@ -50,7 +50,11 @@ var problems: [String] = []
 let colours = try read("Colors.swift")
 
 // `static let name = Color(hex: 0xRRGGBB)`
-for m in matches(#"static let (\w+) = Color\(hex: 0x([0-9A-Fa-f]{6})\)"#, in: colours) {
+//
+// The negative lookahead matters: without it this also matches the *prefix* of
+// `Color(hex: 0x60FFA8).opacity(0.3)`, and mintDim and divider each exported twice — once
+// opaque and once with their alpha. Silent duplication, not an error.
+for m in matches(#"static let (\w+) = Color\(hex: 0x([0-9A-Fa-f]{6})\)(?!\.opacity)"#, in: colours) {
     tokens.append(Token(name: m[1], kind: "color", value: "#" + m[2].uppercased(), detail: nil))
 }
 
@@ -75,6 +79,19 @@ for m in matches(#"static let (\w+) = Color\.white\.opacity\(([\d.]+)\)"#, in: c
 // patterns above match a plain `Color.white`, so it exported as nothing at all.
 for m in matches(#"static let (\w+) = Color\.white\n"#, in: colours) {
     tokens.append(Token(name: m[1], kind: "color", value: "#FFFFFF", detail: nil))
+}
+
+// `static let name = Color.black` and `Color.black.opacity(x)` — shadow, scrim, textOnGradient.
+for m in matches(#"static let (\w+) = Color\.black\.opacity\(([\d.]+)\)"#, in: colours) {
+    tokens.append(Token(name: m[1], kind: "color", value: "#000000", detail: "alpha \(m[2])"))
+}
+for m in matches(#"static let (\w+) = Color\.black\n"#, in: colours) {
+    tokens.append(Token(name: m[1], kind: "color", value: "#000000", detail: nil))
+}
+
+// `static let name = Color(hex: 0xRRGGBB).opacity(x)` — mintDim, divider.
+for m in matches(#"static let (\w+) = Color\(hex: 0x([0-9A-Fa-f]{6})\)\.opacity\(([\d.]+)\)"#, in: colours) {
+    tokens.append(Token(name: m[1], kind: "color", value: "#" + m[2].uppercased(), detail: "alpha \(m[3])"))
 }
 
 // MARK: - Radius
@@ -113,7 +130,7 @@ for m in matches(#"static let (\w+) = Animation\.(\w+)\(response: ([\d.]+), damp
 // badgeGreen, silkscreenControl and silkscreenControlEmphasis, and added textPrimary and
 // iconInactive. Raise these when tokens are added; lower them only when one is deliberately
 // retired, never to make a failure go away.
-let expected: [(String, Int)] = [("color", 11), ("radius", 5), ("type", 9), ("motion", 4)]
+let expected: [(String, Int)] = [("color", 11), ("radius", 7), ("type", 9), ("motion", 4)]
 for (kind, count) in expected {
     let found = tokens.filter { $0.kind == kind }.count
     if found < count {

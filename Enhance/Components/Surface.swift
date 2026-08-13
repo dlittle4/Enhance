@@ -11,7 +11,7 @@ import SwiftUI
 /// )
 /// ```
 ///
-/// which becomes `.surface(.raised, opacity: 0.8)`.
+/// which becomes `.surface(.card, opacity: 0.8)`.
 ///
 /// **Opacity is a parameter, not part of the style.** The eight call sites use three different
 /// values — 0.8 in the editor, 0.95 and 1.0 in the gallery — and baking one in would have made
@@ -22,20 +22,21 @@ import SwiftUI
 /// swapping to the default circular style is a visible change in the corner curve.
 struct SurfaceModifier: ViewModifier {
 
-    /// Which surface colour to use. Named for the role, so a theme can reassign them.
+    /// Which surface colour to use. Named after the exported design tokens.
+    ///
+    /// Collapsed from three cases to two on 2026-08-12: `.raised` and `.panel` had become the
+    /// same colour once the panel adopted the card surface, and two names for one value is
+    /// exactly the duplication this token layer exists to remove.
     enum Style {
-        /// A pill or card sitting on a screen background. The common case.
-        case raised
-        /// The effect detail panel.
-        case panel
-        /// A selected cell.
-        case active
+        /// A card, pill, or the effect detail panel.
+        case card
+        /// The track behind a segmented control, or a selected cell.
+        case control
 
         var color: Color {
             switch self {
-            case .raised: return .surfaceRaised
-            case .panel:  return .surfacePanel
-            case .active: return .surfaceActive
+            case .card:    return .surfaceCard
+            case .control: return .surfaceControl
             }
         }
     }
@@ -70,22 +71,22 @@ extension View {
 
 #Preview {
     VStack(spacing: 16) {
-        Text("RAISED").font(.silkscreenLabel).foregroundColor(.textPrimary)
+        Text("CARD").font(.silkscreenLabel).foregroundColor(.textPrimary)
             .frame(maxWidth: .infinity).frame(height: 60)
-            .surface(.raised)
+            .surface(.card)
 
-        Text("RAISED 80%").font(.silkscreenLabel).foregroundColor(.textPrimary)
+        Text("CARD 80%").font(.silkscreenLabel).foregroundColor(.textPrimary)
             .frame(maxWidth: .infinity).frame(height: 60)
-            .surface(.raised, opacity: 0.8)
+            .surface(.card, opacity: 0.8)
 
-        Text("PANEL, 20pt").font(.silkscreenLabel).foregroundColor(.textPrimary)
+        Text("CARD, 24pt").font(.silkscreenLabel).foregroundColor(.textPrimary)
             .frame(maxWidth: .infinity).frame(height: 60)
-            .surface(.panel, cornerRadius: AppConstants.Layout.panelCornerRadius)
+            .surface(.card, cornerRadius: AppConstants.CornerRadius.canvasInner)
 
-        Text("ACTIVE").font(.silkscreenLabel).foregroundColor(.textPrimary)
+        Text("CONTROL").font(.silkscreenLabel).foregroundColor(.textPrimary)
             .frame(maxWidth: .infinity).frame(height: 60)
-            .surface(.active)
+            .surface(.control)
     }
     .padding()
-    .background(Color.surfaceBase)
+    .background(Color.surfacePrimary)
 }

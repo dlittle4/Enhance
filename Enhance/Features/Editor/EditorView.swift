@@ -33,7 +33,7 @@ struct EditorView: View {
 
     var body: some View {
         ZStack {
-            Color.surfaceBase.ignoresSafeArea()
+            Color.surfacePrimary.ignoresSafeArea()
 
             VStack(spacing: 16) {
                 topBar
@@ -289,7 +289,7 @@ struct EditorView: View {
                     } label: {
                         Text("RESET")
                             .font(.silkscreenSectionTitle)
-                            .foregroundColor(historyEnabled ? .textPrimary : .contentInactive)
+                            .foregroundColor(historyEnabled ? .textPrimary : .textInactive)
                     }
                     .disabled(!historyEnabled)
                 }
@@ -299,7 +299,7 @@ struct EditorView: View {
                 } label: {
                     Image("icon-undo")
                         .renderingMode(.template)
-                        .foregroundColor(historyEnabled && viewModel.canUndo ? .textPrimary : .contentInactive)
+                        .foregroundColor(historyEnabled && viewModel.canUndo ? .textPrimary : .textInactive)
                 }
                 .disabled(!historyEnabled || !viewModel.canUndo)
 
@@ -308,7 +308,7 @@ struct EditorView: View {
                 } label: {
                     Image("icon-redo")
                         .renderingMode(.template)
-                        .foregroundColor(historyEnabled && viewModel.canRedo ? .textPrimary : .contentInactive)
+                        .foregroundColor(historyEnabled && viewModel.canRedo ? .textPrimary : .textInactive)
                 }
                 .disabled(!historyEnabled || !viewModel.canRedo)
             }
@@ -1084,7 +1084,7 @@ struct EditorView: View {
                 } label: {
                     Text(viewModel.enhanceState == .generating ? "GENERATING..." : "ENHANCE")
                         .font(.silkscreenButtonLabel)
-                        .foregroundColor(Color.onAccent)
+                        .foregroundColor(Color.textOnGradient)
                         .frame(maxWidth: .infinity)
                         .frame(height: buttonHeight)
                         .background(SimpleGradientBackground())
@@ -1116,10 +1116,10 @@ struct EditorView: View {
                 } label: {
                     Text("SAVE")
                         .font(.silkscreenButtonLabel)
-                        .foregroundColor(viewModel.isSaveEnabled ? .textPrimary : .contentInactive)
+                        .foregroundColor(viewModel.isSaveEnabled ? .textPrimary : .textInactive)
                         .frame(maxWidth: .infinity)
                         .frame(height: buttonHeight)
-                        .surface(.raised, opacity: 0.8)
+                        .surface(.card, opacity: 0.8)
                 }
                 .enhanceButtonAnimation()
                 .disabled(!viewModel.isSaveEnabled)
@@ -1130,7 +1130,7 @@ struct EditorView: View {
             } label: {
                 Text("SHARE")
                     .font(.silkscreenButtonLabel)
-                    .foregroundColor(Color.onAccent)
+                    .foregroundColor(Color.textOnGradient)
                     .frame(maxWidth: .infinity)
                     .frame(height: buttonHeight)
                     .background(SimpleGradientBackground())
@@ -1154,7 +1154,7 @@ struct EditorView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 60)
-                        .surface(.raised, opacity: 0.8)
+                        .surface(.card, opacity: 0.8)
                 }
                 .buttonStyle(.plain)
 
@@ -1167,7 +1167,7 @@ struct EditorView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 60)
-                        .surface(.raised, opacity: 0.8)
+                        .surface(.card, opacity: 0.8)
                 }
                 .buttonStyle(.plain)
             }

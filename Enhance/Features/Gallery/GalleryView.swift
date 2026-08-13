@@ -42,7 +42,7 @@ struct GalleryView: View {
     
     var body: some View {
         ZStack {
-            Color.surfaceBase.ignoresSafeArea()
+            Color.surfacePrimary.ignoresSafeArea()
             
             VStack(spacing: 0) {
                 if photoManager.isAuthorized && !photoManager.hasLoadedGifs {
@@ -66,7 +66,7 @@ struct GalleryView: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 20)
                     .padding(.vertical, 12)
-                    .surface(.raised, opacity: 0.95, cornerRadius: AppConstants.CornerRadius.large)
+                    .surface(.card, opacity: 0.95, cornerRadius: AppConstants.CornerRadius.large)
                     .padding(.top, 60)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -187,7 +187,7 @@ struct GalleryView: View {
             } label: {
                 Text("MAKE YOUR FIRST GIF")
                     .font(.silkscreenButtonLabel)
-                    .foregroundColor(Color.onAccent)
+                    .foregroundColor(Color.textOnGradient)
                     .frame(maxWidth: .infinity)
                     .frame(height: 60)
                     .background(
@@ -257,7 +257,7 @@ struct GalleryView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 60)
-                        .surface(.raised)
+                        .surface(.card)
                 }
                 .buttonStyle(EnhancePressButtonStyle())
             }
@@ -408,14 +408,14 @@ struct GalleryView: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isSelectMode)
         .padding(.horizontal, 10)
         .padding(.vertical, 16)
-        .background(Color.surfaceBase)
+        .background(Color.surfacePrimary)
     }
     
     private var normalBottomBar: some View {
         PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
             Text("MAKE A GIF")
                 .font(.silkscreenButtonLabel)
-                .foregroundColor(Color.onAccent)
+                .foregroundColor(Color.textOnGradient)
                 .frame(maxWidth: .infinity)
                 .frame(height: 60)
                 .background(
@@ -434,7 +434,7 @@ struct GalleryView: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 60)
-                    .surface(.raised)
+                    .surface(.card)
             }
             .buttonStyle(EnhancePressButtonStyle())
 
@@ -444,7 +444,7 @@ struct GalleryView: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 60)
-                    .surface(.raised)
+                    .surface(.card)
             }
             .buttonStyle(EnhancePressButtonStyle())
 
@@ -454,7 +454,7 @@ struct GalleryView: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .frame(height: 60)
-                    .surface(.raised)
+                    .surface(.card)
             }
             .buttonStyle(EnhancePressButtonStyle())
         }

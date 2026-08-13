@@ -84,7 +84,7 @@ struct ParameterSliderRow: View {
                     .overlay(
                         Text(valueText ?? "\(EffectParameter.displayValue(value))")
                             .font(.silkscreenBody)
-                            .foregroundColor(.onAccent)
+                            .foregroundColor(.textOnGradient)
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
                     )

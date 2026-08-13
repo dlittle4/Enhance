@@ -39,7 +39,7 @@ struct SegmentedBar<T: Hashable>: View {
                         .frame(height: rowHeight)
                         .background(
                             RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous)
-                                .fill(isSelected ? Color.segmentSelected.opacity(0.7) : Color.clear)
+                                .fill(isSelected ? Color.mintDim.opacity(0.7) : Color.clear)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous)

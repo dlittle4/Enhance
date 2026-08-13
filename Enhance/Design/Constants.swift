@@ -34,13 +34,22 @@ enum AppConstants {
         /// Circle radius for buttons (100pt)
         static let circle: CGFloat = 100
 
-        /// Cards, pills and raised surfaces (16pt).
+        /// Controls — segmented toggles, cards, pills (16pt).
         ///
-        /// The app's de-facto radius and, until now, its most-repeated un-tokenised number:
-        /// 21 literal `cornerRadius: 16` sites across 6 files. Note this is *not*
-        /// `Layout.panelCornerRadius` (20pt) — the detail panel is deliberately rounder than the
-        /// cards inside it.
+        /// Exported by the design as `Radius/Control`. Kept as `card` in code because 21 call
+        /// sites already use that name and the value is unchanged; the alias below carries the
+        /// design's name for anyone reading across.
         static let card: CGFloat = 16
+
+        /// The design's name for the same 16pt step.
+        static let control: CGFloat = card
+
+        /// The editor canvas's outer frame (28pt) and the photo inside it (24pt).
+        ///
+        /// New in the 2026-08-12 design. The 4pt difference is what makes the mint border read as
+        /// a frame around the photo rather than a stroke on it — matching them collapses that.
+        static let canvasOuter: CGFloat = 28
+        static let canvasInner: CGFloat = 24
     }
     
     /// Animation durations

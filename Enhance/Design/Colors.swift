@@ -3,14 +3,14 @@ import UIKit
 
 /// The app's colour tokens.
 ///
-/// **Every token here is exactly equal to the literal it replaces.** Phase 1 of
-/// [DESIGN_SYSTEM.md](../Docs/DESIGN_SYSTEM.md) is a 1:1 swap with *zero* intended visual change,
-/// so the app must render pixel-identical before and after. Anything that changes a value belongs
-/// in a later, deliberate commit — not here.
+/// **These mirror the Figma variable set exported as `Default.tokens.json`** (2026-08-12). Names
+/// follow that export rather than the app's earlier invented ones, so a value can be traced from
+/// design to code without a translation table. `Tools/export-tokens.swift --diff` checks the two
+/// still agree.
 ///
-/// Tokens are named for the **role** they play, not for the colour they happen to be. That is what
-/// makes themes (FEATURE-THEMES.md) possible: a theme reassigns roles, and a token named
-/// `darkBrown` would have to be renamed or would start lying the moment it did.
+/// Tokens are named for the **role** they play, not the colour they happen to be — that is what
+/// makes themes possible: a theme reassigns roles, and a token named `darkGrey` would start lying
+/// the moment it did.
 ///
 /// Effect and shader colour maths under `Services/Animators/**` is deliberately **not** tokenised.
 /// Those literals are image processing rather than design, and a theme must never move them.
@@ -19,97 +19,71 @@ extension Color {
     // MARK: - Accent
 
     /// Selection, active state, and confirm affordances throughout the editor.
-    ///
-    /// This value was previously written out in five places, in two different forms
-    /// (`Color(red: 96/255, green: 255/255, blue: 168/255)` and `Color(hex: 0x60FFA8)`),
-    /// plus a third in the `icon-check` asset's SVG fill. They all mean `#60FFA8`.
     static let enhanceMint = Color(hex: 0x60FFA8)
 
-    /// Content drawn *on top of* the accent — the slider knob's numeral, and every button label
-    /// sitting on the mint gradient.
-    ///
-    /// **Resolved 2026-08-12 in favour of the AppButton literal.** Two values were doing this job:
-    /// `0x120E0A` on the knob and `Color(red: 0.09, …)` on buttons. The button value won because
-    /// it is the majority — five call sites against one.
-    ///
-    /// Note it rounds to `0x171717`, which is `surfaceBase`. They are the same colour under two
-    /// names, kept apart because they answer different questions: one is "what is behind
-    /// everything", the other "what is legible on mint".
-    static let onAccent = Color(red: 0.09, green: 0.09, blue: 0.09)
+    /// The accent at 30%, used as the *fill* behind a selected segment while the mint itself
+    /// draws the border. New in the 2026-08-12 design: selection is now a tinted well plus a
+    /// 2pt outline rather than an outline alone.
+    static let mintDim = Color(hex: 0x60FFA8).opacity(0.3)
 
     // MARK: - Surfaces
+    //
+    // Three levels, named primary → card → control rather than by depth. They got materially
+    // lighter in the 2026-08-12 pass; the old set was 0x171717 / 0x202020 / 0x323232 and sat much
+    // closer together.
 
     /// Every screen's background.
+    static let surfacePrimary = Color(hex: 0x171717)
+
+    /// A card, pill, or the effect detail panel.
     ///
-    /// **The editor's warm `0x120E0A` was retired 2026-08-12** in favour of one neutral
-    /// background everywhere. That is a deliberate visual change, not a refactor — the editor
-    /// gets slightly lighter and loses its warm cast.
-    static let surfaceBase = Color(hex: 0x171717)
+    /// **The panel used to have its own warmer colour** (`surfacePanel`, `0x1C1815`). It now
+    /// shares this one — one raised surface, not two.
+    static let surfaceCard = Color(hex: 0x353535)
 
+    /// The track behind a segmented control, and a selected cell.
+    ///
+    /// Exported as `#3D3D3D`. The panel spec's generated code carries a `#454545` fallback, which
+    /// is stale — the token file wins.
+    static let surfaceControl = Color(hex: 0x3D3D3D)
 
-    /// A raised pill or card sitting on a screen background. The most duplicated surface in the
-    /// app — eight hand-rolled copies across the editor and gallery.
-    static let surfaceRaised = Color(hex: 0x202020)
-
-    /// The effect detail panel's background.
-    static let surfacePanel = Color(hex: 0x1C1815)
-
-    /// A selected/active cell, currently the effect card.
-    static let surfaceActive = Color(hex: 0x323232)
-
-    /// The one-pixel border on an inactive effect card. Opacity-based rather than a solid, so it
-    /// works over any surface beneath it.
+    /// The one-pixel border on an inactive effect card.
+    ///
+    /// Not part of the exported token set. Kept because `EffectCardView` and `SegmentedBar` still
+    /// use it and nothing in the new design replaces it — flagged for the next design pass rather
+    /// than given an invented value.
     static let hairline = Color.white.opacity(0.04)
-
-    // MARK: - Controls
-
-    /// The 1pt rule between sections in Settings.
-    ///
-    /// **Named `toggleTrack` in the migration plan, which was wrong** — there is no toggle
-    /// anywhere in the app. Its only use is `SettingsView.divider`, a 1pt `Rectangle`. Caught by
-    /// rebuilding the screen in Figma from the source, which is exactly the kind of error a spec
-    /// sheet is for. Renamed before anything referenced it.
-    ///
-    /// It is also the app's only light-coloured element, which makes it the one token a light
-    /// theme would have to *darken* rather than lighten.
-    static let divider = Color(hex: 0xD9D9D9)
-
-    /// The app's one secondary green: the selected segment in `SegmentedBar`, the secondary
-    /// button fill, and the GIF badge.
-    ///
-    /// **`buttonSecondary` and `badgeGreen` were retired into this 2026-08-12.** Three greens had
-    /// been invented at three call sites and were never the same colour; seeing them side by side
-    /// in the Figma spec sheet is what settled it. Call sites keep their own opacity — 0.7 on the
-    /// segment, 0.8 on the badge — because that is compositing, not colour.
-    static let segmentSelected = Color(red: 100 / 255, green: 148 / 255, blue: 122 / 255)
 
     // MARK: - Content
 
-    /// Default content colour — text and glyphs alike, **including anything unselected**.
-    ///
-    /// Closes the gap the spec sheet made obvious: 83 raw `.white` calls with no token, which is
-    /// what would have made light mode impossible.
-    ///
-    /// *Unselected is full white by decision (2026-08-12), not a dimmed variant.* Selection is
-    /// signalled by `enhanceMint` alone, so an unselected row and an ordinary label are the same
-    /// colour. That is one cue rather than two, chosen deliberately.
+    /// Default text and glyph colour, including anything unselected.
     static let textPrimary = Color.white
 
-    /// Content that is present but unavailable — a disabled control's label or glyph.
+    /// Text or a glyph that is present but unavailable.
     ///
-    /// **One value for disabled text and disabled icons** *(user's call, 2026-08-12)*, which is
-    /// why it is named for content rather than for icons.
-    ///
-    /// Note this is *brighter* than what it replaced: disabled labels were `.white` at 0.3–0.5,
-    /// and `0xD1D1D1` is about 82% grey. Disabled state now reads as a slight desaturation rather
-    /// than a strong dimming. If a disabled control starts looking tappable, this is the value to
-    /// revisit.
-    ///
-    /// Shipped icon assets bake their fill into the SVG, so this only reaches an icon that is
-    /// template-rendered.
-    static let contentInactive = Color(hex: 0xD1D1D1)
+    /// **Back to an opacity of white** (50%) in the 2026-08-12 design, from the flat `#D1D1D1`
+    /// chosen the day before. An opacity composites against whatever surface is behind it, which
+    /// is what the three new surface levels need.
+    static let textInactive = Color.white.opacity(0.5)
 
+    /// Content drawn on the mint gradient — a button label, or the numeral inside a slider knob.
+    ///
+    /// **Pure black** as of 2026-08-12, from `0x171717`. Named for the gradient rather than for
+    /// the accent because that is what the design calls it and where it is actually used.
+    static let textOnGradient = Color.black
 
+    // MARK: - Lines and overlays
+
+    /// The rule between sections in Settings. Now **15% alpha**, so it sits on whatever surface is
+    /// behind it rather than being a solid light bar.
+    static let divider = Color(hex: 0xD9D9D9).opacity(0.15)
+
+    /// Drop shadow beneath raised elements. Not yet used — exported by the design for the next
+    /// component pass.
+    static let shadow = Color.black.opacity(0.15)
+
+    /// Dimming behind a modal or sheet. Not yet used — same.
+    static let scrim = Color.black.opacity(0.4)
 }
 
 extension UIColor {
