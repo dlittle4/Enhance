@@ -130,7 +130,7 @@ for m in matches(#"static let (\w+) = Animation\.(\w+)\(response: ([\d.]+), damp
 // badgeGreen, silkscreenControl and silkscreenControlEmphasis, and added textPrimary and
 // iconInactive. Raise these when tokens are added; lower them only when one is deliberately
 // retired, never to make a failure go away.
-let expected: [(String, Int)] = [("color", 11), ("radius", 7), ("type", 9), ("motion", 4)]
+let expected: [(String, Int)] = [("color", 10), ("radius", 7), ("type", 9), ("motion", 4)]
 for (kind, count) in expected {
     let found = tokens.filter { $0.kind == kind }.count
     if found < count {

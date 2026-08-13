@@ -47,12 +47,6 @@ extension Color {
     /// is stale — the token file wins.
     static let surfaceControl = Color(hex: 0x3D3D3D)
 
-    /// The one-pixel border on an inactive effect card.
-    ///
-    /// Not part of the exported token set. Kept because `EffectCardView` and `SegmentedBar` still
-    /// use it and nothing in the new design replaces it — flagged for the next design pass rather
-    /// than given an invented value.
-    static let hairline = Color.white.opacity(0.04)
 
     // MARK: - Content
 
@@ -74,8 +68,15 @@ extension Color {
 
     // MARK: - Lines and overlays
 
-    /// The rule between sections in Settings. Now **15% alpha**, so it sits on whatever surface is
-    /// behind it rather than being a solid light bar.
+    /// Hairline rules and the faintest surface tint: the rule between sections in Settings, and
+    /// the effect card's empty-state placeholder.
+    ///
+    /// **Absorbed the old `hairline` token on 2026-08-12** *(user's call)*. That was white at 4%
+    /// and this is `#D9D9D9` at 15%, so the placeholder card is now visibly lighter rather than
+    /// almost black — a deliberate change, not a like-for-like swap.
+    ///
+    /// The 15% alpha is what lets one token serve both jobs: it composites against whatever
+    /// surface is behind it, so it reads correctly on `surfacePrimary` and on `surfaceCard`.
     static let divider = Color(hex: 0xD9D9D9).opacity(0.15)
 
     /// Drop shadow beneath raised elements. Not yet used — exported by the design for the next
