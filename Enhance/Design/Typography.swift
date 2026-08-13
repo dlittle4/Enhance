@@ -29,4 +29,10 @@ extension Font {
     /// Field and row labels — Regular 16.
     static var silkscreenLabel: Font { .custom("Silkscreen-Regular", size: 16) }
 
+    /// The numeral inside a slider knob — Regular 10, the smallest size in the app.
+    ///
+    /// Added for the 2026-08-12 panel design, which shrank the knob from 34pt to 24pt. The
+    /// numeral had to come down with it or it would not fit inside the circle.
+    static var silkscreenSmall: Font { .custom("Silkscreen-Regular", size: 10) }
+
 }

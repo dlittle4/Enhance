@@ -1,5 +1,11 @@
 import SwiftUI
 
+/// Identifies the end of the panel's row list for `scrollTo`.
+///
+/// A file-level constant rather than a static on `EffectDetailPanel` because that type is
+/// generic over its rows, and Swift does not allow static stored properties on generic types.
+private let panelBottomAnchor = "panel-bottom"
+
 /// The effect's control panel: a pinned header over a list of parameter rows.
 ///
 /// Generic over its rows so the caller keeps ownership of building them from an
@@ -30,13 +36,30 @@ struct EffectDetailPanel<Rows: View>: View {
 
     private var needsScroll: Bool { contentHeight > viewportHeight + 0.5 }
 
+    /// How far the row list has been scrolled, so the nudge can hide once the user reaches
+    /// the end and does not sit there promising more content that is not coming.
+    @State private var scrollOffset: CGFloat = 0
+
+    private var isAtBottom: Bool {
+        scrollOffset >= contentHeight - viewportHeight - 4
+    }
+
     var body: some View {
         VStack(spacing: 8) {
             header
 
-            ScrollView {
-                VStack(spacing: 8) {
+            ScrollViewReader { proxy in
+              ScrollView {
+                // 24pt between parameter groups, per the design spec. Each row is now a
+                // label-plus-control stack rather than a single line, so the gap has to be
+                // larger than the 8pt *inside* a row or the two rhythms compete.
+                VStack(alignment: .leading, spacing: AppConstants.Spacing.standard) {
                     rows()
+
+                    // Anchor for the scroll nudge. Zero-height, so it costs no layout.
+                    Color.clear
+                        .frame(height: 0)
+                        .id(panelBottomAnchor)
                 }
                 .environment(\.panelRowHeight, rowHeight)
                 .frame(maxWidth: .infinity)
@@ -50,16 +73,55 @@ struct EffectDetailPanel<Rows: View>: View {
             // instead of adjusting the value. Disabling the scroll whenever the content
             // fits (every effect today, at one to three rows) means the conflict simply
             // does not arise in the common case.
-            .scrollDisabled(!needsScroll)
-            .scrollIndicators(needsScroll ? .automatic : .hidden)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
-            .frame(maxHeight: .infinity, alignment: .top)
+              .scrollDisabled(!needsScroll)
+              .scrollIndicators(needsScroll ? .automatic : .hidden)
+              .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y } action: { _, new in
+                  scrollOffset = new
+              }
+              .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewportHeight = $0 }
+              .frame(maxHeight: .infinity, alignment: .top)
+              .overlay(alignment: .bottom) {
+                  if needsScroll && !isAtBottom {
+                      scrollNudge(proxy: proxy)
+                  }
+              }
+            }
         }
-        .padding(16)
+        .padding(AppConstants.Spacing.grid)
         .background(
-            RoundedRectangle(cornerRadius: AppConstants.Layout.panelCornerRadius, style: .continuous)
+            RoundedRectangle(cornerRadius: AppConstants.Spacing.standard, style: .continuous)
                 .fill(Color.surfaceCard)
         )
+    }
+
+    /// A tap target that scrolls the row list on, because a drag cannot.
+    ///
+    /// **This is not decoration.** The 2026-08-12 design moved every parameter label above its
+    /// control, so a row is now a full-width slider with no dead margin — and the sliders use
+    /// `DragGesture(minimumDistance: 0)`, which claims a touch before the `ScrollView` sees it.
+    /// With the old label-on-the-left layout there was at least a 96pt column to drag on. Now
+    /// there is nothing, so on a short device the rows below the fold would be unreachable
+    /// without this. The design calls it the scroll nudge; it is the answer to a real gesture
+    /// conflict rather than a flourish.
+    ///
+    /// Hidden once the list is at its end, so it never promises content that is not there.
+    private func scrollNudge(proxy: ScrollViewProxy) -> some View {
+        Button {
+            HapticService.light()
+            withAnimation(Motion.panel) {
+                proxy.scrollTo(panelBottomAnchor, anchor: .bottom)
+            }
+        } label: {
+            Image(systemName: "chevron.down")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundColor(.textPrimary)
+                .frame(width: 32, height: 32)
+                .background(Circle().fill(Color.surfacePrimary))
+        }
+        .buttonStyle(.plain)
+        .padding(.bottom, AppConstants.Spacing.small)
+        .transition(.opacity)
+        .accessibilityLabel("Scroll to more controls")
     }
 
     /// Title centred independently of the buttons.
@@ -69,7 +131,7 @@ struct EffectDetailPanel<Rows: View>: View {
     /// in width — and here one is a glyph and the other an icon.
     private var header: some View {
         Text(title)
-            .font(.silkscreenButtonLabel)
+            .font(.silkscreenSubheadline)
             .foregroundColor(.enhanceMint)
             .lineLimit(1)
             .frame(maxWidth: .infinity)

@@ -4,8 +4,13 @@ import SwiftUI
 ///
 /// Replaces four near-identical bespoke sliders (intensity / size / face intensity /
 /// face second) that differed only in which view-model property they wrote.
+///
+/// **Restructured for the 2026-08-12 design.** The label moved from a fixed 96pt column on the
+/// left to a line above the track, which lets the track use the panel's full width. The track
+/// itself changed from "mint line up to the knob, dots after it" to **dots on both sides** —
+/// mint behind the knob, `textInactive` ahead of it — so the control reads as a discrete
+/// 20-step scale rather than a progress bar.
 struct ParameterSliderRow: View {
-    @Environment(\.panelRowHeight) private var rowHeight
     let label: String
     @Binding var value: Double
 
@@ -29,24 +34,24 @@ struct ParameterSliderRow: View {
     /// flag across rows was never the right shape.
     @State private var didPushUndo = false
 
-    /// Scales with the row so a shrunken row cannot clip it.
-    private var knobSize: CGFloat { min(34, rowHeight - 2) }
-    private let labelWidth: CGFloat = 96
-    private let dotSize: CGFloat = 3
+    /// From the design spec. The knob shrank from 34pt and the dots grew from 3pt — together
+    /// they make the track read as a scale the knob sits *on*, rather than a handle on a bar.
+    private let knobSize: CGFloat = 24
+    private let dotSize: CGFloat = 4
+    private let trackHeight: CGFloat = 49
 
     private var steps: Int { EffectParameter.sliderSteps }
 
     var body: some View {
-        HStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: AppConstants.Spacing.small) {
             Text(label)
-                .font(.silkscreenBody)
-                .foregroundColor(.white)
+                .font(.silkscreenSubheadline)
+                .foregroundColor(.textPrimary)
                 .lineLimit(1)
-                .frame(width: labelWidth, alignment: .leading)
 
             track
+                .frame(height: trackHeight)
         }
-        .frame(height: rowHeight)
     }
 
     private var track: some View {
@@ -59,13 +64,15 @@ struct ParameterSliderRow: View {
             let progress = max(0, min(1, value))
             let knobCentre = knobSize / 2 + progress * travel
             let midY = geo.size.height / 2
+            let filledSteps = Int((progress * Double(steps)).rounded())
 
             ZStack(alignment: .leading) {
                 // Dots sit on the same lattice the knob snaps to, so the knob always
-                // lands on one rather than between two.
+                // lands on one rather than between two. Those behind the knob take the
+                // accent; those ahead of it stay inactive.
                 ForEach(0...steps, id: \.self) { step in
                     Circle()
-                        .fill(Color.white.opacity(0.25))
+                        .fill(step <= filledSteps ? Color.enhanceMint : Color.textInactive)
                         .frame(width: dotSize, height: dotSize)
                         .position(
                             x: knobSize / 2 + (CGFloat(step) / CGFloat(steps)) * travel,
@@ -73,17 +80,12 @@ struct ParameterSliderRow: View {
                         )
                 }
 
-                Capsule()
-                    .fill(Color.enhanceMint)
-                    .frame(width: knobCentre, height: 2)
-                    .position(x: knobCentre / 2, y: midY)
-
                 Circle()
                     .fill(Color.enhanceMint)
                     .frame(width: knobSize, height: knobSize)
                     .overlay(
                         Text(valueText ?? "\(EffectParameter.displayValue(value))")
-                            .font(.silkscreenBody)
+                            .font(.silkscreenSmall)
                             .foregroundColor(.textOnGradient)
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
