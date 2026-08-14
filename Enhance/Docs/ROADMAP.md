@@ -34,7 +34,8 @@ Items marked 🔍 are landed and green but never confirmed on hardware.
 > [LEARNINGS.md](LEARNINGS.md) — rules discovered the hard way.
 > [HISTORY.md](HISTORY.md) — everything already shipped, and why.
 > Feature plans: [TEXT-EFFECTS](FEATURE-TEXT-EFFECTS.md) · [THEMES](FEATURE-THEMES.md) ·
-> [LENS](FEATURE-LENS-DISTORTION.md) · [SCRAMBLER](FEATURE-SCRAMBLER.md) *(historical)*
+> [LENS](FEATURE-LENS-DISTORTION.md) · [SCRAMBLER](FEATURE-SCRAMBLER.md) *(historical)* ·
+> [VIEW-TRANSITIONS](FEATURE-VIEW-TRANSITIONS.md)
 
 ---
 
@@ -539,6 +540,9 @@ Both are more feasible than they look, because groundwork landed for other reaso
       the header (RESET currently reads as a label for X); a crosshair showing the zoom focal point;
       fix the action-button copy.
 - [ ] **New animation styles**: Bounce, Dramatic Zoom, Loop Zoom.
+- [ ] **View transitions**: Gallery↔Editor open/save motion, effect-tab/carousel switching, and
+      tile press feedback, tunable live via a proposed MOTION LAB. Full plan in
+      [FEATURE-VIEW-TRANSITIONS.md](FEATURE-VIEW-TRANSITIONS.md).
 - [ ] **UNDO for existing-GIF editing** — revert all changes back to the saved original.
 - [ ] **Real-time preview via Metal shaders** (iOS 17+ `.colorEffect()` / `.distortionEffect()` /
       `.layerEffect()`), replacing the CIFilter preview path. Note this is a *preview* technology

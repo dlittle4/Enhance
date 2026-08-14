@@ -1416,6 +1416,10 @@ class EditorViewModel {
                     if let newIdentifier {
                         self.persistZoomParams(for: newIdentifier)
                         self.persistTextOverlay(for: newIdentifier)
+                        // Marks the cell the gallery should reveal once the editor is out of the
+                        // way. Set here rather than in the gallery because this is the only place
+                        // that knows *which* asset is new.
+                        photoManager.justSavedIdentifier = newIdentifier
                     }
                     HapticService.success()
                     self.showToast("GIF saved to My GIFs")
@@ -1467,6 +1471,9 @@ class EditorViewModel {
                             if let newIdentifier {
                                 self.persistZoomParams(for: newIdentifier)
                                 self.persistTextOverlay(for: newIdentifier)
+                                // The replacement asset is new, so it arrives in the grid the
+                                // same way a first-time save does and earns the same reveal.
+                                photoManager.justSavedIdentifier = newIdentifier
                             }
                             HapticService.success()
                             self.showToast("GIF updated")

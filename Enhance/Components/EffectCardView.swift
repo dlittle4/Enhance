@@ -1,5 +1,55 @@
 import SwiftUI
 
+/// Press feedback for an effect card: shrink and dim while held, spring back on release.
+///
+/// A sibling of `GifGridItemButtonStyle`, which does the same job for gallery thumbnails and is
+/// the reason this shape is already proven. The difference is deliberate rather than accidental —
+/// an effect card is meant to read **bouncier**, which means a lower damping fraction and a
+/// visible ring on release.
+///
+/// A plain value type on purpose: it observes nothing. `ButtonStyle` is an awkward place for
+/// dynamic properties, so the values arrive already resolved from `EffectCardView`, which is an
+/// ordinary view and can observe whatever it likes.
+struct EffectCardButtonStyle: ButtonStyle {
+
+    /// What the press needs to know. `nil` anywhere upstream means "no press feedback", which is
+    /// the app's shipped behaviour.
+    struct PressMotion: Equatable {
+        var scale: Double
+        var brightness: Double
+        var curve: MotionCurve
+    }
+
+    /// `nil` renders exactly as `.buttonStyle(.plain)` did — a custom style already suppresses the
+    /// system's default press treatment, so the inert case needs no separate branch at the call
+    /// site and the app's shipped look is preserved by the values, not by a conditional.
+    let motion: PressMotion?
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? (motion?.scale ?? 1) : 1)
+            .brightness(configuration.isPressed ? (motion?.brightness ?? 0) : 0)
+            .animation(motion?.curve.animation, value: configuration.isPressed)
+    }
+}
+
+private struct EffectCardPressMotionKey: EnvironmentKey {
+    static let defaultValue: EffectCardButtonStyle.PressMotion? = nil
+}
+
+extension EnvironmentValues {
+    /// Press feedback for every `EffectCardView` below this point, or `nil` for none.
+    ///
+    /// Injected through the environment rather than passed as a parameter because the cards are
+    /// built at four separate call sites in `EditorView` (zoom, face, image, text) and threading
+    /// the same value through all of them would put a tuning concern in four signatures. It also
+    /// lets MOTION LAB force the press on for its preview while the app leaves it off.
+    var effectCardPressMotion: EffectCardButtonStyle.PressMotion? {
+        get { self[EffectCardPressMotionKey.self] }
+        set { self[EffectCardPressMotionKey.self] = newValue }
+    }
+}
+
 /// A square effect card for the browse gallery: the user's photo with the effect
 /// applied, its name over the bottom-left, mint stroke when selected.
 ///
@@ -24,6 +74,21 @@ struct EffectCardView<Background: View>: View {
     @ViewBuilder var background: () -> Background
 
     var action: () -> Void
+
+    @Environment(\.effectCardPressMotion) private var pressMotion
+
+    /// A press is functional feedback rather than decoration, so under reduce motion it damps to
+    /// a clean settle instead of disappearing — unlike the purely decorative motion elsewhere,
+    /// which is skipped outright. The card still acknowledges the touch; it just stops ringing.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var resolvedPressMotion: EffectCardButtonStyle.PressMotion? {
+        guard var motion = pressMotion else { return nil }
+        if reduceMotion {
+            motion.curve.dampingFraction = max(motion.curve.dampingFraction, 1)
+        }
+        return motion
+    }
 
     /// Proportional to the card, capped at the panel radius so a full-size card matches
     /// the detail panel's corner rather than out-rounding it.
@@ -77,7 +142,7 @@ struct EffectCardView<Background: View>: View {
             // reach outside the frame to do it.
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(EffectCardButtonStyle(motion: resolvedPressMotion))
         .disabled(isBlocked)
         .opacity(isBlocked ? 0.35 : 1.0)
     }

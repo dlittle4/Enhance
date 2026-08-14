@@ -127,4 +127,44 @@ enum FeatureFlags {
     static let faceMarkersHiddenKey = "featureFaceMarkersHidden"
 
     static var faceMarkersHidden: Bool { UserDefaults.standard.bool(forKey: faceMarkersHiddenKey) }
+
+    // MARK: - View transitions (MOTION LAB)
+
+    /// One key per animation rather than one umbrella, because these are four unrelated visual
+    /// changes in unrelated parts of the UI — closer to a set of independent experiments than to
+    /// a single feature. Grading them together would block shipping one while another is still
+    /// being tuned. `MotionTuning` holds the values; these decide who reads them.
+
+    /// Staggered chrome entrance when the editor opens.
+    static let motionEntranceKey = "featureMotionEntrance"
+    static var motionEntrance: Bool { UserDefaults.standard.bool(forKey: motionEntranceKey) }
+
+    /// Scale-and-fade on the effect card gallery when the category changes.
+    static let motionCategorySwitchKey = "featureMotionCategorySwitch"
+    static var motionCategorySwitch: Bool { UserDefaults.standard.bool(forKey: motionCategorySwitchKey) }
+
+    /// The selected category tab's capsule growing in rather than fading in place.
+    static let motionTabScaleKey = "featureMotionTabScale"
+    static var motionTabScale: Bool { UserDefaults.standard.bool(forKey: motionTabScaleKey) }
+
+    /// Press feedback on the effect cards, which have none today.
+    static let motionTilePressKey = "featureMotionTilePress"
+    static var motionTilePress: Bool { UserDefaults.standard.bool(forKey: motionTilePressKey) }
+
+    /// The pixel-dissolve a freshly saved GIF plays as it lands in the grid.
+    static let motionSaveRevealKey = "featureMotionSaveReveal"
+    static var motionSaveReveal: Bool { UserDefaults.standard.bool(forKey: motionSaveRevealKey) }
+
+    /// Periodic shimmer sweeping the idle gallery.
+    static let motionShimmerKey = "featureMotionShimmer"
+    static var motionShimmer: Bool { UserDefaults.standard.bool(forKey: motionShimmerKey) }
+
+    /// Device-tilt parallax on the gallery grid. Note this one starts a `CMMotionManager`, so
+    /// unlike the others it has a running cost while it is on.
+    static let motionParallaxKey = "featureMotionParallax"
+    static var motionParallax: Bool { UserDefaults.standard.bool(forKey: motionParallaxKey) }
+
+    /// The shared-element zoom from a tapped gallery cell into the editor canvas.
+    static let motionSharedZoomKey = "featureMotionSharedZoom"
+    static var motionSharedZoom: Bool { UserDefaults.standard.bool(forKey: motionSharedZoomKey) }
 }

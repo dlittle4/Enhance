@@ -32,6 +32,20 @@ struct SettingsView: View {
 
     @State private var showFaceMarkerLab = false
 
+    /// The four view-transition experiments. Read by views rather than a view model, and their
+    /// call sites are spread across `EditorView` and the effect cards, so `@AppStorage` on both
+    /// ends republishes without threading a binding through every intermediate signature.
+    @AppStorage(FeatureFlags.motionEntranceKey) private var motionEntrance: Bool = false
+    @AppStorage(FeatureFlags.motionCategorySwitchKey) private var motionCategorySwitch: Bool = false
+    @AppStorage(FeatureFlags.motionTabScaleKey) private var motionTabScale: Bool = false
+    @AppStorage(FeatureFlags.motionTilePressKey) private var motionTilePress: Bool = false
+    @AppStorage(FeatureFlags.motionSaveRevealKey) private var motionSaveReveal: Bool = false
+    @AppStorage(FeatureFlags.motionShimmerKey) private var motionShimmer: Bool = false
+    @AppStorage(FeatureFlags.motionParallaxKey) private var motionParallax: Bool = false
+    @AppStorage(FeatureFlags.motionSharedZoomKey) private var motionSharedZoom: Bool = false
+
+    @State private var showMotionLab = false
+
     private let mintGreen = Color.enhanceMint
     private let themes = ["PIXEL", "THEME 2", "THEME 3"]
     private let appIcons: [(name: String, preview: String, identifier: String?)] = [
@@ -48,12 +62,15 @@ struct SettingsView: View {
                     autoPlayRow
                     divider
 
-                    // Face markers lead the two experiment sections. The sheet opens at the
-                    // `.medium` detent, and adding this section pushed FACE MARKER LAB below that
-                    // fold — a destination row you have to drag the sheet up to discover is a
-                    // destination most people will not find. Verified on the simulator, both ways
-                    // round.
+                    // Labs first: they are destinations, and `BottomSheet`'s `.medium` detent
+                    // hides anything below the fold. See `labsSection`.
+                    labsSection
+                    divider
+
                     faceMarkerSection
+                    divider
+
+                    viewTransitionSection
                     divider
 
                     experimentsSection
@@ -70,6 +87,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showFaceMarkerLab) {
             FaceMarkerLabView(isPresented: $showFaceMarkerLab)
+        }
+        .sheet(isPresented: $showMotionLab) {
+            MotionLabView(isPresented: $showMotionLab)
         }
     }
 
@@ -105,8 +125,56 @@ struct SettingsView: View {
             experimentRow("STATIC BUTTON GRADIENT", isOn: $staticGradient)
             experimentRow("DITHERED BUTTON GRADIENT", isOn: $ditherGradient)
             experimentRow("STATIC BUTTON BORDER", isOn: $staticBorder)
+        }
+    }
+
+    // MARK: - View transitions
+
+    /// The eight view-transition experiments, under their own heading rather than eight more rows
+    /// in EXPERIMENTS.
+    ///
+    /// Splitting them out is not tidiness: with all three labs merged, EXPERIMENTS reached twelve
+    /// toggles governing three unrelated questions, and a list that long stops being scannable —
+    /// you cannot find the one you came for. Each heading now names one question.
+    private var viewTransitionSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("VIEW TRANSITIONS")
+                .font(.silkscreenSectionTitle)
+                .foregroundColor(.white)
+
+            experimentRow("STAGGERED EDITOR ENTRANCE", isOn: $motionEntrance)
+            experimentRow("EFFECT SWITCH ANIMATION", isOn: $motionCategorySwitch)
+            experimentRow("TAB SELECTION POP", isOn: $motionTabScale)
+            experimentRow("EFFECT TILE PRESS", isOn: $motionTilePress)
+            experimentRow("GALLERY ZOOM INTO EDITOR", isOn: $motionSharedZoom)
+            experimentRow("PIXEL REVEAL ON SAVE", isOn: $motionSaveReveal)
+            experimentRow("GALLERY SHIMMER", isOn: $motionShimmer)
+            experimentRow("GALLERY TILT PARALLAX", isOn: $motionParallax)
+        }
+    }
+
+    // MARK: - Labs
+
+    /// The three tuning benches, collected.
+    ///
+    /// **Placed high in the sheet on purpose.** `BottomSheet` opens at the `.medium` detent, and a
+    /// destination row below that fold is one most people never find — the face-marker section
+    /// carried a comment about being ordered around exactly that problem for a single lab. With
+    /// three of them the workaround does not generalise, so the labs move above the toggle
+    /// sections instead: they are what you open during a tuning session, and the toggles are what
+    /// the labs write.
+    ///
+    /// Every one of these is scaffolding with a delete-on-graduation contract. When the last one
+    /// goes, so does this section.
+    private var labsSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("LABS")
+                .font(.silkscreenSectionTitle)
+                .foregroundColor(.white)
 
             labRow("GRADIENT LAB →") { showGradientLab = true }
+            labRow("FACE MARKER LAB →") { showFaceMarkerLab = true }
+            labRow("MOTION LAB →") { showMotionLab = true }
         }
     }
 
@@ -123,8 +191,6 @@ struct SettingsView: View {
                 .foregroundColor(.white)
 
             FaceMarkerVariantList(options: faceMarkerOptions)
-
-            labRow("FACE MARKER LAB →") { showFaceMarkerLab = true }
         }
     }
 
@@ -147,7 +213,7 @@ struct SettingsView: View {
         .buttonStyle(.plain)
     }
 
-    /// Bridges the four `@AppStorage` booleans to the one value the shared list edits.
+    /// Bridges the five `@AppStorage` booleans to the one value the shared list edits.
     ///
     /// The flags stay separate booleans in `UserDefaults` — `FeatureFlags` documents that
     /// convention, and each is read independently by `EditorView` — so this assembles and
@@ -173,8 +239,8 @@ struct SettingsView: View {
         )
     }
 
-    /// One toggle in EXPERIMENTS. Extracted once the section was several copies of the same
-    /// fourteen lines.
+    /// One toggle in a settings section. Extracted once the sections were several copies of the
+    /// same fourteen lines.
     private func experimentRow(_ title: String, isOn: Binding<Bool>) -> some View {
         Button {
             HapticService.selection()

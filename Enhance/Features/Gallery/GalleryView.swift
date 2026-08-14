@@ -24,7 +24,27 @@ struct GalleryView: View {
     @AppStorage("autoPlayGifs") private var autoPlayGifs = true
     @AppStorage("exportFormat") private var exportFormat = "gif"
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var animation
+
+    /// MOTION LAB's live values, and the flags deciding which of them the gallery reads.
+    /// Scaffolding — see `MotionTuning` for what graduation looks like.
+    @ObservedObject private var motionStore = MotionTuningStore.shared
+    @AppStorage(FeatureFlags.motionSaveRevealKey) private var motionSaveReveal = false
+    @AppStorage(FeatureFlags.motionShimmerKey) private var motionShimmer = false
+    @AppStorage(FeatureFlags.motionParallaxKey) private var motionParallax = false
+    @AppStorage(FeatureFlags.motionSharedZoomKey) private var motionSharedZoom = false
+
+    /// Which grid index the editor is currently showing, so that cell can hand over its
+    /// `matchedGeometryEffect` source for the duration. `nil` whenever the editor is closed or
+    /// was opened on a newly-picked photo, which has no originating cell.
+    @State private var zoomingIndex: Int?
+
+    @StateObject private var deviceMotion = DeviceMotionService()
+
+    /// Bumped on each shimmer sweep. A counter rather than a bool because a second sweep needs
+    /// somewhere to land while the first is still fading.
+    @State private var shimmerToken = 0
 
     private var gridColumns: [GridItem] {
         let count = gridColumnCount
@@ -123,7 +143,47 @@ struct GalleryView: View {
             Text("This will permanently remove the selected GIFs from your photo library.")
         }
         .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItem, matching: .images)
+        // A single timer at a fixed 1s tick, counting up to the tuned interval, rather than a
+        // publisher rebuilt whenever the interval slider moves — recreating the publisher mid-drag
+        // restarts the countdown on every step, so the sweep would never fire while tuning it.
+        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+            tickShimmer()
+        }
+        .onChange(of: isIdleForAmbience) { _, idle in
+            // The accelerometer is the one effect here with a running cost, so it is started and
+            // stopped rather than left on and ignored.
+            idle ? startDeviceMotionIfWanted() : deviceMotion.stop()
+        }
+        .onChange(of: motionParallax) { _, _ in
+            isIdleForAmbience ? startDeviceMotionIfWanted() : deviceMotion.stop()
+        }
+        .onDisappear { deviceMotion.stop() }
+    }
 
+    // MARK: - Ambient lifecycle
+
+    /// Seconds the gallery has been quiet. Reset by anything that makes a sweep unwelcome, so the
+    /// interval measures *idle* time rather than wall-clock time.
+    @State private var idleSeconds: Double = 0
+
+    private func tickShimmer() {
+        guard motionShimmer, !reduceMotion, isIdleForAmbience else {
+            idleSeconds = 0
+            return
+        }
+        idleSeconds += 1
+        if idleSeconds >= motionStore.tuning.shimmerInterval {
+            idleSeconds = 0
+            shimmerToken += 1
+        }
+    }
+
+    private func startDeviceMotionIfWanted() {
+        guard motionParallax, !reduceMotion else {
+            deviceMotion.stop()
+            return
+        }
+        deviceMotion.start(smoothing: motionStore.tuning.parallaxSmoothing)
     }
     
     // MARK: - Showcase Header (shared by onboarding & denied)
@@ -374,7 +434,16 @@ struct GalleryView: View {
                                 isSelected: selectedIndices.contains(index),
                                 autoPlay: autoPlayGifs,
                                 lowQuality: gridColumnCount > 1,
-                                onLongPress: { enterSelectMode(at: index) }
+                                onLongPress: { enterSelectMode(at: index) },
+                                reveal: revealMotion(forIndex: index),
+                                onRevealComplete: {
+                                    if let id = photoManager.myGifAssetIdentifiers[safe: index] {
+                                        photoManager.clearJustSaved(id)
+                                    }
+                                },
+                                // Handed to the editor while it is showing this cell, so only one
+                                // view claims the geometry id at a time.
+                                isMatchedGeometrySource: zoomingIndex != index
                             )
                         }
                     }
@@ -384,7 +453,70 @@ struct GalleryView: View {
             }
             .padding(.horizontal, 16)
             .animation(.interactiveSpring(response: 0.35, dampingFraction: 0.86), value: gridColumnCount)
+            // **One transform for the whole grid, not one per cell.** Independent per-cell motion
+            // reads as jitter; moving the grid as a plane is what reads as considered. Unanimated
+            // on purpose — `DeviceMotionService` already smooths the signal, and layering a spring
+            // on top of a filtered stream adds lag without adding calm.
+            .offset(parallaxOffset)
+            // Drawn over the grid rather than behind it, and non-interactive so it can never eat
+            // a tap meant for a GIF.
+            .overlay(shimmerOverlay.allowsHitTesting(false))
         }
+    }
+
+    // MARK: - Ambient motion
+
+    private var parallaxOffset: CGSize {
+        guard motionParallax, !reduceMotion else { return .zero }
+        let magnitude = motionStore.tuning.parallaxMagnitude
+        return CGSize(
+            width: deviceMotion.tilt.width * magnitude,
+            height: deviceMotion.tilt.height * magnitude
+        )
+    }
+
+    /// A diagonal band that crosses the grid, keyed to `shimmerToken` so each tick re-inserts it
+    /// and the transition plays the sweep.
+    @ViewBuilder
+    private var shimmerOverlay: some View {
+        if motionShimmer, !reduceMotion {
+            GeometryReader { geo in
+                ShimmerSweep(
+                    token: shimmerToken,
+                    duration: motionStore.tuning.shimmerDuration,
+                    size: geo.size
+                )
+            }
+        }
+    }
+
+    /// Whether the gallery is quiet enough for a shimmer.
+    ///
+    /// A sweep crossing the grid behind an active edit, a pinch, or a selection reads as a
+    /// rendering fault rather than as delight, so the effect skips those ticks entirely instead
+    /// of queueing them up for later.
+    private var isIdleForAmbience: Bool {
+        scenePhase == .active
+            && !isSelectMode
+            && !isPinching
+            && !isEditorPresented
+            && !isLoadingPhoto
+            && !showSettings
+    }
+
+    /// The cell that should build in, if any. Matched by identifier rather than by index so a
+    /// concurrent refresh that reorders the grid cannot reveal the wrong GIF.
+    private func revealMotion(forIndex index: Int) -> GifGridItem.RevealMotion? {
+        guard motionSaveReveal,
+              let pending = photoManager.justSavedIdentifier,
+              photoManager.myGifAssetIdentifiers[safe: index] == pending,
+              // Held back until the editor is out of the way: the array updates ~1s before the
+              // overlay closes, and revealing underneath it would spend the animation off-screen.
+              !isEditorPresented
+        else { return nil }
+
+        let tuning = motionStore.tuning
+        return .init(cellSize: tuning.revealCellSize, duration: tuning.revealDuration)
     }
 
     // MARK: - Floating Bottom Bar
@@ -483,9 +615,20 @@ struct GalleryView: View {
     private var editorOverlay: some View {
         Group {
             if isEditorPresented, let vm = editorViewModel {
-                EditorView(viewModel: vm, isPresented: $isEditorPresented, namespace: animation)
+                EditorView(
+                    viewModel: vm,
+                    isPresented: $isEditorPresented,
+                    namespace: animation,
+                    sharedZoomIndex: zoomingIndex
+                )
                     .environmentObject(photoManager)
-                    .onDisappear { editorViewModel = nil }
+                    .onDisappear {
+                        editorViewModel = nil
+                        // Returned only once the editor is fully gone. Releasing it earlier would
+                        // put the source back on a grid cell while the editor's copy still
+                        // existed — the same two-owner problem, in the other direction.
+                        zoomingIndex = nil
+                    }
             }
         }
     }
@@ -506,6 +649,12 @@ struct GalleryView: View {
         
         let assetId = photoManager.myGifAssetIdentifiers[safe: index] ?? ""
         editorViewModel = EditorViewModel(content: .existingGif(url, index, assetId))
+        // Set *before* the animation so the grid cell has already yielded its geometry source
+        // when the editor's matching view is inserted — handing over in the same transaction
+        // leaves both live for a frame, which is exactly the ambiguity the handover avoids.
+        if motionSharedZoom, !reduceMotion {
+            zoomingIndex = index
+        }
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
             isEditorPresented = true
         }
@@ -598,3 +747,49 @@ struct GalleryView: View {
     }
 }
 
+
+/// One diagonal pass of light across the gallery.
+///
+/// Its own view so the sweep owns its animation state: re-inserted on each `token` change, it
+/// animates from one edge to the other and then stops. Keeping this out of `GalleryView` means a
+/// grid re-render for any other reason cannot restart or interrupt a sweep in progress.
+private struct ShimmerSweep: View {
+    let token: Int
+    let duration: Double
+    let size: CGSize
+
+    @State private var travelled = false
+
+    /// Width of the band, as a fraction of the view. Wide enough to read as light passing over
+    /// rather than as a line crossing the screen.
+    private var bandWidth: CGFloat { max(size.width * 0.35, 80) }
+
+    var body: some View {
+        LinearGradient(
+            colors: [
+                .clear,
+                Color.white.opacity(0.10),
+                Color.white.opacity(0.16),
+                Color.white.opacity(0.10),
+                .clear
+            ],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+        .frame(width: bandWidth)
+        .rotationEffect(.degrees(20))
+        // Tall enough that the rotation cannot expose a corner as it crosses.
+        .frame(height: size.height * 1.6)
+        .offset(x: travelled ? size.width + bandWidth : -bandWidth)
+        .blendMode(.plusLighter)
+        .onAppear {
+            // The band starts off the leading edge and is asked to travel in the same frame it
+            // appears; a zero-duration first pass would otherwise show it already arrived.
+            travelled = false
+            withAnimation(.easeInOut(duration: duration)) {
+                travelled = true
+            }
+        }
+        .id(token)
+    }
+}
