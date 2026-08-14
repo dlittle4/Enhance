@@ -11,6 +11,15 @@ struct SettingsView: View {
     /// `UserDefaults` is the shared surface between the two; see `FeatureFlags`.
     @AppStorage(FeatureFlags.zoomOptionalKey) private var zoomOptional: Bool = false
 
+    /// The three face-marker experiments. Bound here and in `EditorView` to the same keys —
+    /// `@AppStorage` on both ends republishes, so a toggle repaints the canvas with no plumbing
+    /// between the two screens.
+    @AppStorage(FeatureFlags.faceMarkersCalmKey) private var faceMarkersCalm: Bool = false
+    @AppStorage(FeatureFlags.faceMarkersReticleKey) private var faceMarkersReticle: Bool = false
+    @AppStorage(FeatureFlags.faceMarkersSpotlightKey) private var faceMarkersSpotlight: Bool = false
+
+    @State private var showFaceMarkerLab = false
+
     private let mintGreen = Color.enhanceMint
     private let themes = ["PIXEL", "THEME 2", "THEME 3"]
     private let appIcons: [(name: String, preview: String, identifier: String?)] = [
@@ -35,6 +44,9 @@ struct SettingsView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 48)
             }
+        }
+        .sheet(isPresented: $showFaceMarkerLab) {
+            FaceMarkerLabView(isPresented: $showFaceMarkerLab)
         }
     }
 
@@ -66,20 +78,45 @@ struct SettingsView: View {
                 .font(.silkscreenSectionTitle)
                 .foregroundColor(.white)
 
+            experimentRow("MAKE GIFS WITHOUT ZOOMING", isOn: $zoomOptional)
+            experimentRow("CALM FACE MARKERS", isOn: $faceMarkersCalm)
+            experimentRow("FACE TARGETING RETICLE", isOn: $faceMarkersReticle)
+            experimentRow("SPOTLIGHT SELECTED FACE", isOn: $faceMarkersSpotlight)
+
+            // No checkmark: this opens a sheet rather than holding a state. The arrow is what
+            // distinguishes a destination from a toggle in a list that is otherwise all toggles.
             Button {
                 HapticService.selection()
-                zoomOptional.toggle()
+                showFaceMarkerLab = true
             } label: {
                 HStack(spacing: 10) {
-                    checkmark(isSelected: zoomOptional)
-                    Text("MAKE GIFS WITHOUT ZOOMING")
+                    Color.clear.frame(width: 24, height: 24)
+                    Text("FACE MARKER LAB →")
                         .font(.silkscreenLabel)
-                        .foregroundColor(zoomOptional ? mintGreen : .textPrimary)
+                        .foregroundColor(mintGreen)
                 }
                 .padding(.vertical, 10)
             }
             .buttonStyle(.plain)
         }
+    }
+
+    /// One toggle in EXPERIMENTS. Extracted once there were four of them and the section was three
+    /// copies of the same fourteen lines.
+    private func experimentRow(_ title: String, isOn: Binding<Bool>) -> some View {
+        Button {
+            HapticService.selection()
+            isOn.wrappedValue.toggle()
+        } label: {
+            HStack(spacing: 10) {
+                checkmark(isSelected: isOn.wrappedValue)
+                Text(title)
+                    .font(.silkscreenLabel)
+                    .foregroundColor(isOn.wrappedValue ? mintGreen : .textPrimary)
+            }
+            .padding(.vertical, 10)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Themes

@@ -1,0 +1,242 @@
+import Testing
+import CoreGraphics
+import Foundation
+@testable import Enhance
+
+/// The face-marker experiments' rules and persistence.
+///
+/// Everything here is about *decisions* — whether a marker exists, which face the spotlight cuts
+/// around, whether stored tuning survives a new knob — because those are the parts a screenshot
+/// cannot check and the parts that were wrong in the overlay this replaces.
+struct FaceMarkerTests {
+
+    private func faces(_ count: Int) -> [(id: UUID, rect: CGRect)] {
+        (0..<count).map { index in
+            (id: UUID(), rect: CGRect(x: 0.1 * Double(index), y: 0.4, width: 0.2, height: 0.2))
+        }
+    }
+
+    // MARK: - The legacy path is genuinely unchanged
+
+    /// The A/B is only fair if "all flags off" is the old behaviour exactly. The old overlay
+    /// treated *no selection* as every face selected, and that is preserved deliberately — it is
+    /// the thing being compared against, not a bug to fix on the legacy side.
+    @Test func legacyOptions_withNoSelection_markEveryFaceAsTarget() {
+        let markers = FaceMarkerPlan.markers(for: faces(3), selectedIndex: nil, options: .legacy)
+
+        // Hoisted out of `#expect` because `allSatisfy` is `rethrows`, which the macro expansion
+        // cannot prove non-throwing.
+        let allTargets = markers.allSatisfy(\.isTarget)
+        let allLegacySelected = markers.allSatisfy(\.legacyIsSelected)
+        let noneSoloed = markers.allSatisfy { !$0.isSoloed }
+
+        #expect(markers.count == 3)
+        #expect(allTargets)
+        #expect(allLegacySelected)
+        #expect(noneSoloed)
+    }
+
+    /// Legacy draws a box over a lone face — the behaviour CALM removes.
+    @Test func legacyOptions_withASingleFace_stillDrawsAMarker() {
+        let markers = FaceMarkerPlan.markers(for: faces(1), selectedIndex: nil, options: .legacy)
+        #expect(markers.count == 1)
+    }
+
+    // MARK: - Calm
+
+    /// Most photos have one face, and one face is not a choice. The effect still targets it —
+    /// `activeFaces` returns the lone face whether or not it was tapped — so this removes chrome
+    /// without removing capability.
+    @Test func calm_withASingleFace_drawsNothing() {
+        let options = FaceMarkerOptions(calm: true)
+        #expect(FaceMarkerPlan.markers(for: faces(1), selectedIndex: nil, options: options).isEmpty)
+        #expect(FaceMarkerPlan.markers(for: faces(1), selectedIndex: 0, options: options).isEmpty)
+    }
+
+    @Test func calm_withNoFaces_drawsNothing() {
+        let options = FaceMarkerOptions(calm: true)
+        #expect(FaceMarkerPlan.markers(for: faces(0), selectedIndex: nil, options: options).isEmpty)
+    }
+
+    /// Two faces *is* a choice, so the markers come back.
+    @Test func calm_withTwoFaces_drawsBoth() {
+        let options = FaceMarkerOptions(calm: true)
+        #expect(FaceMarkerPlan.markers(for: faces(2), selectedIndex: nil, options: options).count == 2)
+    }
+
+    // MARK: - Target vs soloed
+
+    /// The distinction the old tuple could not express: with one face soloed, the others are
+    /// neither targets nor soloed, and previously all three would have drawn identically.
+    @Test func soloingAFace_marksOnlyThatOneAsTargetAndSoloed() {
+        let markers = FaceMarkerPlan.markers(for: faces(3), selectedIndex: 1, options: .legacy)
+
+        #expect(markers[0].isTarget == false)
+        #expect(markers[1].isTarget == true)
+        #expect(markers[2].isTarget == false)
+
+        #expect(markers.filter(\.isSoloed).map(\.index) == [1])
+    }
+
+    @Test func markerIndices_followDetectionOrder() {
+        let markers = FaceMarkerPlan.markers(for: faces(4), selectedIndex: nil, options: .legacy)
+        #expect(markers.map(\.index) == [0, 1, 2, 3])
+    }
+
+    // MARK: - Spotlight
+
+    @Test func spotlight_withNothingSoloed_doesNotDraw() {
+        let options = FaceMarkerOptions(spotlight: true)
+        let markers = FaceMarkerPlan.markers(for: faces(3), selectedIndex: nil, options: options)
+        #expect(FaceMarkerPlan.spotlightRect(in: markers, options: options) == nil)
+    }
+
+    @Test func spotlight_whenOff_doesNotDrawEvenWithASoloedFace() {
+        let markers = FaceMarkerPlan.markers(for: faces(3), selectedIndex: 2, options: .legacy)
+        #expect(FaceMarkerPlan.spotlightRect(in: markers, options: .legacy) == nil)
+    }
+
+    @Test func spotlight_withASoloedFace_cutsAroundThatFace() {
+        let options = FaceMarkerOptions(spotlight: true)
+        let input = faces(3)
+        let markers = FaceMarkerPlan.markers(for: input, selectedIndex: 2, options: options)
+
+        #expect(FaceMarkerPlan.spotlightRect(in: markers, options: options) == input[2].rect)
+    }
+
+    /// CALM hiding a lone face's marker must also take the spotlight with it — otherwise the photo
+    /// dims around a face the user never chose, with no visible control to undo it.
+    @Test func spotlight_underCalmWithASingleFace_doesNotDraw() {
+        let options = FaceMarkerOptions(calm: true, spotlight: true)
+        let markers = FaceMarkerPlan.markers(for: faces(1), selectedIndex: 0, options: options)
+        #expect(FaceMarkerPlan.spotlightRect(in: markers, options: options) == nil)
+    }
+
+    // MARK: - Options
+
+    @Test func legacyOptions_areAllOff() {
+        #expect(FaceMarkerOptions.legacy.isLegacy)
+        #expect(FaceMarkerOptions(calm: true).isLegacy == false)
+    }
+
+    /// All eight combinations are legal — the variants compose rather than exclude, and nothing in
+    /// the plan should start rejecting one of them silently.
+    @Test func everyCombinationOfVariants_producesMarkers() {
+        for calm in [false, true] {
+            for reticle in [false, true] {
+                for spotlight in [false, true] {
+                    let options = FaceMarkerOptions(calm: calm, reticle: reticle, spotlight: spotlight)
+                    let markers = FaceMarkerPlan.markers(for: faces(2), selectedIndex: 0, options: options)
+                    #expect(markers.count == 2, "combination \(options) dropped a marker")
+                }
+            }
+        }
+    }
+
+    // MARK: - Tuning geometry
+
+    @Test func markerRect_atUnitScale_isTheInputRect() {
+        var tuning = FaceMarkerTuning.default
+        tuning.markerScale = 1.0
+        let rect = CGRect(x: 10, y: 20, width: 100, height: 200)
+        #expect(tuning.markerRect(for: rect) == rect)
+    }
+
+    /// Inflation is about the centre, so the marker stays on the face rather than sliding off it.
+    @Test func markerRect_inflatesAboutTheCentre() {
+        var tuning = FaceMarkerTuning.default
+        tuning.markerScale = 1.5
+        let rect = CGRect(x: 10, y: 20, width: 100, height: 200)
+        let inflated = tuning.markerRect(for: rect)
+
+        #expect(abs(inflated.midX - rect.midX) < 0.001)
+        #expect(abs(inflated.midY - rect.midY) < 0.001)
+        #expect(abs(inflated.width - 150) < 0.001)
+        #expect(abs(inflated.height - 300) < 0.001)
+    }
+
+    /// A tiny face still shows a corner rather than a dot.
+    @Test func bracketArm_hasAFloor() {
+        let tuning = FaceMarkerTuning.default
+        #expect(tuning.bracketArm(forSide: 1) >= 4)
+    }
+
+    @Test func bracketArm_isClampedToHalfTheSide() {
+        var tuning = FaceMarkerTuning.default
+        tuning.bracketLength = 5.0     // past the point where four brackets become a rectangle
+        #expect(tuning.bracketArm(forSide: 100) <= 50)
+    }
+
+    // MARK: - Persistence
+
+    private func scratchDefaults() -> UserDefaults {
+        let suite = UserDefaults(suiteName: "FaceMarkerTests-\(UUID().uuidString)")!
+        return suite
+    }
+
+    @Test func store_withNoStoredTuning_startsAtDefaults() {
+        let store = FaceMarkerTuningStore(defaults: scratchDefaults())
+        #expect(store.tuning == .default)
+    }
+
+    @Test func store_persistsAndReloadsTuning() {
+        let defaults = scratchDefaults()
+        let store = FaceMarkerTuningStore(defaults: defaults)
+        store.tuning.spotlightDimming = 0.8
+        store.tuning.bracketLength = 0.42
+
+        let reloaded = FaceMarkerTuningStore(defaults: defaults)
+        #expect(abs(reloaded.tuning.spotlightDimming - 0.8) < 0.0001)
+        #expect(abs(reloaded.tuning.bracketLength - 0.42) < 0.0001)
+    }
+
+    @Test func store_reset_returnsToDefaultsAndClearsStorage() {
+        let defaults = scratchDefaults()
+        let store = FaceMarkerTuningStore(defaults: defaults)
+        store.tuning.spotlightDimming = 0.9
+        store.reset()
+
+        #expect(store.tuning == .default)
+        #expect(defaults.data(forKey: FaceMarkerTuningStore.storageKey) == nil)
+    }
+
+    /// **The reason `init(from:)` is hand-written.** A blob written before a knob existed must
+    /// still decode, or every parameter added to the lab silently discards an evening of tuning on
+    /// the next launch. A lab exists to grow its fields, so this is the expected path.
+    @Test func tuning_decodesABlobMissingNewerKeys() throws {
+        let partial = """
+        {"autoHideDelay": 4.5, "spotlightDimming": 0.7}
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(FaceMarkerTuning.self, from: partial)
+
+        #expect(abs(decoded.autoHideDelay - 4.5) < 0.0001)
+        #expect(abs(decoded.spotlightDimming - 0.7) < 0.0001)
+        // Everything absent falls back rather than throwing.
+        #expect(abs(decoded.bracketLength - FaceMarkerTuning.default.bracketLength) < 0.0001)
+        #expect(decoded.showsIndexLabel == FaceMarkerTuning.default.showsIndexLabel)
+    }
+
+    @Test func tuning_roundTripsThroughJSON() throws {
+        var tuning = FaceMarkerTuning.default
+        tuning.lockOnScale = 1.31
+        tuning.showsIndexLabel = false
+
+        let data = try JSONEncoder().encode(tuning)
+        let decoded = try JSONDecoder().decode(FaceMarkerTuning.self, from: data)
+
+        #expect(decoded == tuning)
+    }
+
+    /// The snippet is the graduation path — it must name every field, or a settled look is copied
+    /// out incomplete and the missing knobs silently revert to defaults.
+    @Test func swiftSnippet_namesEveryTunableField() {
+        let snippet = FaceMarkerTuning.default.swiftSnippet
+        for field in ["autoHideDelay", "restingOpacity", "flashDuration", "minimumTapTarget",
+                      "bracketLength", "bracketThickness", "markerScale", "lockOnScale",
+                      "lockOnDuration", "showsIndexLabel", "labelSize", "unselectedOpacity",
+                      "spotlightDimming", "spotlightRadiusScale", "spotlightFeather"] {
+            #expect(snippet.contains(field), "snippet is missing \(field)")
+        }
+    }
+}

@@ -2,13 +2,23 @@ import SwiftUI
 import UIKit
 
 /// A zoomable/pannable image canvas backed by UIScrollView for
-/// hardware-accelerated, 60fps pinch/zoom. Face bounding boxes
-/// are rendered as UIKit subviews with tap recognizers.
+/// hardware-accelerated, 60fps pinch/zoom. Face markers are rendered as UIKit
+/// subviews with tap recognizers — see `FaceMarkerView` for how they draw, and
+/// `FaceMarkerOptions` for the experiments that change it.
 struct ImageCanvasView: View {
     let image: UIImage
     @Binding var scale: CGFloat
     @Binding var visibleRect: CGRect
-    var faceOverlays: [(id: UUID, rect: CGRect, isSelected: Bool)] = []
+    var faceMarkers: [FaceMarker] = []
+
+    /// Which face-marker experiments are on, and the knobs FACE MARKER LAB edits. Defaulted to the
+    /// unchanged overlay so the zoom and text call sites need not care.
+    ///
+    /// Declared between the markers and the tap callback deliberately: the memberwise initialiser
+    /// takes its order from here, and the editor's call site reads in this order.
+    var markerOptions: FaceMarkerOptions = .legacy
+    var markerTuning: FaceMarkerTuning = .default
+
     var onFaceSelected: ((Int) -> Void)? = nil
 
     /// The text overlay to render over the photo, and whether the TEXT category is active (so it
@@ -44,7 +54,9 @@ struct ImageCanvasView: View {
                 image: image,
                 scale: $scale,
                 visibleRect: $visibleRect,
-                faceOverlays: faceOverlays,
+                faceMarkers: faceMarkers,
+                markerOptions: markerOptions,
+                markerTuning: markerTuning,
                 onFaceSelected: onFaceSelected,
                 onInteraction: onInteraction,
                 onInteractionEnded: onInteractionEnded,
@@ -71,7 +83,9 @@ private struct ScrollableCanvasView: UIViewRepresentable {
     let image: UIImage
     @Binding var scale: CGFloat
     @Binding var visibleRect: CGRect
-    var faceOverlays: [(id: UUID, rect: CGRect, isSelected: Bool)]
+    var faceMarkers: [FaceMarker]
+    var markerOptions: FaceMarkerOptions
+    var markerTuning: FaceMarkerTuning
     var onFaceSelected: ((Int) -> Void)?
     var onInteraction: (() -> Void)?
     var onInteractionEnded: (() -> Void)?
@@ -144,7 +158,7 @@ private struct ScrollableCanvasView: UIViewRepresentable {
             if imageView.image !== image {
                 imageView.image = image
             }
-            coordinator.updateFaceBoxes(on: imageView)
+            coordinator.updateFaceMarkers(on: imageView)
         }
 
         if let textHost = coordinator.textHost {
@@ -175,9 +189,19 @@ private struct ScrollableCanvasView: UIViewRepresentable {
         weak var textHost: TextOverlayHostView?
         var canvasSize: CGFloat = 325
 
-        private var faceBoxViews: [FaceBoxView] = []
+        private var faceMarkerViews: [FaceMarkerView] = []
+        private let spotlight = FaceSpotlightLayer()
+
+        /// Fires once the markers have been up, untouched, for `autoHideDelay`. Invalidated and
+        /// restarted by any canvas touch, so the countdown measures *inattention* rather than time
+        /// on screen.
+        private var autoHideTimer: Timer?
 
         private let mintGreen = UIColor.enhanceMint
+
+        deinit {
+            autoHideTimer?.invalidate()
+        }
 
         init(parent: ScrollableCanvasView) {
             self.parent = parent
@@ -191,15 +215,18 @@ private struct ScrollableCanvasView: UIViewRepresentable {
 
         func scrollViewWillBeginZooming(_ scrollView: UIScrollView, with view: UIView?) {
             parent.onInteraction?()
+            revealMarkers()
         }
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
             parent.onInteraction?()
+            revealMarkers()
         }
 
         func scrollViewDidZoom(_ scrollView: UIScrollView) {
             centerContent(in: scrollView)
             syncBindings(scrollView)
+            refreshMarkerScale()
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -305,41 +332,121 @@ private struct ScrollableCanvasView: UIViewRepresentable {
             }
         }
 
-        // MARK: Face Boxes
+        // MARK: Face Markers
 
-        func updateFaceBoxes(on imageView: UIImageView) {
-            let overlays = parent.faceOverlays
+        func updateFaceMarkers(on imageView: UIImageView) {
+            let markers = parent.faceMarkers
+            let options = parent.markerOptions
+            let tuning = parent.markerTuning
             let contentW = imageView.bounds.width
             let contentH = imageView.bounds.height
 
-            while faceBoxViews.count > overlays.count {
-                faceBoxViews.removeLast().removeFromSuperview()
+            while faceMarkerViews.count > markers.count {
+                faceMarkerViews.removeLast().removeFromSuperview()
             }
-            while faceBoxViews.count < overlays.count {
-                let box = FaceBoxView()
-                imageView.addSubview(box)
-                faceBoxViews.append(box)
+            while faceMarkerViews.count < markers.count {
+                let view = FaceMarkerView()
+                imageView.addSubview(view)
+                faceMarkerViews.append(view)
             }
 
-            for (index, overlay) in overlays.enumerated() {
-                let box = faceBoxViews[index]
-                let bb = overlay.rect
-                let faceTopY = 1.0 - bb.origin.y - bb.height
-
-                let x = bb.origin.x * contentW
-                let y = faceTopY * contentH
-                let w = bb.width * contentW
-                let h = bb.height * contentH
-
-                box.frame = CGRect(x: x, y: y, width: w, height: h)
-                box.configure(
-                    isSelected: overlay.isSelected,
-                    tintColor: mintGreen,
-                    index: index,
+            for (index, marker) in markers.enumerated() {
+                let view = faceMarkerViews[index]
+                view.frame = frame(for: marker.rect, contentW: contentW, contentH: contentH)
+                view.configure(
+                    marker: marker,
+                    options: options,
+                    tuning: tuning,
+                    tint: mintGreen,
+                    contentScale: currentZoomScale,
                     onTap: { [weak self] idx in
                         self?.parent.onFaceSelected?(idx)
                     }
                 )
+            }
+
+            updateSpotlight(on: imageView)
+            revealMarkers()
+        }
+
+        /// Vision's rect is normalized with a **bottom-left** origin; UIKit's is top-left. The flip
+        /// is why this is a named function rather than four lines inlined — it was the one piece of
+        /// the old `updateFaceBoxes` worth keeping verbatim.
+        private func frame(for normalized: CGRect, contentW: CGFloat, contentH: CGFloat) -> CGRect {
+            let topY = 1.0 - normalized.origin.y - normalized.height
+            return CGRect(
+                x: normalized.origin.x * contentW,
+                y: topY * contentH,
+                width: normalized.width * contentW,
+                height: normalized.height * contentH
+            )
+        }
+
+        /// The spotlight sits under every marker, so brackets and the index chip stay legible over
+        /// the dimmed region.
+        private func updateSpotlight(on imageView: UIImageView) {
+            guard let rect = FaceMarkerPlan.spotlightRect(in: parent.faceMarkers, options: parent.markerOptions) else {
+                spotlight.hide()
+                return
+            }
+
+            if spotlight.superlayer !== imageView.layer {
+                imageView.layer.insertSublayer(spotlight, at: 0)
+            }
+
+            let content = CGRect(origin: .zero, size: imageView.bounds.size)
+            let markerRect = parent.markerTuning.markerRect(
+                for: frame(for: rect, contentW: imageView.bounds.width, contentH: imageView.bounds.height)
+            )
+            spotlight.update(spotlighting: markerRect, in: content, tuning: parent.markerTuning)
+        }
+
+        private var currentZoomScale: CGFloat {
+            (imageView?.superview as? UIScrollView)?.zoomScale ?? 1
+        }
+
+        /// Keeps the chrome a constant size on screen through a pinch. Deliberately does not
+        /// re-run `configure` — that would re-evaluate selection and restart animations on every
+        /// frame of the gesture.
+        private func refreshMarkerScale() {
+            let scale = currentZoomScale
+            for view in faceMarkerViews {
+                view.updateContentScale(scale)
+            }
+            if let imageView {
+                updateSpotlight(on: imageView)
+            }
+        }
+
+        // MARK: Auto-hide
+
+        /// Brings the markers back and restarts the countdown. Called on every canvas touch, which
+        /// is the signal that the user is looking at the photo again.
+        func revealMarkers() {
+            autoHideTimer?.invalidate()
+
+            let delay = parent.markerTuning.autoHideDelay
+            guard parent.markerOptions.calm, delay > 0, !faceMarkerViews.isEmpty else {
+                setMarkerAlpha(1)
+                return
+            }
+
+            setMarkerAlpha(1)
+            autoHideTimer = Timer.scheduledTimer(withTimeInterval: delay, repeats: false) { [weak self] _ in
+                guard let self else { return }
+                let resting = CGFloat(max(0, min(1, self.parent.markerTuning.restingOpacity)))
+                UIView.animate(withDuration: 0.35) {
+                    self.setMarkerAlpha(resting)
+                }
+            }
+        }
+
+        /// Alpha only — the views stay in the hierarchy and stay tappable. A marker that has faded
+        /// out has stopped *asking* for attention, which is not the same as being gone: tapping the
+        /// face it covers still selects that face.
+        private func setMarkerAlpha(_ alpha: CGFloat) {
+            for view in faceMarkerViews {
+                view.alpha = alpha
             }
         }
     }
@@ -406,78 +513,5 @@ final class CanvasContainerView: UIView {
     private func photoTarget(for point: CGPoint, with event: UIEvent?) -> UIView? {
         let inScroll = convert(point, to: scrollView)
         return scrollView.hitTest(inScroll, with: event) ?? scrollView
-    }
-}
-
-// MARK: - FaceBoxView
-
-private class FaceBoxView: UIView {
-    private var onTap: ((Int) -> Void)?
-    private var faceIndex: Int = 0
-    private var currentlySelected: Bool?
-    private let borderLayer = CAShapeLayer()
-    private let fillLayer = CAShapeLayer()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = .clear
-        isUserInteractionEnabled = true
-
-        layer.addSublayer(fillLayer)
-        layer.addSublayer(borderLayer)
-
-        let tap = UITapGestureRecognizer(target: self, action: #selector(tapped))
-        addGestureRecognizer(tap)
-    }
-
-    required init?(coder: NSCoder) { fatalError() }
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        let insetBounds = bounds
-        let path = UIBezierPath(roundedRect: insetBounds, cornerRadius: 8).cgPath
-        borderLayer.path = path
-        fillLayer.path = path
-        borderLayer.frame = bounds
-        fillLayer.frame = bounds
-    }
-
-    func configure(isSelected: Bool, tintColor: UIColor, index: Int, onTap: @escaping (Int) -> Void) {
-        self.faceIndex = index
-        self.onTap = onTap
-
-        borderLayer.fillColor = UIColor.clear.cgColor
-        borderLayer.strokeColor = isSelected ? tintColor.cgColor : tintColor.withAlphaComponent(0.6).cgColor
-        borderLayer.lineWidth = isSelected ? 3 : 2
-
-        fillLayer.fillColor = isSelected ? tintColor.withAlphaComponent(0.15).cgColor : tintColor.withAlphaComponent(0.05).cgColor
-        fillLayer.strokeColor = UIColor.clear.cgColor
-
-        if isSelected && currentlySelected != true {
-            startPulse()
-        } else if !isSelected {
-            stopPulse()
-        }
-        currentlySelected = isSelected
-    }
-
-    private func startPulse() {
-        let anim = CABasicAnimation(keyPath: "opacity")
-        anim.fromValue = 1.0
-        anim.toValue = 0.4
-        anim.duration = 0.8
-        anim.autoreverses = true
-        anim.repeatCount = .infinity
-        anim.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-        borderLayer.add(anim, forKey: "pulse")
-    }
-
-    private func stopPulse() {
-        borderLayer.removeAnimation(forKey: "pulse")
-        borderLayer.opacity = 1.0
-    }
-
-    @objc private func tapped() {
-        onTap?(faceIndex)
     }
 }
