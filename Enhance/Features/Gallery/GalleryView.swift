@@ -421,14 +421,39 @@ struct GalleryView: View {
         }
     }
     
+    /// One row of the grid's data, carrying a *stable identity* for SwiftUI alongside the index
+    /// the arrays are keyed by. The identifier is preferred; the URL stands in when the id list
+    /// runs short (they are appended independently in `performFetch`), and the index is the
+    /// fallback of last resort.
+    private struct GridEntry: Identifiable {
+        let index: Int
+        let id: String
+    }
+
+    private var gridEntries: [GridEntry] {
+        let count = min(photoManager.myGifs.count, photoManager.myGifURLs.count)
+        return (0..<count).map { index in
+            GridEntry(
+                index: index,
+                id: photoManager.myGifAssetIdentifiers[safe: index]
+                    ?? photoManager.myGifURLs[safe: index]?.absoluteString
+                    ?? "index-\(index)"
+            )
+        }
+    }
+
     private var gridLayer: some View {
         ScrollView {
             VStack(spacing: 0) {
                 Spacer().frame(height: 16)
 
                 LazyVGrid(columns: gridColumns, spacing: 10) {
-                    let safeCount = min(photoManager.myGifs.count, photoManager.myGifURLs.count)
-                    ForEach(0..<safeCount, id: \.self) { index in
+                    // Keyed by asset identity, not by position. With `id: \.self` on indices, a
+                    // save inserting at the front re-rendered every cell in place and the grid
+                    // never *moved* — identity is what lets the existing cells slide over to
+                    // make room while the newcomer transitions in.
+                    ForEach(gridEntries) { entry in
+                        let index = entry.index
                         if let url = photoManager.myGifURLs[safe: index] {
                             GifGridItem(
                                 url: url, index: index,
@@ -455,9 +480,21 @@ struct GalleryView: View {
                                 // view claims the geometry id at a time.
                                 isMatchedGeometrySource: zoomingIndex != index
                             )
+                            // The newcomer's arrival: the empty box scales in first (phase 1),
+                            // then `GifGridItem`'s reveal fills it with pixels (phase 2).
+                            .transition(.scale(scale: 0.6).combined(with: .opacity))
                         }
                     }
                 }
+                // Animates insertions — the shift-over plus the newcomer's transition. Scoped to
+                // the identifier list so scrolling and selection cannot trigger it, and inert
+                // without the flag so the shipped gallery still snaps.
+                .animation(
+                    motionSaveReveal && !reduceMotion
+                        ? .spring(response: 0.45, dampingFraction: 0.8)
+                        : nil,
+                    value: photoManager.myGifAssetIdentifiers
+                )
 
                 Spacer(minLength: 100)
             }
@@ -526,7 +563,11 @@ struct GalleryView: View {
         else { return nil }
 
         let tuning = motionStore.tuning
-        return .init(cellSize: tuning.revealCellSize, duration: tuning.revealDuration)
+        return .init(
+            cellSize: tuning.revealCellSize,
+            duration: tuning.revealDuration,
+            delay: tuning.revealDelay
+        )
     }
 
     // MARK: - Floating Bottom Bar

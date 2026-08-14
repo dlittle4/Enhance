@@ -26,10 +26,40 @@ struct EffectCardButtonStyle: ButtonStyle {
     let motion: PressMotion?
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? (motion?.scale ?? 1) : 1)
-            .brightness(configuration.isPressed ? (motion?.brightness ?? 0) : 0)
-            .animation(motion?.curve.animation, value: configuration.isPressed)
+        // An inner View rather than modifiers directly on the label: the pulse needs @State,
+        // and a ButtonStyle is not a View — state declared on the style itself is not
+        // reliably retained.
+        PressBody(configuration: configuration, motion: motion)
+    }
+
+    private struct PressBody: View {
+        let configuration: Configuration
+        let motion: PressMotion?
+
+        /// Held at full press depth from the moment the finger lifts until the release spring
+        /// has somewhere to spring back from. This is what makes a quick *tap* visible: a 50ms
+        /// press barely starts the press-down animation, so animating back from wherever it got
+        /// to reads as nothing. On release the card snaps (unanimated) to full depth and springs
+        /// back from there — a long hold passes through the same path and looks identical,
+        /// since it was already at depth.
+        @State private var releasePulse = false
+
+        var body: some View {
+            let down = configuration.isPressed || releasePulse
+            configuration.label
+                .scaleEffect(down ? (motion?.scale ?? 1) : 1)
+                .brightness(down ? (motion?.brightness ?? 0) : 0)
+                .animation(motion?.curve.animation, value: configuration.isPressed)
+                .onChange(of: configuration.isPressed) { _, pressed in
+                    guard motion != nil, !pressed else { return }
+                    var snap = Transaction()
+                    snap.disablesAnimations = true
+                    withTransaction(snap) { releasePulse = true }
+                    DispatchQueue.main.async {
+                        withAnimation(motion?.curve.animation) { releasePulse = false }
+                    }
+                }
+        }
     }
 }
 

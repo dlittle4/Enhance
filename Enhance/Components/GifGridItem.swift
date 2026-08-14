@@ -40,6 +40,9 @@ struct GifGridItem: View {
     struct RevealMotion: Equatable {
         var cellSize: Double
         var duration: Double
+        /// Seconds the empty placeholder box holds before the pixels start filling in — the
+        /// beat that separates "a cell arrived" from "this is what's in it".
+        var delay: Double = 0
     }
 
     @State private var isVisible: Bool = false
@@ -162,12 +165,14 @@ struct GifGridItem: View {
 
         revealSeed = Double.random(in: 0..<1000)
         revealProgress = 0
-        withAnimation(.easeOut(duration: reveal.duration)) {
+        // The delay is the placeholder phase: the box sits empty while it elapses, then the
+        // pixels assemble over `duration`.
+        withAnimation(.easeOut(duration: reveal.duration).delay(reveal.delay)) {
             revealProgress = 1
         }
         // Snapped to 1 rather than left to the animation, so an interruption — backgrounding,
         // entering select mode, a second save — can never strand a cell part-transparent.
-        DispatchQueue.main.asyncAfter(deadline: .now() + reveal.duration) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + reveal.delay + reveal.duration) {
             revealProgress = 1
             onRevealComplete?()
         }

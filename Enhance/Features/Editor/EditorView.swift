@@ -76,6 +76,16 @@ struct EditorView: View {
         )
     }
 
+    /// Staggered card entrance for the four carousels. Rides the category-switch flag — it fires
+    /// on the same event, the card gallery arriving — and is inert at the default stagger of 0.
+    /// Dropped under reduce motion like the rest of the decorative choreography.
+    private var cardCascade: CardCascadeMotion? {
+        guard motionCategorySwitch, !reduceMotion else { return nil }
+        let tuning = motionStore.tuning
+        guard tuning.cascadeStagger > 0 else { return nil }
+        return .init(stagger: tuning.cascadeStagger, curve: tuning.categorySwitchEffective)
+    }
+
     private let canvasSize: CGFloat = 325
     private let borderInset: CGFloat = 5
     private let outerRadius: CGFloat = 28
@@ -577,7 +587,8 @@ struct EditorView: View {
         EffectCarousel(
             items: EffectChoice.gallery(AnimatorType.allCases),
             scrollTo: EffectChoice(viewModel.selectedAnimatorType),
-            contentInset: canvasInset
+            contentInset: canvasInset,
+            cascade: cardCascade
         ) { choice in
             switch choice {
             case .original:
@@ -691,7 +702,8 @@ struct EditorView: View {
         EffectCarousel(
             items: EffectChoice.gallery(TextAnimationType.allCases),
             scrollTo: EffectChoice(viewModel.textOverlay?.animation),
-            contentInset: canvasInset
+            contentInset: canvasInset,
+            cascade: cardCascade
         ) { choice in
             switch choice {
             case .original:
@@ -1151,7 +1163,8 @@ struct EditorView: View {
         EffectCarousel(
             items: EffectChoice.gallery(VisualEffectType.selectable),
             scrollTo: EffectChoice(viewModel.selectedVisualEffect),
-            contentInset: canvasInset
+            contentInset: canvasInset,
+            cascade: cardCascade
         ) { choice in
             switch choice {
             case .original:
@@ -1198,7 +1211,8 @@ struct EditorView: View {
         EffectCarousel(
             items: EffectChoice.gallery(FaceFilterType.allCases),
             scrollTo: EffectChoice(viewModel.selectedFaceFilter),
-            contentInset: canvasInset
+            contentInset: canvasInset,
+            cascade: cardCascade
         ) { choice in
             switch choice {
             case .original:

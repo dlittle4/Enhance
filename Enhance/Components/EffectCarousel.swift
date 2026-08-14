@@ -20,7 +20,16 @@ struct EffectCarousel<Item: Hashable & Identifiable, Card: View>: View {
     /// rest while still being able to scroll out to the screen edge.
     let contentInset: CGFloat
 
+    /// Staggered card entrance when the carousel arrives, or `nil` for the shipped
+    /// all-at-once appearance. A value, so the component stays free of the tuning store.
+    var cascade: CardCascadeMotion? = nil
+
     @ViewBuilder var card: (Item) -> Card
+
+    /// Flipped once, on appear; each card animates toward it on its own delay. The carousel is
+    /// rebuilt per category (each tab's branch is its own view identity), so switching tabs
+    /// resets this and replays the cascade — which is the point.
+    @State private var cascadeIn = false
 
     /// How much hidden content lies off each end, in points, clamped to `fadeWidth`.
     @State private var overflow: EdgeOverflow = .none
@@ -33,8 +42,14 @@ struct EffectCarousel<Item: Hashable & Identifiable, Card: View>: View {
         ScrollViewReader { proxy in
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
-                    ForEach(items) { item in
-                        card(item).id(item)
+                    ForEach(Array(items.enumerated()), id: \.element) { index, item in
+                        card(item)
+                            .modifier(CascadeEntrance(
+                                shown: cascadeIn || cascade == nil,
+                                delay: Double(index) * (cascade?.stagger ?? 0),
+                                curve: cascade?.curve
+                            ))
+                            .id(item)
                     }
                 }
                 .padding(.vertical, 2)
@@ -54,6 +69,9 @@ struct EffectCarousel<Item: Hashable & Identifiable, Card: View>: View {
             }
             .mask(fadeMask)
             .onAppear {
+                // One flip; the per-card delay does the sequencing. Set unconditionally so a
+                // cascade toggled on later still finds the settled state.
+                cascadeIn = true
                 guard let scrollTo else { return }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                     withAnimation(.easeOut(duration: 0.2)) {
@@ -90,6 +108,35 @@ struct EffectCarousel<Item: Hashable & Identifiable, Card: View>: View {
     /// carousel a few points does not snap the edge to fully transparent.
     private func fadeAmount(_ hidden: CGFloat) -> Double {
         Double(max(0, min(1, hidden / fadeWidth)))
+    }
+}
+
+/// What a card cascade needs to know. Top-level rather than nested in `EffectCarousel`,
+/// which is generic — naming a nested type would force call sites to spell out the
+/// carousel's type parameters just to build a value.
+struct CardCascadeMotion: Equatable {
+    /// Seconds between one card starting its entrance and the next.
+    var stagger: Double
+    var curve: MotionCurve
+}
+
+/// One card's entrance in a cascade: transparent, small and slightly low until `shown`, then
+/// springing to rest on its own delay — index × stagger, so the row reads left to right.
+///
+/// Always in the tree rather than applied conditionally, for the same reason
+/// `PixelRevealModifier` documents: a modifier that comes and goes changes the view's identity
+/// and can drop the very animation it drives. With `shown` true and no curve it is inert.
+private struct CascadeEntrance: ViewModifier {
+    let shown: Bool
+    let delay: Double
+    let curve: MotionCurve?
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(shown ? 1 : 0)
+            .scaleEffect(shown ? 1 : 0.8)
+            .offset(y: shown ? 0 : 14)
+            .animation(curve.map { $0.animation.delay(delay) }, value: shown)
     }
 }
 

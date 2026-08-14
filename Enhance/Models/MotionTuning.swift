@@ -116,6 +116,10 @@ struct MotionTuning: Codable, Equatable {
 
     var categorySwitchCurve: MotionCurve?
 
+    /// Seconds between one effect card starting its entrance and the next, when a carousel
+    /// arrives. 0 is inert — every card lands at once, which is the shipped behaviour.
+    var cascadeStagger: Double
+
     // MARK: - Tab selection (Idea 5)
 
     /// Scale the selected tab's capsule grows from. 1 is a plain colour cross-fade.
@@ -142,6 +146,11 @@ struct MotionTuning: Codable, Equatable {
 
     /// Seconds for the grid cell to finish building in.
     var revealDuration: Double
+
+    /// Seconds the empty placeholder box holds on screen before the pixels start filling in.
+    /// The beat between "a new cell arrived" and "this is what's in it" — without it the two
+    /// phases read as one event and the arrival is missed.
+    var revealDelay: Double
 
     // MARK: - Gallery ambience (Idea 3)
 
@@ -184,6 +193,7 @@ struct MotionTuning: Codable, Equatable {
         entranceCurve: nil,
         categorySwitchScale: 1,
         categorySwitchCurve: nil,
+        cascadeStagger: 0,
         tabScaleFrom: 1,
         tabCurve: nil,
         tilePressScale: 1,
@@ -193,7 +203,8 @@ struct MotionTuning: Codable, Equatable {
         // their defaults are simply the shape they should take the first time someone turns the
         // flag on. The flag is what keeps the app unchanged, not these numbers.
         revealCellSize: 6,
-        revealDuration: 0.6,
+        revealDuration: 1.6,
+        revealDelay: 0.35,
         shimmerInterval: 20,
         shimmerDuration: 1.0,
         parallaxMagnitude: 4,
@@ -210,13 +221,15 @@ struct MotionTuning: Codable, Equatable {
         entranceCurve: nil,
         categorySwitchScale: 0.96,
         categorySwitchCurve: MotionCurve(response: 0.22, dampingFraction: 0.82),
+        cascadeStagger: 0.06,
         tabScaleFrom: 0.7,
         tabCurve: MotionCurve(response: 0.22, dampingFraction: 0.6),
         tilePressScale: 0.95,
         tileBrightnessDelta: -0.05,
         tilePressCurve: MotionCurve(response: 0.25, dampingFraction: 0.45),
         revealCellSize: 6,
-        revealDuration: 0.6,
+        revealDuration: 1.6,
+        revealDelay: 0.35,
         shimmerInterval: 20,
         shimmerDuration: 1.0,
         parallaxMagnitude: 4,
@@ -253,6 +266,7 @@ struct MotionTuning: Codable, Equatable {
             entranceCurve: \(Self.curve(entranceCurve)),
             categorySwitchScale: \(Self.number(categorySwitchScale)),
             categorySwitchCurve: \(Self.curve(categorySwitchCurve)),
+            cascadeStagger: \(Self.number(cascadeStagger)),
             tabScaleFrom: \(Self.number(tabScaleFrom)),
             tabCurve: \(Self.curve(tabCurve)),
             tilePressScale: \(Self.number(tilePressScale)),
@@ -260,6 +274,7 @@ struct MotionTuning: Codable, Equatable {
             tilePressCurve: \(Self.curve(tilePressCurve)),
             revealCellSize: \(Self.number(revealCellSize)),
             revealDuration: \(Self.number(revealDuration)),
+            revealDelay: \(Self.number(revealDelay)),
             shimmerInterval: \(Self.number(shimmerInterval)),
             shimmerDuration: \(Self.number(shimmerDuration)),
             parallaxMagnitude: \(Self.number(parallaxMagnitude)),
@@ -311,6 +326,7 @@ extension MotionTuning {
             entranceCurve: curve(.entranceCurve),
             categorySwitchScale: number(.categorySwitchScale, fallback.categorySwitchScale),
             categorySwitchCurve: curve(.categorySwitchCurve),
+            cascadeStagger: number(.cascadeStagger, fallback.cascadeStagger),
             tabScaleFrom: number(.tabScaleFrom, fallback.tabScaleFrom),
             tabCurve: curve(.tabCurve),
             tilePressScale: number(.tilePressScale, fallback.tilePressScale),
@@ -318,6 +334,7 @@ extension MotionTuning {
             tilePressCurve: curve(.tilePressCurve),
             revealCellSize: number(.revealCellSize, fallback.revealCellSize),
             revealDuration: number(.revealDuration, fallback.revealDuration),
+            revealDelay: number(.revealDelay, fallback.revealDelay),
             shimmerInterval: number(.shimmerInterval, fallback.shimmerInterval),
             shimmerDuration: number(.shimmerDuration, fallback.shimmerDuration),
             parallaxMagnitude: number(.parallaxMagnitude, fallback.parallaxMagnitude),

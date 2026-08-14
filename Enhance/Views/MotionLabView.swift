@@ -264,14 +264,18 @@ struct MotionLabView: View {
     /// much it rings on the way — below 1 overshoots, at 1 and above it does not.
     private func curveSliders(for curve: Binding<MotionCurve>) -> some View {
         VStack(alignment: .leading, spacing: 12) {
+            // Ranges here and below run deliberately far past taste — 0.1s to multi-second,
+            // scales to near-invisible — so an experiment can be cranked to unmissable while
+            // evaluating and dialled back after. The lab is for finding the value, not
+            // enforcing it.
             ParameterSliderRow(
                 label: "RESPONSE",
-                value: normalized(curve.response, in: 0.05...0.8),
+                value: normalized(curve.response, in: 0.05...2),
                 valueText: String(format: "%.2fS", curve.wrappedValue.response)
             )
             ParameterSliderRow(
                 label: "DAMPING",
-                value: normalized(curve.dampingFraction, in: 0.2...1.2),
+                value: normalized(curve.dampingFraction, in: 0.1...1.2),
                 valueText: String(format: "%.2f", curve.wrappedValue.dampingFraction)
             )
         }
@@ -287,7 +291,7 @@ struct MotionLabView: View {
 
             ParameterSliderRow(
                 label: "STAGGER",
-                value: normalized(tuning.entranceStagger, in: 0...0.2),
+                value: normalized(tuning.entranceStagger, in: 0...1),
                 allowsZero: true,
                 valueText: store.tuning.entranceStagger < 0.005
                     ? "TOGETHER"
@@ -295,12 +299,12 @@ struct MotionLabView: View {
             )
             ParameterSliderRow(
                 label: "START SCALE",
-                value: normalized(tuning.entranceScale, in: 0.6...1),
+                value: normalized(tuning.entranceScale, in: 0.2...1),
                 valueText: String(format: "%.2f×", store.tuning.entranceScale)
             )
             ParameterSliderRow(
                 label: "RISE",
-                value: normalized(tuning.entranceOffsetY, in: 0...48),
+                value: normalized(tuning.entranceOffsetY, in: 0...200),
                 allowsZero: true,
                 valueText: "\(Int(store.tuning.entranceOffsetY))PT"
             )
@@ -320,8 +324,18 @@ struct MotionLabView: View {
 
             ParameterSliderRow(
                 label: "START SCALE",
-                value: normalized(tuning.categorySwitchScale, in: 0.8...1),
+                value: normalized(tuning.categorySwitchScale, in: 0.2...1),
                 valueText: String(format: "%.2f×", store.tuning.categorySwitchScale)
+            )
+            // Per-card stagger for the arriving carousel: 0 lands every card at once (the
+            // shipped behaviour), anything above it plays them left to right.
+            ParameterSliderRow(
+                label: "CARD STAGGER",
+                value: normalized(tuning.cascadeStagger, in: 0...0.6),
+                allowsZero: true,
+                valueText: store.tuning.cascadeStagger < 0.005
+                    ? "TOGETHER"
+                    : String(format: "%.3fS", store.tuning.cascadeStagger)
             )
 
             curveOverride(
@@ -339,7 +353,7 @@ struct MotionLabView: View {
 
             ParameterSliderRow(
                 label: "CAPSULE FROM",
-                value: normalized(tuning.tabScaleFrom, in: 0.3...1),
+                value: normalized(tuning.tabScaleFrom, in: 0.1...1),
                 valueText: String(format: "%.2f×", store.tuning.tabScaleFrom)
             )
 
@@ -358,12 +372,12 @@ struct MotionLabView: View {
 
             ParameterSliderRow(
                 label: "PRESS SCALE",
-                value: normalized(tuning.tilePressScale, in: 0.85...1),
+                value: normalized(tuning.tilePressScale, in: 0.5...1),
                 valueText: String(format: "%.2f×", store.tuning.tilePressScale)
             )
             ParameterSliderRow(
                 label: "DIM",
-                value: normalized(tuning.tileBrightnessDelta, in: -0.2...0),
+                value: normalized(tuning.tileBrightnessDelta, in: -0.5...0),
                 allowsZero: true,
                 valueText: String(format: "%.2f", store.tuning.tileBrightnessDelta)
             )
@@ -397,27 +411,34 @@ struct MotionLabView: View {
 
             ParameterSliderRow(
                 label: "REVEAL CELL",
-                value: normalized(tuning.revealCellSize, in: 2...16),
+                value: normalized(tuning.revealCellSize, in: 2...60),
                 valueText: "\(Int(store.tuning.revealCellSize))PT"
             )
             ParameterSliderRow(
                 label: "REVEAL TIME",
-                value: normalized(tuning.revealDuration, in: 0.2...1.5),
+                value: normalized(tuning.revealDuration, in: 0.1...5),
                 valueText: String(format: "%.2fS", store.tuning.revealDuration)
+            )
+            // How long the empty placeholder box holds before the pixels start.
+            ParameterSliderRow(
+                label: "REVEAL HOLD",
+                value: normalized(tuning.revealDelay, in: 0...2),
+                allowsZero: true,
+                valueText: String(format: "%.2fS", store.tuning.revealDelay)
             )
             ParameterSliderRow(
                 label: "SHIMMER EVERY",
-                value: normalized(tuning.shimmerInterval, in: 5...60),
+                value: normalized(tuning.shimmerInterval, in: 1...60),
                 valueText: "\(Int(store.tuning.shimmerInterval))S"
             )
             ParameterSliderRow(
                 label: "SHIMMER TIME",
-                value: normalized(tuning.shimmerDuration, in: 0.4...2.5),
+                value: normalized(tuning.shimmerDuration, in: 0.1...5),
                 valueText: String(format: "%.2fS", store.tuning.shimmerDuration)
             )
             ParameterSliderRow(
                 label: "TILT DRIFT",
-                value: normalized(tuning.parallaxMagnitude, in: 0...16),
+                value: normalized(tuning.parallaxMagnitude, in: 0...80),
                 allowsZero: true,
                 valueText: store.tuning.parallaxMagnitude < 0.5
                     ? "OFF"
@@ -425,7 +446,7 @@ struct MotionLabView: View {
             )
             ParameterSliderRow(
                 label: "TILT SMOOTHING",
-                value: normalized(tuning.parallaxSmoothing, in: 0.5...0.98),
+                value: normalized(tuning.parallaxSmoothing, in: 0...0.98),
                 valueText: String(format: "%.2f", store.tuning.parallaxSmoothing)
             )
         }
