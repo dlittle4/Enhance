@@ -31,6 +31,14 @@ struct FaceMarkerTuning: Codable, Equatable {
     /// a sub-20pt target.
     var minimumTapTarget: Double
 
+    /// Stroke for the quiet outline CALM and SPOTLIGHT draw, in points on screen.
+    ///
+    /// Deliberately thinner than DEFAULT's 2–3pt and with no fill behind it, because **each variant
+    /// has to be recognisable at a glance or the comparison is not a comparison** — CALM and
+    /// SPOTLIGHT originally reused the legacy box and were indistinguishable from DEFAULT in a
+    /// still *(user-reported)*.
+    var quietStroke: Double
+
     // MARK: Reticle
 
     /// Corner bracket arm length, as a fraction of the marker's shorter side.
@@ -88,6 +96,7 @@ struct FaceMarkerTuning: Codable, Equatable {
         restingOpacity: 0.0,
         flashDuration: 0.28,
         minimumTapTarget: 44,
+        quietStroke: 1,
         bracketLength: 0.28,
         bracketThickness: 2,
         markerScale: 1.08,
@@ -133,6 +142,7 @@ struct FaceMarkerTuning: Codable, Equatable {
             restingOpacity: \(Self.number(restingOpacity)),
             flashDuration: \(Self.number(flashDuration)),
             minimumTapTarget: \(Self.number(minimumTapTarget)),
+            quietStroke: \(Self.number(quietStroke)),
             bracketLength: \(Self.number(bracketLength)),
             bracketThickness: \(Self.number(bracketThickness)),
             markerScale: \(Self.number(markerScale)),
@@ -181,6 +191,7 @@ extension FaceMarkerTuning {
             restingOpacity: number(.restingOpacity, fallback.restingOpacity),
             flashDuration: number(.flashDuration, fallback.flashDuration),
             minimumTapTarget: number(.minimumTapTarget, fallback.minimumTapTarget),
+            quietStroke: number(.quietStroke, fallback.quietStroke),
             bracketLength: number(.bracketLength, fallback.bracketLength),
             bracketThickness: number(.bracketThickness, fallback.bracketThickness),
             markerScale: number(.markerScale, fallback.markerScale),

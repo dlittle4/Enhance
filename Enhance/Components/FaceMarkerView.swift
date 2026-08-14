@@ -133,8 +133,17 @@ final class FaceMarkerView: UIView {
             sublayer.frame = bounds
         }
 
+        // **Every variant has to be recognisable at a glance.** CALM and SPOTLIGHT originally fell
+        // through to the legacy box, which made them indistinguishable from DEFAULT in a still and
+        // the whole comparison pointless *(user-reported)*. The order below is a precedence, not a
+        // set of independent switches: RETICLE is the loudest statement about how a marker draws,
+        // SPOTLIGHT's is that the chrome should get out of the way, and CALM's sits between them.
         if options.reticle {
             drawReticle(marker: marker)
+        } else if options.spotlight {
+            drawSpotlightMarker(marker: marker)
+        } else if options.calm {
+            drawQuietBox(marker: marker)
         } else {
             drawLegacyBox(marker: marker)
         }
@@ -158,6 +167,48 @@ final class FaceMarkerView: UIView {
         fillLayer.path = path
         fillLayer.fillColor = tint.withAlphaComponent(isSelected ? 0.15 : 0.05).cgColor
         fillLayer.strokeColor = UIColor.clear.cgColor
+    }
+
+    /// A hairline outline, no fill, square corners.
+    ///
+    /// CALM's argument is that the overlay should state where the faces are and then stop asking for
+    /// attention — so its marker is the lightest mark that still reads as a target. The rounded
+    /// corners and the translucent fill both go: they are what make DEFAULT read as a *panel* laid
+    /// over the photo rather than as an annotation on it.
+    private func drawQuietBox(marker: FaceMarker) {
+        bracketLayer.path = nil
+        labelLayer.isHidden = true
+        fillLayer.path = nil
+
+        borderLayer.path = UIBezierPath(rect: tuning.markerRect(for: bounds)).cgPath
+        borderLayer.fillColor = UIColor.clear.cgColor
+        borderLayer.lineWidth = CGFloat(max(0.5, tuning.quietStroke)) / effectiveScale
+        borderLayer.strokeColor = marker.isTarget
+            ? tint.cgColor
+            : tint.withAlphaComponent(CGFloat(tuning.unselectedOpacity)).cgColor
+    }
+
+    /// The chosen face gets **no chrome at all** — the dimming around it is the selection.
+    ///
+    /// That is SPOTLIGHT's entire thesis: show the choice in the content rather than in an overlay.
+    /// Drawing a box on top of the lit face would be the worst of both, which is what it did before.
+    ///
+    /// The faces that are *not* chosen keep a hairline, because they are still the controls you tap
+    /// to switch, and an unlit face with no mark on it is indistinguishable from background.
+    private func drawSpotlightMarker(marker: FaceMarker) {
+        bracketLayer.path = nil
+        labelLayer.isHidden = true
+        fillLayer.path = nil
+
+        guard !marker.isSoloed else {
+            borderLayer.path = nil
+            return
+        }
+
+        borderLayer.path = UIBezierPath(rect: tuning.markerRect(for: bounds)).cgPath
+        borderLayer.fillColor = UIColor.clear.cgColor
+        borderLayer.lineWidth = CGFloat(max(0.5, tuning.quietStroke)) / effectiveScale
+        borderLayer.strokeColor = tint.withAlphaComponent(CGFloat(tuning.unselectedOpacity)).cgColor
     }
 
     /// Four corner brackets plus the index chip.

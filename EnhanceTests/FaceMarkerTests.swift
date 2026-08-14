@@ -310,6 +310,7 @@ struct FaceMarkerTests {
     @Test func swiftSnippet_namesEveryTunableField() {
         let snippet = FaceMarkerTuning.default.swiftSnippet
         for field in ["autoHideDelay", "restingOpacity", "flashDuration", "minimumTapTarget",
+                      "quietStroke",
                       "bracketLength", "bracketThickness", "markerScale", "lockOnScale",
                       "lockOnDuration", "showsIndexLabel", "labelSize", "unselectedOpacity",
                       "spotlightDimming", "spotlightRadiusScale", "spotlightFeather"] {

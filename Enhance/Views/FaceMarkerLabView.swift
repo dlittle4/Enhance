@@ -149,6 +149,13 @@ struct FaceMarkerLabView: View {
                 value: normalized(tuning.minimumTapTarget, in: 20...64),
                 valueText: "\(Int(store.tuning.minimumTapTarget))PT"
             )
+            // Shared with SPOTLIGHT's outline on the faces it has not lit, so it lives in whichever
+            // section you reach first rather than being duplicated.
+            ParameterSliderRow(
+                label: "QUIET STROKE",
+                value: normalized(tuning.quietStroke, in: 0.5...4),
+                valueText: String(format: "%.1fPT", store.tuning.quietStroke)
+            )
         }
     }
 
