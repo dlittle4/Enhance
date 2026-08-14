@@ -17,6 +17,45 @@ struct EditorView: View {
     @State private var textDraft = ""
     @FocusState private var textFieldFocused: Bool
 
+    /// MOTION LAB's live values, plus the flags deciding which of them this view actually reads.
+    /// Scaffolding — see `MotionTuning` for what graduation looks like.
+    @ObservedObject private var motionStore = MotionTuningStore.shared
+    @AppStorage(FeatureFlags.motionTabScaleKey) private var motionTabScale = false
+    @AppStorage(FeatureFlags.motionCategorySwitchKey) private var motionCategorySwitch = false
+    @AppStorage(FeatureFlags.motionTilePressKey) private var motionTilePress = false
+    @AppStorage(FeatureFlags.motionEntranceKey) private var motionEntrance = false
+
+    /// `nil` leaves the chrome's arrival as the flat fade it has always been.
+    private var entranceMotion: ChromeEntrance.Motion? {
+        guard motionEntrance else { return nil }
+        let tuning = motionStore.tuning
+        return .init(
+            stagger: tuning.entranceStagger,
+            scale: tuning.entranceScale,
+            offsetY: tuning.entranceOffsetY,
+            curve: tuning.entranceEffective
+        )
+    }
+
+    /// `nil` when the experiment is off, which is what makes the tabs behave exactly as shipped.
+    private var tabMotion: EffectCategoryTabs.TabMotion? {
+        guard motionTabScale else { return nil }
+        let tuning = motionStore.tuning
+        return .init(scaleFrom: tuning.tabScaleFrom, curve: tuning.tabEffective)
+    }
+
+    /// Injected into the environment for the four card grids at once — see
+    /// `EnvironmentValues.effectCardPressMotion` for why it travels that way.
+    private var tilePressMotion: EffectCardButtonStyle.PressMotion? {
+        guard motionTilePress else { return nil }
+        let tuning = motionStore.tuning
+        return .init(
+            scale: tuning.tilePressScale,
+            brightness: tuning.tileBrightnessDelta,
+            curve: tuning.tilePressEffective
+        )
+    }
+
     private let canvasSize: CGFloat = 325
     private let borderInset: CGFloat = 5
     private let outerRadius: CGFloat = 28
@@ -54,7 +93,9 @@ struct EditorView: View {
                         )
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     }
-                    .opacity(viewModel.showControls ? 1 : 0)
+                    // First of the two staggered chrome elements. With the experiment off this is
+                    // exactly the opacity gate it has always been — see `ChromeEntrance`.
+                    .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 0)
                 }
                 // No `Spacer` in the editing branch. A Spacer and the panel's
                 // `.frame(maxHeight: .infinity)` are both fully flexible, so SwiftUI
@@ -76,7 +117,7 @@ struct EditorView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
                     bottomButtons
-                        .opacity(viewModel.showControls ? 1 : 0)
+                        .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 1)
                         .frame(width: borderedSize)
                         .padding(.bottom, 16)
                         .transition(.opacity)
@@ -448,35 +489,62 @@ struct EditorView: View {
 
     private func controlsSection(cardSize: CGFloat) -> some View {
         VStack(spacing: 8) {
-            effectCategoryTabs
-                .frame(width: borderedSize)
+            // The tap site deliberately carries **no** `withAnimation` of its own; the
+            // container-level `.animation(_:value:)` at the bottom of this method owns the
+            // switch. Two calls used to race here — 0.2s at the tap, 0.25s on the container —
+            // and consolidating onto the container rather than the tap is what keeps undo/redo
+            // (`EditorViewModel.restore`) and `resetEffects` animated too, since neither of
+            // those writers runs inside a tap handler.
+            EffectCategoryTabs(
+                selection: $viewModel.selectedEffectCategory,
+                onWillChange: { viewModel.pushUndo() },
+                motion: tabMotion
+            )
+            .frame(width: borderedSize)
 
             switch viewModel.selectedEffectCategory {
             case .zoomEffects:
                 VStack(spacing: 8) {
                     zoomEffectsGrid(cardSize: cardSize)
                 }
-                .transition(.opacity)
+                .transition(categorySwitchTransition)
             case .visualEffects:
                 VStack(spacing: 8) {
                     visualEffectsGrid(cardSize: cardSize)
 
                 }
-                .transition(.opacity)
+                .transition(categorySwitchTransition)
             case .faceFilters:
                 VStack(spacing: 8) {
                     faceFiltersGrid(cardSize: cardSize)
                 }
-                .transition(.opacity)
+                .transition(categorySwitchTransition)
             case .text:
                 VStack(spacing: 8) {
                     textPresetsGrid(cardSize: cardSize)
                 }
-                .transition(.opacity)
+                .transition(categorySwitchTransition)
             }
 
         }
-        .animation(.easeInOut(duration: 0.25), value: viewModel.selectedEffectCategory)
+        .animation(categorySwitchAnimation, value: viewModel.selectedEffectCategory)
+        .environment(\.effectCardPressMotion, tilePressMotion)
+    }
+
+    /// The one animation governing a category change — for every writer, not just the tab tap.
+    private var categorySwitchAnimation: Animation {
+        motionCategorySwitch
+            ? motionStore.tuning.categorySwitchEffective.animation
+            : .easeInOut(duration: 0.25)
+    }
+
+    /// Scale is dropped under reduce motion, leaving the cross-fade the app has always used —
+    /// the same rule `EditorView` already applies to looping card previews.
+    private var categorySwitchTransition: AnyTransition {
+        guard motionCategorySwitch, !reduceMotion else { return .opacity }
+        let scale = motionStore.tuning.categorySwitchScale
+        guard scale != 1 else { return .opacity }
+        return .opacity.combined(with: .scale(scale: scale, anchor: .center))
     }
 
     private var bottomButtons: some View {
@@ -1160,52 +1228,6 @@ struct EditorView: View {
             }
             viewModel.beginEditing()
         }
-    }
-
-    // MARK: - Effect Category Icon Tabs
-
-    private var effectCategoryTabs: some View {
-        // Space-between, not a fixed gap: the design distributes the four tabs across the
-        // full width with the first and last flush to the edges.
-        HStack(spacing: 0) {
-            effectCategoryIcon("icon-zoom-in", category: .zoomEffects)
-            Spacer(minLength: 0)
-            effectCategoryIcon("icon-smile", category: .faceFilters)
-            Spacer(minLength: 0)
-            effectCategoryIcon("icon-image", category: .visualEffects)
-            Spacer(minLength: 0)
-            effectCategoryIcon("icon-text", category: .text)
-        }
-        .frame(maxWidth: .infinity)
-        .frame(height: AppConstants.Layout.categoryTabsHeight)
-    }
-
-    private func effectCategoryIcon(_ assetName: String, category: EffectCategory) -> some View {
-        let isActive = viewModel.selectedEffectCategory == category
-        return Button {
-            guard viewModel.selectedEffectCategory != category else { return }
-            viewModel.pushUndo()
-            HapticService.selection()
-            withAnimation(.easeInOut(duration: 0.2)) {
-                viewModel.selectedEffectCategory = category
-            }
-        } label: {
-            // 72x40 on every tab, selected or not — the design gives each the same
-            // 24pt icon inside 24pt horizontal and 8pt vertical padding, and only the
-            // selected one paints a background. Sizing them all identically is what keeps
-            // the row from shifting when the selection moves.
-            Image(assetName)
-                .renderingMode(.template)
-                .foregroundColor(isActive ? mintGreen : .textInactive)
-                .frame(width: 72, height: 40)
-                .background(
-                    Capsule().fill(isActive ? Color.mintDim : Color.clear)
-                )
-                .overlay(
-                    Capsule().stroke(isActive ? Color.enhanceMint : Color.clear, lineWidth: 1)
-                )
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Action Buttons

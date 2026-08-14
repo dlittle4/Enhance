@@ -11,6 +11,16 @@ struct SettingsView: View {
     /// `UserDefaults` is the shared surface between the two; see `FeatureFlags`.
     @AppStorage(FeatureFlags.zoomOptionalKey) private var zoomOptional: Bool = false
 
+    /// The four view-transition experiments. Read by views rather than a view model, and their
+    /// call sites are spread across `EditorView` and the effect cards, so `@AppStorage` on both
+    /// ends republishes without threading a binding through every intermediate signature.
+    @AppStorage(FeatureFlags.motionEntranceKey) private var motionEntrance: Bool = false
+    @AppStorage(FeatureFlags.motionCategorySwitchKey) private var motionCategorySwitch: Bool = false
+    @AppStorage(FeatureFlags.motionTabScaleKey) private var motionTabScale: Bool = false
+    @AppStorage(FeatureFlags.motionTilePressKey) private var motionTilePress: Bool = false
+
+    @State private var showMotionLab = false
+
     private let mintGreen = Color.enhanceMint
     private let themes = ["PIXEL", "THEME 2", "THEME 3"]
     private let appIcons: [(name: String, preview: String, identifier: String?)] = [
@@ -35,6 +45,9 @@ struct SettingsView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 48)
             }
+        }
+        .sheet(isPresented: $showMotionLab) {
+            MotionLabView(isPresented: $showMotionLab)
         }
     }
 
@@ -66,20 +79,46 @@ struct SettingsView: View {
                 .font(.silkscreenSectionTitle)
                 .foregroundColor(.white)
 
+            experimentRow("MAKE GIFS WITHOUT ZOOMING", isOn: $zoomOptional)
+            experimentRow("STAGGERED EDITOR ENTRANCE", isOn: $motionEntrance)
+            experimentRow("EFFECT SWITCH ANIMATION", isOn: $motionCategorySwitch)
+            experimentRow("TAB SELECTION POP", isOn: $motionTabScale)
+            experimentRow("EFFECT TILE PRESS", isOn: $motionTilePress)
+
+            // No checkmark: this opens a sheet rather than holding a state. The arrow is what
+            // distinguishes a destination from a toggle in a list that is otherwise all toggles.
             Button {
                 HapticService.selection()
-                zoomOptional.toggle()
+                showMotionLab = true
             } label: {
                 HStack(spacing: 10) {
-                    checkmark(isSelected: zoomOptional)
-                    Text("MAKE GIFS WITHOUT ZOOMING")
+                    Color.clear.frame(width: 24, height: 24)
+                    Text("MOTION LAB →")
                         .font(.silkscreenLabel)
-                        .foregroundColor(zoomOptional ? mintGreen : .textPrimary)
+                        .foregroundColor(mintGreen)
                 }
                 .padding(.vertical, 10)
             }
             .buttonStyle(.plain)
         }
+    }
+
+    /// One toggle in EXPERIMENTS. Extracted once there were five of them and the section was
+    /// five copies of the same fourteen lines.
+    private func experimentRow(_ title: String, isOn: Binding<Bool>) -> some View {
+        Button {
+            HapticService.selection()
+            isOn.wrappedValue.toggle()
+        } label: {
+            HStack(spacing: 10) {
+                checkmark(isSelected: isOn.wrappedValue)
+                Text(title)
+                    .font(.silkscreenLabel)
+                    .foregroundColor(isOn.wrappedValue ? mintGreen : .textPrimary)
+            }
+            .padding(.vertical, 10)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Themes

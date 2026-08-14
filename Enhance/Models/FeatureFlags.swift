@@ -23,4 +23,27 @@ enum FeatureFlags {
     static let zoomOptionalKey = "featureZoomOptional"
 
     static var zoomOptional: Bool { UserDefaults.standard.bool(forKey: zoomOptionalKey) }
+
+    // MARK: - View transitions (MOTION LAB)
+
+    /// One key per animation rather than one umbrella, because these are four unrelated visual
+    /// changes in unrelated parts of the UI — closer to a set of independent experiments than to
+    /// a single feature. Grading them together would block shipping one while another is still
+    /// being tuned. `MotionTuning` holds the values; these decide who reads them.
+
+    /// Staggered chrome entrance when the editor opens.
+    static let motionEntranceKey = "featureMotionEntrance"
+    static var motionEntrance: Bool { UserDefaults.standard.bool(forKey: motionEntranceKey) }
+
+    /// Scale-and-fade on the effect card gallery when the category changes.
+    static let motionCategorySwitchKey = "featureMotionCategorySwitch"
+    static var motionCategorySwitch: Bool { UserDefaults.standard.bool(forKey: motionCategorySwitchKey) }
+
+    /// The selected category tab's capsule growing in rather than fading in place.
+    static let motionTabScaleKey = "featureMotionTabScale"
+    static var motionTabScale: Bool { UserDefaults.standard.bool(forKey: motionTabScaleKey) }
+
+    /// Press feedback on the effect cards, which have none today.
+    static let motionTilePressKey = "featureMotionTilePress"
+    static var motionTilePress: Bool { UserDefaults.standard.bool(forKey: motionTilePressKey) }
 }
