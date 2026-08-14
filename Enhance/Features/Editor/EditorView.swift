@@ -22,6 +22,7 @@ struct EditorView: View {
     @AppStorage(FeatureFlags.faceMarkersCalmKey) private var faceMarkersCalm: Bool = false
     @AppStorage(FeatureFlags.faceMarkersReticleKey) private var faceMarkersReticle: Bool = false
     @AppStorage(FeatureFlags.faceMarkersSpotlightKey) private var faceMarkersSpotlight: Bool = false
+    @AppStorage(FeatureFlags.faceMarkersHiddenKey) private var faceMarkersHidden: Bool = false
 
     /// The numeric knobs behind those experiments. An `ObservableObject` rather than `@AppStorage`
     /// because it holds a struct, and because dragging a slider in FACE MARKER LAB has to redraw
@@ -1354,7 +1355,8 @@ struct EditorView: View {
         FaceMarkerOptions(
             calm: faceMarkersCalm,
             reticle: faceMarkersReticle,
-            spotlight: faceMarkersSpotlight
+            spotlight: faceMarkersSpotlight,
+            hidden: faceMarkersHidden
         )
     }
 

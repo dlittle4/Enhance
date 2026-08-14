@@ -17,6 +17,7 @@ struct SettingsView: View {
     @AppStorage(FeatureFlags.faceMarkersCalmKey) private var faceMarkersCalm: Bool = false
     @AppStorage(FeatureFlags.faceMarkersReticleKey) private var faceMarkersReticle: Bool = false
     @AppStorage(FeatureFlags.faceMarkersSpotlightKey) private var faceMarkersSpotlight: Bool = false
+    @AppStorage(FeatureFlags.faceMarkersHiddenKey) private var faceMarkersHidden: Bool = false
 
     @State private var showFaceMarkerLab = false
 
@@ -34,6 +35,14 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 16) {
                     divider
                     autoPlayRow
+                    divider
+
+                    // Face markers lead the two experiment sections. The sheet opens at the
+                    // `.medium` detent, and adding this section pushed FACE MARKER LAB below that
+                    // fold — a destination row you have to drag the sheet up to discover is a
+                    // destination most people will not find. Verified on the simulator, both ways
+                    // round.
+                    faceMarkerSection
                     divider
 
                     experimentsSection
@@ -79,9 +88,22 @@ struct SettingsView: View {
                 .foregroundColor(.white)
 
             experimentRow("MAKE GIFS WITHOUT ZOOMING", isOn: $zoomOptional)
-            experimentRow("CALM FACE MARKERS", isOn: $faceMarkersCalm)
-            experimentRow("FACE TARGETING RETICLE", isOn: $faceMarkersReticle)
-            experimentRow("SPOTLIGHT SELECTED FACE", isOn: $faceMarkersSpotlight)
+        }
+    }
+
+    // MARK: - Face markers
+
+    /// Its own section rather than four more rows under EXPERIMENTS, because **DEFAULT is not an
+    /// experiment** — it is what the app does today, and filing it under that heading would say the
+    /// opposite. The four rows are one exclusive-ish group governing a single question (what the
+    /// face overlay looks like), which is also why they share a component with the lab.
+    private var faceMarkerSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("FACE MARKERS")
+                .font(.silkscreenSectionTitle)
+                .foregroundColor(.white)
+
+            FaceMarkerVariantList(options: faceMarkerOptions)
 
             // No checkmark: this opens a sheet rather than holding a state. The arrow is what
             // distinguishes a destination from a toggle in a list that is otherwise all toggles.
@@ -99,6 +121,30 @@ struct SettingsView: View {
             }
             .buttonStyle(.plain)
         }
+    }
+
+    /// Bridges the four `@AppStorage` booleans to the one value the shared list edits.
+    ///
+    /// The flags stay separate booleans in `UserDefaults` — `FeatureFlags` documents that
+    /// convention, and each is read independently by `EditorView` — so this assembles and
+    /// disassembles rather than storing the struct.
+    private var faceMarkerOptions: Binding<FaceMarkerOptions> {
+        Binding(
+            get: {
+                FaceMarkerOptions(
+                    calm: faceMarkersCalm,
+                    reticle: faceMarkersReticle,
+                    spotlight: faceMarkersSpotlight,
+                    hidden: faceMarkersHidden
+                )
+            },
+            set: { new in
+                faceMarkersCalm = new.calm
+                faceMarkersReticle = new.reticle
+                faceMarkersSpotlight = new.spotlight
+                faceMarkersHidden = new.hidden
+            }
+        )
     }
 
     /// One toggle in EXPERIMENTS. Extracted once there were four of them and the section was three

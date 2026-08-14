@@ -119,6 +119,83 @@ struct FaceMarkerTests {
         #expect(FaceMarkerOptions(calm: true).isLegacy == false)
     }
 
+    // MARK: - DEFAULT as a control
+
+    /// The state the row exists to name: before it was listed, "every flag off" silently *was* the
+    /// current approach and nothing in the UI said so.
+    @Test func defaultRow_isCheckedOnlyWhenNoVariantIsOn() {
+        #expect(FaceMarkerOptions.legacy.isDefault)
+        #expect(FaceMarkerOptions(calm: true).isDefault == false)
+        #expect(FaceMarkerOptions(reticle: true).isDefault == false)
+        #expect(FaceMarkerOptions(spotlight: true).isDefault == false)
+        #expect(FaceMarkerOptions(hidden: true).isDefault == false)
+    }
+
+    /// Unchecking DEFAULT turns the current approach *off* rather than snapping back to it
+    /// *(user's call)* — which is what makes it a control instead of a label.
+    @Test func uncheckingDefault_hidesTheMarkersEntirely() {
+        var options = FaceMarkerOptions.legacy
+        options.toggleDefault()
+
+        #expect(options.hidden)
+        #expect(options.isDefault == false)
+        #expect(FaceMarkerPlan.markers(for: faces(3), selectedIndex: nil, options: options).isEmpty)
+    }
+
+    @Test func checkingDefault_clearsEveryVariant() {
+        var options = FaceMarkerOptions(calm: true, reticle: true, spotlight: true)
+        options.toggleDefault()
+
+        #expect(options.isDefault)
+        #expect(options == .legacy)
+    }
+
+    /// Coming back from the hidden state via DEFAULT rather than via a variant.
+    @Test func checkingDefault_whileHidden_returnsToTheCurrentApproach() {
+        var options = FaceMarkerOptions(hidden: true)
+        options.toggleDefault()
+
+        #expect(options.isDefault)
+        #expect(options.hidden == false)
+    }
+
+    /// Turning a variant on has to leave the hidden state, or the row would appear checked while
+    /// drawing nothing — indistinguishable from being ignored.
+    @Test func checkingAVariant_whileHidden_stopsHiding() {
+        var options = FaceMarkerOptions(hidden: true)
+        options.toggle(\.reticle)
+
+        #expect(options.reticle)
+        #expect(options.hidden == false)
+        #expect(options.isDefault == false)
+    }
+
+    /// Undoing the last experiment goes back to what shipped, not to nothing — that is the
+    /// direction the user is heading when they untick it.
+    @Test func uncheckingTheLastVariant_fallsBackToDefault() {
+        var options = FaceMarkerOptions(calm: true)
+        options.toggle(\.calm)
+
+        #expect(options.isDefault)
+        #expect(options.hidden == false)
+    }
+
+    /// Hiding beats every other rule, including the ones that would otherwise draw.
+    @Test func hidden_suppressesMarkersInEveryCombination() {
+        for calm in [false, true] {
+            for reticle in [false, true] {
+                for spotlight in [false, true] {
+                    let options = FaceMarkerOptions(
+                        calm: calm, reticle: reticle, spotlight: spotlight, hidden: true
+                    )
+                    let markers = FaceMarkerPlan.markers(for: faces(3), selectedIndex: 1, options: options)
+                    #expect(markers.isEmpty, "combination \(options) drew a marker while hidden")
+                    #expect(FaceMarkerPlan.spotlightRect(in: markers, options: options) == nil)
+                }
+            }
+        }
+    }
+
     /// All eight combinations are legal — the variants compose rather than exclude, and nothing in
     /// the plan should start rejecting one of them silently.
     @Test func everyCombinationOfVariants_producesMarkers() {

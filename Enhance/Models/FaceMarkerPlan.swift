@@ -12,6 +12,9 @@ struct FaceMarkerOptions: Equatable {
     var reticle: Bool = false
     var spotlight: Bool = false
 
+    /// Suppresses the markers entirely. Reached by unchecking DEFAULT — see `toggleDefault`.
+    var hidden: Bool = false
+
     /// The app as it has always drawn face boxes. Named rather than written as `.init()` at call
     /// sites so the intent — "this is the unchanged overlay" — survives.
     static let legacy = FaceMarkerOptions()
@@ -22,8 +25,45 @@ struct FaceMarkerOptions: Equatable {
         FaceMarkerOptions(
             calm: FeatureFlags.faceMarkersCalm,
             reticle: FeatureFlags.faceMarkersReticle,
-            spotlight: FeatureFlags.faceMarkersSpotlight
+            spotlight: FeatureFlags.faceMarkersSpotlight,
+            hidden: FeatureFlags.faceMarkersHidden
         )
+    }
+
+    // MARK: - DEFAULT as a control
+
+    /// Whether the app is drawing the overlay it has always drawn.
+    ///
+    /// Derived rather than stored, so it cannot disagree with the variants — the bug class this
+    /// whole row exists to kill. Before DEFAULT was listed, "every flag off" silently *was* the
+    /// current approach, and the list gave no way to say so.
+    var isDefault: Bool { !calm && !reticle && !spotlight && !hidden }
+
+    /// Tapping the DEFAULT row.
+    ///
+    /// Checking it clears every variant. **Unchecking it turns the current approach off** rather
+    /// than snapping back *(user's call)* — which is what makes DEFAULT a control and gives the
+    /// list a genuine "nothing" state to compare the three variants against.
+    mutating func toggleDefault() {
+        if isDefault {
+            hidden = true
+        } else {
+            calm = false
+            reticle = false
+            spotlight = false
+            hidden = false
+        }
+    }
+
+    /// Tapping CALM, RETICLE or SPOTLIGHT.
+    ///
+    /// Turning any variant on necessarily leaves the hidden state — a variant that draws nothing
+    /// would be indistinguishable from the row being ignored. Turning the last one *off* falls back
+    /// to DEFAULT rather than to nothing, because that is the direction the user is heading: undoing
+    /// an experiment means going back to what shipped.
+    mutating func toggle(_ keyPath: WritableKeyPath<FaceMarkerOptions, Bool>) {
+        self[keyPath: keyPath].toggle()
+        if self[keyPath: keyPath] { hidden = false }
     }
 
     /// **The combination policy, stated once.**
@@ -84,6 +124,10 @@ enum FaceMarkerPlan {
         selectedIndex: Int?,
         options: FaceMarkerOptions
     ) -> [FaceMarker] {
+        // DEFAULT unchecked with nothing in its place. Faces stay tappable, because the hit regions
+        // are not the drawing — this is no chrome, not no selection.
+        if options.hidden { return [] }
+
         // A single face is not a choice, so CALM draws nothing over it. The effect still runs —
         // `activeFaces` already returns the one face whether or not it is explicitly selected — so
         // this removes chrome without removing capability.

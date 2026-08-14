@@ -69,4 +69,17 @@ enum FeatureFlags {
     static let faceMarkersSpotlightKey = "featureFaceMarkersSpotlight"
 
     static var faceMarkersSpotlight: Bool { UserDefaults.standard.bool(forKey: faceMarkersSpotlightKey) }
+
+    /// Draws no face markers at all.
+    ///
+    /// The state reached by unchecking DEFAULT with nothing else selected, and the reason DEFAULT
+    /// is a real control rather than a label: without this, "no variants on" and "the current
+    /// approach" are the same state and the list cannot say which it means.
+    ///
+    /// Faces stay tappable — the hit regions are not the drawing — so this is *no chrome*, not *no
+    /// selection*. It is also the honest baseline for judging the other three: the question every
+    /// variant is answering is how much of this you can get away with.
+    static let faceMarkersHiddenKey = "featureFaceMarkersHidden"
+
+    static var faceMarkersHidden: Bool { UserDefaults.standard.bool(forKey: faceMarkersHiddenKey) }
 }

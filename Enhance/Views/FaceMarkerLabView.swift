@@ -16,21 +16,16 @@ struct FaceMarkerLabView: View {
 
     /// Drives the preview independently of the flags, so a variant can be judged without first
     /// turning it on for the whole app. APPLY is what pushes these out to the flags.
-    @State private var previewCalm = true
-    @State private var previewReticle = true
-    @State private var previewSpotlight = false
+    @State private var previewOptions = FaceMarkerOptions(calm: true, reticle: true)
     @State private var previewSelection: Int? = 0
     @State private var didCopy = false
 
     @AppStorage(FeatureFlags.faceMarkersCalmKey) private var calmFlag = false
     @AppStorage(FeatureFlags.faceMarkersReticleKey) private var reticleFlag = false
     @AppStorage(FeatureFlags.faceMarkersSpotlightKey) private var spotlightFlag = false
+    @AppStorage(FeatureFlags.faceMarkersHiddenKey) private var hiddenFlag = false
 
     private var tuning: Binding<FaceMarkerTuning> { $store.tuning }
-
-    private var previewOptions: FaceMarkerOptions {
-        FaceMarkerOptions(calm: previewCalm, reticle: previewReticle, spotlight: previewSpotlight)
-    }
 
     var body: some View {
         BottomSheet(isPresented: $isPresented, title: "FACE MARKER LAB", expandable: true) {
@@ -67,19 +62,18 @@ struct FaceMarkerLabView: View {
     /// Opens showing what the app is currently wearing, so the preview is not quietly lying about
     /// what a toggle would do.
     ///
-    /// The exception is a first visit with every flag off: previewing the unchanged overlay would
+    /// The exception is a first visit sitting on DEFAULT: previewing the unchanged overlay would
     /// make the lab look broken, so that case falls back to CALM + RETICLE — the pair you came here
-    /// to look at.
+    /// to look at. Note this reads `hidden` too, so someone who deliberately chose *no markers*
+    /// sees that choice reflected rather than being bounced back to a variant.
     private func syncPreviewToFlags() {
-        guard calmFlag || reticleFlag || spotlightFlag else {
-            previewCalm = true
-            previewReticle = true
-            previewSpotlight = false
-            return
-        }
-        previewCalm = calmFlag
-        previewReticle = reticleFlag
-        previewSpotlight = spotlightFlag
+        let live = FaceMarkerOptions(
+            calm: calmFlag,
+            reticle: reticleFlag,
+            spotlight: spotlightFlag,
+            hidden: hiddenFlag
+        )
+        previewOptions = live.isDefault ? FaceMarkerOptions(calm: true, reticle: true) : live
     }
 
     // MARK: - Preview
@@ -110,36 +104,17 @@ struct FaceMarkerLabView: View {
 
     // MARK: - Variants
 
+    /// The same four rows Settings shows, from the same component — so the lab and Settings cannot
+    /// drift into meaning different things by the same state. The three variants compose; DEFAULT
+    /// is the state where none of them do.
     private var variantToggles: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 4) {
             Text("VARIANTS")
                 .font(.silkscreenSectionTitle)
                 .foregroundColor(.white)
 
-            // Independent rather than exclusive, and that is the policy `FaceMarkerOptions`
-            // documents: CALM is *when* a marker shows, RETICLE is *how it draws*, SPOTLIGHT is
-            // the photo around it. No pair contradicts the other.
-            previewToggle("CALM", isOn: $previewCalm)
-            previewToggle("RETICLE", isOn: $previewReticle)
-            previewToggle("SPOTLIGHT", isOn: $previewSpotlight)
+            FaceMarkerVariantList(options: $previewOptions)
         }
-    }
-
-    private func previewToggle(_ title: String, isOn: Binding<Bool>) -> some View {
-        Button {
-            HapticService.selection()
-            isOn.wrappedValue.toggle()
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: isOn.wrappedValue ? "checkmark.square.fill" : "square")
-                    .foregroundColor(isOn.wrappedValue ? Color.enhanceMint : .textPrimary)
-                    .frame(width: 24, height: 24)
-                Text(title)
-                    .font(.silkscreenLabel)
-                    .foregroundColor(isOn.wrappedValue ? Color.enhanceMint : .textPrimary)
-            }
-        }
-        .buttonStyle(.plain)
     }
 
     // MARK: - Sliders
@@ -295,9 +270,10 @@ struct FaceMarkerLabView: View {
 
             Button {
                 HapticService.medium()
-                calmFlag = previewCalm
-                reticleFlag = previewReticle
-                spotlightFlag = previewSpotlight
+                calmFlag = previewOptions.calm
+                reticleFlag = previewOptions.reticle
+                spotlightFlag = previewOptions.spotlight
+                hiddenFlag = previewOptions.hidden
             } label: {
                 Text("APPLY VARIANTS")
                     .font(.silkscreenButtonLabel)
