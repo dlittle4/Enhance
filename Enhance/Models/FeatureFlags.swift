@@ -46,4 +46,21 @@ enum FeatureFlags {
     /// Press feedback on the effect cards, which have none today.
     static let motionTilePressKey = "featureMotionTilePress"
     static var motionTilePress: Bool { UserDefaults.standard.bool(forKey: motionTilePressKey) }
+
+    /// The pixel-dissolve a freshly saved GIF plays as it lands in the grid.
+    static let motionSaveRevealKey = "featureMotionSaveReveal"
+    static var motionSaveReveal: Bool { UserDefaults.standard.bool(forKey: motionSaveRevealKey) }
+
+    /// Periodic shimmer sweeping the idle gallery.
+    static let motionShimmerKey = "featureMotionShimmer"
+    static var motionShimmer: Bool { UserDefaults.standard.bool(forKey: motionShimmerKey) }
+
+    /// Device-tilt parallax on the gallery grid. Note this one starts a `CMMotionManager`, so
+    /// unlike the others it has a running cost while it is on.
+    static let motionParallaxKey = "featureMotionParallax"
+    static var motionParallax: Bool { UserDefaults.standard.bool(forKey: motionParallaxKey) }
+
+    /// The shared-element zoom from a tapped gallery cell into the editor canvas.
+    static let motionSharedZoomKey = "featureMotionSharedZoom"
+    static var motionSharedZoom: Bool { UserDefaults.standard.bool(forKey: motionSharedZoomKey) }
 }

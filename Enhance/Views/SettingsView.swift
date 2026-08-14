@@ -18,6 +18,10 @@ struct SettingsView: View {
     @AppStorage(FeatureFlags.motionCategorySwitchKey) private var motionCategorySwitch: Bool = false
     @AppStorage(FeatureFlags.motionTabScaleKey) private var motionTabScale: Bool = false
     @AppStorage(FeatureFlags.motionTilePressKey) private var motionTilePress: Bool = false
+    @AppStorage(FeatureFlags.motionSaveRevealKey) private var motionSaveReveal: Bool = false
+    @AppStorage(FeatureFlags.motionShimmerKey) private var motionShimmer: Bool = false
+    @AppStorage(FeatureFlags.motionParallaxKey) private var motionParallax: Bool = false
+    @AppStorage(FeatureFlags.motionSharedZoomKey) private var motionSharedZoom: Bool = false
 
     @State private var showMotionLab = false
 
@@ -84,6 +88,10 @@ struct SettingsView: View {
             experimentRow("EFFECT SWITCH ANIMATION", isOn: $motionCategorySwitch)
             experimentRow("TAB SELECTION POP", isOn: $motionTabScale)
             experimentRow("EFFECT TILE PRESS", isOn: $motionTilePress)
+            experimentRow("GALLERY ZOOM INTO EDITOR", isOn: $motionSharedZoom)
+            experimentRow("PIXEL REVEAL ON SAVE", isOn: $motionSaveReveal)
+            experimentRow("GALLERY SHIMMER", isOn: $motionShimmer)
+            experimentRow("GALLERY TILT PARALLAX", isOn: $motionParallax)
 
             // No checkmark: this opens a sheet rather than holding a state. The arrow is what
             // distinguishes a destination from a toggle in a list that is otherwise all toggles.

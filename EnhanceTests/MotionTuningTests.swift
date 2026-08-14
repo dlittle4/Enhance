@@ -87,6 +87,38 @@ struct MotionTuningTests {
         #expect(MotionTuning.default.globalCurve == MotionCurve(response: 0.3, dampingFraction: 0.6))
     }
 
+    /// The gallery knobs have no inert value the way a scale of 1 is inert — their flags are what
+    /// keep the app unchanged. What they must not be is *degenerate*: a zero-size reveal cell
+    /// divides the grid into infinite cells, and a zero duration finishes before it starts.
+    @Test
+    func galleryDefaults_areUsableRatherThanDegenerate() {
+        let tuning = MotionTuning.default
+        #expect(tuning.revealCellSize >= 2)
+        #expect(tuning.revealDuration > 0)
+        #expect(tuning.shimmerInterval > 0)
+        #expect(tuning.shimmerDuration > 0)
+        #expect(tuning.parallaxSmoothing > 0 && tuning.parallaxSmoothing < 1)
+    }
+
+    // MARK: - Reveal identity
+
+    /// The reveal is matched by asset identifier, not by grid index, so a refresh that reorders
+    /// the grid cannot leave it building in the wrong GIF. `clearJustSaved` enforces the other
+    /// half of that: a stale completion for an identifier that has since been replaced must not
+    /// cancel the newer one.
+    @Test
+    @MainActor
+    func clearJustSaved_ignoresAStaleIdentifier() {
+        let manager = PhotoManager()
+        manager.justSavedIdentifier = "second-save"
+
+        manager.clearJustSaved("first-save")
+        #expect(manager.justSavedIdentifier == "second-save")
+
+        manager.clearJustSaved("second-save")
+        #expect(manager.justSavedIdentifier == nil)
+    }
+
     // MARK: - Snippet
 
     /// The snippet has to reproduce the inherit-vs-frozen split, not flatten every animation onto

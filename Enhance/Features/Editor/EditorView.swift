@@ -5,6 +5,13 @@ struct EditorView: View {
     @Binding var isPresented: Bool
     let namespace: Namespace.ID
 
+    /// The grid index this editor zoomed out of, or `nil` when there is nothing to zoom from —
+    /// a freshly picked photo has no originating cell, and the experiment may simply be off.
+    ///
+    /// The gallery clears its own cell's `isSource` before handing this over, so exactly one view
+    /// owns the geometry id at any moment.
+    var sharedZoomIndex: Int? = nil
+
     @EnvironmentObject var photoManager: PhotoManager
 
     /// Looping card previews are decorative motion, so they hold on their settled frame when the
@@ -380,6 +387,18 @@ struct EditorView: View {
     // MARK: - Canvas
 
     private var canvasSection: some View {
+        canvasContent
+            // The other half of the handover the gallery starts. Applied to the whole canvas
+            // rather than to one branch of the switch below, so the geometry survives the canvas
+            // swapping between its live and preview forms mid-session.
+            //
+            // **Open leg only.** The close is left as the ordinary cross-fade: Idea 2's save
+            // reveal gives the grid its own arrival animation, and a zoom back down would collide
+            // with it. See FEATURE-VIEW-TRANSITIONS.md.
+            .modifier(SharedZoomModifier(index: sharedZoomIndex, namespace: namespace))
+    }
+
+    private var canvasContent: some View {
         ZStack {
             switch viewModel.content {
             case .existingGif(let url, _, _):
@@ -1432,5 +1451,24 @@ struct EditorView: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color.black)
             )
+    }
+}
+
+/// Claims the tapped grid cell's geometry so the canvas grows out of it.
+///
+/// Gated behind a modifier rather than a conditional at the call site: applying
+/// `matchedGeometryEffect` conditionally changes the view's identity, and SwiftUI can drop the
+/// transition it is meant to drive. With `index == nil` this is a plain passthrough.
+private struct SharedZoomModifier: ViewModifier {
+    let index: Int?
+    let namespace: Namespace.ID
+
+    func body(content: Content) -> some View {
+        if let index {
+            // Same id the gallery cell uses (`GifGridItem`), which is what pairs them.
+            content.matchedGeometryEffect(id: "gif\(index)", in: namespace)
+        } else {
+            content
+        }
     }
 }

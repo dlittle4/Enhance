@@ -1,20 +1,33 @@
 # Feature: View Transitions — Product and Implementation Plan
 
-> ## Status: Stage 0, D and E built — 2026-08-14, branch `motion-lab`
+> ## Status: all six ideas built — 2026-08-14, branch `motion-lab`
 >
-> **Shipped, all behind flags that default off:** `MotionCurve` / `MotionTuning` /
-> `MotionTuningStore` / `MotionPreset`, `MotionCurveGraphView`, `MotionLabView` (reachable from
-> Settings → EXPERIMENTS → MOTION LAB), `EffectCategoryTabs` extracted out of `EditorView`,
-> `ChromeEntrance` shared by the editor and the lab, `EffectCardButtonStyle` +
-> `EnvironmentValues.effectCardPressMotion`, four `FeatureFlags` keys, and 12 tests in
-> `MotionTuningTests`. Full suite green (469 cases), verified rendering in the simulator.
+> **Every stage in this document is implemented, all behind flags that default off.** Eight
+> `FeatureFlags` keys, one per animation, listed in Settings → EXPERIMENTS.
 >
-> **Idea 1 is only half built.** The staggered chrome entrance (Stage A's second half) is wired
-> and tunable. The `matchedGeometryEffect` shared-element zoom — including the `isSource:` gating
-> `GifGridItem` needs — is **not** built. Ideas 2 and 3 are untouched.
+> | Idea | Built as |
+> |---|---|
+> | 1 — staged editor open | `ChromeEntrance` (shared by editor and lab) + `SharedZoomModifier`, with `isSource:` handover in `GifGridItem` |
+> | 2 — save reveal | `Shaders/PixelReveal.metal`, `PhotoManager.justSavedIdentifier`, `PixelRevealModifier` |
+> | 3a — shimmer | `ShimmerSweep` + idle-tick in `GalleryView` |
+> | 3b — parallax | `Services/DeviceMotionService.swift` |
+> | 4 — category switch | consolidated animation in `EditorView.controlsSection` |
+> | 5 — tab selection | `Components/EffectCategoryTabs.swift`, extracted from `EditorView` |
+> | 6 — tile press | `EffectCardButtonStyle` + `EnvironmentValues.effectCardPressMotion` |
+> | Tuning | `MotionCurve` / `MotionTuning` / `MotionTuningStore` / `MotionPreset`, `MotionCurveGraphView`, `MotionLabView` |
 >
-> **Not yet done anywhere: the on-device pass.** Every gate below asks for one, and none has
-> happened — the simulator screenshots prove the lab renders, not that any of this feels right.
+> **Verified:** full suite green (471 cases, 14 in `MotionTuningTests`); lab, Settings, gallery and
+> editor render correctly in the simulator; opening the editor with the shared zoom on logs no
+> "multiple matching geometry" warning and no CoreMotion error.
+>
+> **Two deliberate omissions**, both recorded in the sections below rather than silently dropped:
+> the matched-geometry **close** leg (Idea 2's reveal gives the grid its own arrival, and a zoom
+> back down would collide with it), and a curve control for the three gallery animations (none of
+> them takes a spring).
+>
+> **Still not done: the on-device pass.** Every gate below asks for one and none has happened.
+> The simulator cannot judge feel, cannot exercise the accelerometer at all, and cannot show the
+> save reveal without a real save.
 >
 > Original status: proposed
 >

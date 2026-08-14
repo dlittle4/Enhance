@@ -62,6 +62,8 @@ struct MotionLabView: View {
                         divider
                         tilePressSection
                         divider
+                        gallerySection
+                        divider
                         actions
                     }
                     .padding(.horizontal, 16)
@@ -369,6 +371,62 @@ struct MotionLabView: View {
             curveOverride(
                 override: tuning.tilePressCurve,
                 effective: store.tuning.tilePressEffective
+            )
+        }
+    }
+
+    /// The three gallery animations, which have no curve of their own.
+    ///
+    /// Grouped in one section rather than given three of their own because none of them takes a
+    /// spring: the reveal is a linear-ish dissolve, the shimmer is a single eased pass, and the
+    /// parallax follows a filtered sensor rather than animating at all. A USE GLOBAL / CUSTOM
+    /// control on any of them would offer a choice that changes nothing.
+    ///
+    /// They are also the three the preview above cannot show — the reveal needs a real save, the
+    /// shimmer needs the gallery, and the parallax needs a device being tilted. The note says so
+    /// rather than letting the sliders look broken.
+    private var gallerySection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("GALLERY")
+                .font(.silkscreenSectionTitle)
+                .foregroundColor(.white)
+
+            Text("JUDGE THESE IN THE GALLERY — THE PREVIEW ABOVE CANNOT SHOW THEM.")
+                .font(.silkscreenSmall)
+                .foregroundColor(.textInactive)
+
+            ParameterSliderRow(
+                label: "REVEAL CELL",
+                value: normalized(tuning.revealCellSize, in: 2...16),
+                valueText: "\(Int(store.tuning.revealCellSize))PT"
+            )
+            ParameterSliderRow(
+                label: "REVEAL TIME",
+                value: normalized(tuning.revealDuration, in: 0.2...1.5),
+                valueText: String(format: "%.2fS", store.tuning.revealDuration)
+            )
+            ParameterSliderRow(
+                label: "SHIMMER EVERY",
+                value: normalized(tuning.shimmerInterval, in: 5...60),
+                valueText: "\(Int(store.tuning.shimmerInterval))S"
+            )
+            ParameterSliderRow(
+                label: "SHIMMER TIME",
+                value: normalized(tuning.shimmerDuration, in: 0.4...2.5),
+                valueText: String(format: "%.2fS", store.tuning.shimmerDuration)
+            )
+            ParameterSliderRow(
+                label: "TILT DRIFT",
+                value: normalized(tuning.parallaxMagnitude, in: 0...16),
+                allowsZero: true,
+                valueText: store.tuning.parallaxMagnitude < 0.5
+                    ? "OFF"
+                    : "\(Int(store.tuning.parallaxMagnitude))PT"
+            )
+            ParameterSliderRow(
+                label: "TILT SMOOTHING",
+                value: normalized(tuning.parallaxSmoothing, in: 0.5...0.98),
+                valueText: String(format: "%.2f", store.tuning.parallaxSmoothing)
             )
         }
     }

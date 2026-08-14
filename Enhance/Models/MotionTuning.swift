@@ -134,6 +134,35 @@ struct MotionTuning: Codable, Equatable {
     /// Expected to end up below the global's damping — that ring *is* the bounce.
     var tilePressCurve: MotionCurve?
 
+    // MARK: - Save reveal (Idea 2)
+
+    /// Cell edge in points for the pixel-dissolve. Blocky rather than literal pixels *(user's
+    /// call)* — see `PixelReveal.metal` for why single pixels read as static at thumbnail size.
+    var revealCellSize: Double
+
+    /// Seconds for the grid cell to finish building in.
+    var revealDuration: Double
+
+    // MARK: - Gallery ambience (Idea 3)
+
+    /// Seconds between shimmer sweeps while the gallery sits idle.
+    var shimmerInterval: Double
+
+    /// Seconds for one sweep to cross the grid.
+    var shimmerDuration: Double
+
+    /// How far the grid drifts with device tilt, in points. 0 disables the parallax entirely.
+    ///
+    /// Applied to the grid **as one transform** rather than per cell: independent per-cell motion
+    /// reads as jitter, which is the opposite of the considered feel this is for.
+    var parallaxMagnitude: Double
+
+    /// How heavily raw device motion is smoothed, 0…1 — higher is calmer.
+    ///
+    /// Accelerometer output is noisy enough that feeding it straight to a transform makes the
+    /// grid twitch. This is the weight kept from the previous sample each tick.
+    var parallaxSmoothing: Double
+
     // MARK: - Defaults
 
     /// **Today's behaviour, exactly.** Every geometry knob is its inert value — no stagger, no
@@ -159,7 +188,16 @@ struct MotionTuning: Codable, Equatable {
         tabCurve: nil,
         tilePressScale: 1,
         tileBrightnessDelta: 0,
-        tilePressCurve: nil
+        tilePressCurve: nil,
+        // The ambient effects have no "off by geometry" value the way a scale of 1 is inert, so
+        // their defaults are simply the shape they should take the first time someone turns the
+        // flag on. The flag is what keeps the app unchanged, not these numbers.
+        revealCellSize: 6,
+        revealDuration: 0.6,
+        shimmerInterval: 20,
+        shimmerDuration: 1.0,
+        parallaxMagnitude: 4,
+        parallaxSmoothing: 0.9
     )
 
     /// The plan's proposed starting point — what the ideas describe, before anyone has judged
@@ -176,7 +214,13 @@ struct MotionTuning: Codable, Equatable {
         tabCurve: MotionCurve(response: 0.22, dampingFraction: 0.6),
         tilePressScale: 0.95,
         tileBrightnessDelta: -0.05,
-        tilePressCurve: MotionCurve(response: 0.25, dampingFraction: 0.45)
+        tilePressCurve: MotionCurve(response: 0.25, dampingFraction: 0.45),
+        revealCellSize: 6,
+        revealDuration: 0.6,
+        shimmerInterval: 20,
+        shimmerDuration: 1.0,
+        parallaxMagnitude: 4,
+        parallaxSmoothing: 0.9
     )
 
     // MARK: - Derived
@@ -213,7 +257,13 @@ struct MotionTuning: Codable, Equatable {
             tabCurve: \(Self.curve(tabCurve)),
             tilePressScale: \(Self.number(tilePressScale)),
             tileBrightnessDelta: \(Self.number(tileBrightnessDelta)),
-            tilePressCurve: \(Self.curve(tilePressCurve))
+            tilePressCurve: \(Self.curve(tilePressCurve)),
+            revealCellSize: \(Self.number(revealCellSize)),
+            revealDuration: \(Self.number(revealDuration)),
+            shimmerInterval: \(Self.number(shimmerInterval)),
+            shimmerDuration: \(Self.number(shimmerDuration)),
+            parallaxMagnitude: \(Self.number(parallaxMagnitude)),
+            parallaxSmoothing: \(Self.number(parallaxSmoothing))
         )
         """
     }
@@ -265,7 +315,13 @@ extension MotionTuning {
             tabCurve: curve(.tabCurve),
             tilePressScale: number(.tilePressScale, fallback.tilePressScale),
             tileBrightnessDelta: number(.tileBrightnessDelta, fallback.tileBrightnessDelta),
-            tilePressCurve: curve(.tilePressCurve)
+            tilePressCurve: curve(.tilePressCurve),
+            revealCellSize: number(.revealCellSize, fallback.revealCellSize),
+            revealDuration: number(.revealDuration, fallback.revealDuration),
+            shimmerInterval: number(.shimmerInterval, fallback.shimmerInterval),
+            shimmerDuration: number(.shimmerDuration, fallback.shimmerDuration),
+            parallaxMagnitude: number(.parallaxMagnitude, fallback.parallaxMagnitude),
+            parallaxSmoothing: number(.parallaxSmoothing, fallback.parallaxSmoothing)
         )
     }
 }

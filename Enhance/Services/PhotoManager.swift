@@ -15,6 +15,23 @@ class PhotoManager: NSObject, ObservableObject {
     @Published var hasLoadedGifs = false
     @Published var isAuthorized = false
     @Published var isDenied = false
+
+    /// The asset identifier of a GIF saved in this session that has not yet played its arrival
+    /// animation in the gallery, or `nil` when there is nothing waiting.
+    ///
+    /// Keyed by identifier rather than by a bare "something was saved" flag so a second save
+    /// landing while the first is still revealing replaces a known cell rather than corrupting an
+    /// in-flight animation. `updateOriginalGIF` is a delete-then-create, so re-saving an existing
+    /// GIF produces a genuinely new identifier and is honestly the same "a new item appeared"
+    /// event as a first save.
+    @Published var justSavedIdentifier: String?
+
+    /// Called once the arrival animation has finished — or been abandoned, if the user left the
+    /// gallery. Either way the cell goes back to rendering normally.
+    func clearJustSaved(_ identifier: String) {
+        guard justSavedIdentifier == identifier else { return }
+        justSavedIdentifier = nil
+    }
     
     private var isObservingPhotoLibrary = false
     
