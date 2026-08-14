@@ -12,6 +12,9 @@ struct FaceMarkerOptions: Equatable {
     var reticle: Bool = false
     var spotlight: Bool = false
 
+    /// Sweeps a band of light inside each marker. See `FeatureFlags.faceMarkersScanline`.
+    var scanline: Bool = false
+
     /// Suppresses the markers entirely. Reached by unchecking DEFAULT — see `toggleDefault`.
     var hidden: Bool = false
 
@@ -26,6 +29,7 @@ struct FaceMarkerOptions: Equatable {
             calm: FeatureFlags.faceMarkersCalm,
             reticle: FeatureFlags.faceMarkersReticle,
             spotlight: FeatureFlags.faceMarkersSpotlight,
+            scanline: FeatureFlags.faceMarkersScanline,
             hidden: FeatureFlags.faceMarkersHidden
         )
     }
@@ -37,7 +41,7 @@ struct FaceMarkerOptions: Equatable {
     /// Derived rather than stored, so it cannot disagree with the variants — the bug class this
     /// whole row exists to kill. Before DEFAULT was listed, "every flag off" silently *was* the
     /// current approach, and the list gave no way to say so.
-    var isDefault: Bool { !calm && !reticle && !spotlight && !hidden }
+    var isDefault: Bool { !calm && !reticle && !spotlight && !scanline && !hidden }
 
     /// Tapping the DEFAULT row.
     ///
@@ -51,6 +55,7 @@ struct FaceMarkerOptions: Equatable {
             calm = false
             reticle = false
             spotlight = false
+            scanline = false
             hidden = false
         }
     }

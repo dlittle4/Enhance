@@ -17,6 +17,11 @@ final class FaceMarkerView: UIView {
     private let bracketLayer = CAShapeLayer()
     private let labelLayer = CATextLayer()
 
+    /// The sweeping band. A gradient rather than a hard line so it reads as light passing over the
+    /// face; a 1pt rule would read as a UI element sitting on top of it.
+    private let scanLayer = CAGradientLayer()
+    private var isScanning = false
+
     private var onTap: ((Int) -> Void)?
     private var faceIndex = 0
 
@@ -50,8 +55,15 @@ final class FaceMarkerView: UIView {
 
         layer.addSublayer(fillLayer)
         layer.addSublayer(borderLayer)
+        // Under the brackets and the number, so the sweep passes behind the chrome rather than
+        // washing over it.
+        layer.addSublayer(scanLayer)
         layer.addSublayer(bracketLayer)
         layer.addSublayer(labelLayer)
+
+        scanLayer.startPoint = CGPoint(x: 0.5, y: 0)
+        scanLayer.endPoint = CGPoint(x: 0.5, y: 1)
+        scanLayer.isHidden = true
 
         labelLayer.alignmentMode = .center
         labelLayer.contentsScale = UIScreen.main.scale
@@ -132,6 +144,8 @@ final class FaceMarkerView: UIView {
         for sublayer in [fillLayer, borderLayer, bracketLayer] {
             sublayer.frame = bounds
         }
+
+        updateScanline(marker: marker)
 
         // **Every variant has to be recognisable at a glance.** CALM and SPOTLIGHT originally fell
         // through to the legacy box, which made them indistinguishable from DEFAULT in a still and
@@ -256,20 +270,79 @@ final class FaceMarkerView: UIView {
 
         let size = CGFloat(max(4, tuning.labelSize)) / effectiveScale
         labelLayer.isHidden = false
-        labelLayer.string = String(format: "FACE %02d", marker.index + 1)
+        // Just the number *(user's call)*. `FACE 01` is seven glyphs of a fixed-width bitmap font,
+        // which needs roughly 42pt — wider than a face in any group photo, so it clipped exactly
+        // when an index label is most useful.
+        labelLayer.string = "\(marker.index + 1)"
         labelLayer.font = CTFontCreateWithName("Silkscreen-Regular" as CFString, size, nil)
         labelLayer.fontSize = size
         labelLayer.foregroundColor = marker.isTarget
             ? tint.cgColor
             : tint.withAlphaComponent(CGFloat(tuning.unselectedOpacity)).cgColor
 
+        // Centred on the marker and free to be **wider than it**, rather than inheriting the
+        // marker's width — that inheritance was the clipping. `clipsToBounds` is off on this view
+        // for the same reason, so a digit under a 20pt face still draws in full.
         let height = size * 1.4
+        let width = max(rect.width, size * 4)
         labelLayer.frame = CGRect(
-            x: rect.minX,
+            x: rect.midX - width / 2,
             y: rect.maxY + size * 0.4,
-            width: rect.width,
+            width: width,
             height: height
         )
+    }
+
+    // MARK: - Scanline
+
+    /// A soft band travelling up and down inside the marker.
+    ///
+    /// Confined to `markerRect` by construction rather than by a mask: the band is as wide as the
+    /// marker, and its travel is clamped so its own half-height never leaves the rect. That keeps
+    /// the sweep inside the shape you are already looking at, which is what stops it reading as an
+    /// effect applied to the whole photo.
+    ///
+    /// Only the *targets* scan. A face the user has deselected is not being examined, and sweeping
+    /// every face at once turns a scanner into a disco.
+    private func updateScanline(marker: FaceMarker) {
+        guard options.scanline, marker.isTarget else {
+            scanLayer.isHidden = true
+            scanLayer.removeAnimation(forKey: "scan")
+            isScanning = false
+            return
+        }
+
+        let rect = tuning.markerRect(for: bounds)
+        let band = max(2, rect.height * CGFloat(max(0.02, min(1, tuning.scanlineHeight))))
+        let alpha = CGFloat(max(0, min(1, tuning.scanlineOpacity)))
+
+        scanLayer.isHidden = false
+        scanLayer.frame = CGRect(x: rect.minX, y: 0, width: rect.width, height: band)
+        scanLayer.colors = [
+            tint.withAlphaComponent(0).cgColor,
+            tint.withAlphaComponent(alpha).cgColor,
+            tint.withAlphaComponent(0).cgColor
+        ]
+
+        let top = rect.minY + band / 2
+        let bottom = max(top, rect.maxY - band / 2)
+        scanLayer.position = CGPoint(x: rect.midX, y: top)
+
+        // Re-added only when it is not already running: `redraw` fires on every scroll callback,
+        // and restarting the animation each time would freeze the band at the top of the sweep.
+        guard !isScanning else { return }
+        isScanning = true
+
+        let sweep = CABasicAnimation(keyPath: "position.y")
+        sweep.fromValue = top
+        sweep.toValue = bottom
+        sweep.duration = max(0.2, tuning.scanlineDuration)
+        // Bounces rather than wrapping — a hard jump back to the top reads as a dropped frame, and
+        // easing at each end is what makes it look mechanical rather than like a marquee.
+        sweep.autoreverses = true
+        sweep.repeatCount = .infinity
+        sweep.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        scanLayer.add(sweep, forKey: "scan")
     }
 
     // MARK: - Animation

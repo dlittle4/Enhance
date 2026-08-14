@@ -17,6 +17,7 @@ struct SettingsView: View {
     @AppStorage(FeatureFlags.faceMarkersCalmKey) private var faceMarkersCalm: Bool = false
     @AppStorage(FeatureFlags.faceMarkersReticleKey) private var faceMarkersReticle: Bool = false
     @AppStorage(FeatureFlags.faceMarkersSpotlightKey) private var faceMarkersSpotlight: Bool = false
+    @AppStorage(FeatureFlags.faceMarkersScanlineKey) private var faceMarkersScanline: Bool = false
     @AppStorage(FeatureFlags.faceMarkersHiddenKey) private var faceMarkersHidden: Bool = false
 
     @State private var showFaceMarkerLab = false
@@ -135,6 +136,7 @@ struct SettingsView: View {
                     calm: faceMarkersCalm,
                     reticle: faceMarkersReticle,
                     spotlight: faceMarkersSpotlight,
+                    scanline: faceMarkersScanline,
                     hidden: faceMarkersHidden
                 )
             },
@@ -142,6 +144,7 @@ struct SettingsView: View {
                 faceMarkersCalm = new.calm
                 faceMarkersReticle = new.reticle
                 faceMarkersSpotlight = new.spotlight
+                faceMarkersScanline = new.scanline
                 faceMarkersHidden = new.hidden
             }
         )

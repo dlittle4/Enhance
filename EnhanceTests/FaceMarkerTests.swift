@@ -128,6 +128,7 @@ struct FaceMarkerTests {
         #expect(FaceMarkerOptions(calm: true).isDefault == false)
         #expect(FaceMarkerOptions(reticle: true).isDefault == false)
         #expect(FaceMarkerOptions(spotlight: true).isDefault == false)
+        #expect(FaceMarkerOptions(scanline: true).isDefault == false)
         #expect(FaceMarkerOptions(hidden: true).isDefault == false)
     }
 
@@ -143,7 +144,7 @@ struct FaceMarkerTests {
     }
 
     @Test func checkingDefault_clearsEveryVariant() {
-        var options = FaceMarkerOptions(calm: true, reticle: true, spotlight: true)
+        var options = FaceMarkerOptions(calm: true, reticle: true, spotlight: true, scanline: true)
         options.toggleDefault()
 
         #expect(options.isDefault)
@@ -313,6 +314,7 @@ struct FaceMarkerTests {
                       "quietStroke",
                       "bracketLength", "bracketThickness", "markerScale", "lockOnScale",
                       "lockOnDuration", "showsIndexLabel", "labelSize", "unselectedOpacity",
+                      "scanlineDuration", "scanlineOpacity", "scanlineHeight",
                       "spotlightDimming", "spotlightRadiusScale", "spotlightFeather"] {
             #expect(snippet.contains(field), "snippet is missing \(field)")
         }

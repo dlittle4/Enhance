@@ -70,6 +70,21 @@ enum FeatureFlags {
 
     static var faceMarkersSpotlight: Bool { UserDefaults.standard.bool(forKey: faceMarkersSpotlightKey) }
 
+    /// Sweeps a soft band of light up and down inside each marker, so a face reads as being
+    /// *scanned* rather than merely outlined.
+    ///
+    /// Independent of RETICLE rather than part of it, because the sweep is confined to the marker
+    /// rect and therefore composes with any of the looks — though the viewfinder is what it was
+    /// drawn for.
+    ///
+    /// **This is looping motion, which is what makes DEFAULT's pulse the worst thing about it.**
+    /// The difference is meant to be that this one is quiet, opt-in, and bounded by a shape you are
+    /// already looking at — but it is the same species of idea, so judge it against the pulse
+    /// honestly. Under CALM it inherits the auto-hide and stops on its own.
+    static let faceMarkersScanlineKey = "featureFaceMarkersScanline"
+
+    static var faceMarkersScanline: Bool { UserDefaults.standard.bool(forKey: faceMarkersScanlineKey) }
+
     /// Draws no face markers at all.
     ///
     /// The state reached by unchecking DEFAULT with nothing else selected, and the reason DEFAULT

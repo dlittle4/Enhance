@@ -73,6 +73,20 @@ struct FaceMarkerTuning: Codable, Equatable {
     /// faces as brightly as the chosen one, which makes the choice invisible.
     var unselectedOpacity: Double
 
+    // MARK: Scanline
+
+    /// Seconds for one full sweep of the band from the top of the marker to the bottom. It
+    /// bounces rather than wrapping, so a round trip is twice this.
+    var scanlineDuration: Double
+
+    /// Peak alpha at the centre of the band. The whole point is that it should be noticed on the
+    /// second look rather than the first, so this wants to stay low.
+    var scanlineOpacity: Double
+
+    /// Band height as a fraction of the marker's height. Small values read as a hard line sweeping;
+    /// large ones as light washing over the face.
+    var scanlineHeight: Double
+
     // MARK: Spotlight
 
     /// Peak darkness applied outside the chosen face.
@@ -105,6 +119,9 @@ struct FaceMarkerTuning: Codable, Equatable {
         showsIndexLabel: true,
         labelSize: 10,
         unselectedOpacity: 0.35,
+        scanlineDuration: 1.6,
+        scanlineOpacity: 0.35,
+        scanlineHeight: 0.18,
         spotlightDimming: 0.45,
         spotlightRadiusScale: 1.3,
         spotlightFeather: 0.55
@@ -151,6 +168,9 @@ struct FaceMarkerTuning: Codable, Equatable {
             showsIndexLabel: \(showsIndexLabel),
             labelSize: \(Self.number(labelSize)),
             unselectedOpacity: \(Self.number(unselectedOpacity)),
+            scanlineDuration: \(Self.number(scanlineDuration)),
+            scanlineOpacity: \(Self.number(scanlineOpacity)),
+            scanlineHeight: \(Self.number(scanlineHeight)),
             spotlightDimming: \(Self.number(spotlightDimming)),
             spotlightRadiusScale: \(Self.number(spotlightRadiusScale)),
             spotlightFeather: \(Self.number(spotlightFeather))
@@ -200,6 +220,9 @@ extension FaceMarkerTuning {
             showsIndexLabel: flag(.showsIndexLabel, fallback.showsIndexLabel),
             labelSize: number(.labelSize, fallback.labelSize),
             unselectedOpacity: number(.unselectedOpacity, fallback.unselectedOpacity),
+            scanlineDuration: number(.scanlineDuration, fallback.scanlineDuration),
+            scanlineOpacity: number(.scanlineOpacity, fallback.scanlineOpacity),
+            scanlineHeight: number(.scanlineHeight, fallback.scanlineHeight),
             spotlightDimming: number(.spotlightDimming, fallback.spotlightDimming),
             spotlightRadiusScale: number(.spotlightRadiusScale, fallback.spotlightRadiusScale),
             spotlightFeather: number(.spotlightFeather, fallback.spotlightFeather)

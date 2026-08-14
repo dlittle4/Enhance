@@ -32,6 +32,9 @@ struct FaceMarkerVariantList: View {
             row("SPOTLIGHT", isOn: options.spotlight) {
                 options.toggle(\.spotlight)
             }
+            row("SCANLINE", isOn: options.scanline) {
+                options.toggle(\.scanline)
+            }
 
             if showsHiddenNote && options.hidden {
                 Text("NO MARKERS — FACES STAY TAPPABLE")

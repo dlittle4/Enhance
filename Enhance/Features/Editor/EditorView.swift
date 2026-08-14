@@ -22,6 +22,7 @@ struct EditorView: View {
     @AppStorage(FeatureFlags.faceMarkersCalmKey) private var faceMarkersCalm: Bool = false
     @AppStorage(FeatureFlags.faceMarkersReticleKey) private var faceMarkersReticle: Bool = false
     @AppStorage(FeatureFlags.faceMarkersSpotlightKey) private var faceMarkersSpotlight: Bool = false
+    @AppStorage(FeatureFlags.faceMarkersScanlineKey) private var faceMarkersScanline: Bool = false
     @AppStorage(FeatureFlags.faceMarkersHiddenKey) private var faceMarkersHidden: Bool = false
 
     /// The numeric knobs behind those experiments. An `ObservableObject` rather than `@AppStorage`
@@ -1356,6 +1357,7 @@ struct EditorView: View {
             calm: faceMarkersCalm,
             reticle: faceMarkersReticle,
             spotlight: faceMarkersSpotlight,
+            scanline: faceMarkersScanline,
             hidden: faceMarkersHidden
         )
     }

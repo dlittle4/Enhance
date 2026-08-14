@@ -23,6 +23,7 @@ struct FaceMarkerLabView: View {
     @AppStorage(FeatureFlags.faceMarkersCalmKey) private var calmFlag = false
     @AppStorage(FeatureFlags.faceMarkersReticleKey) private var reticleFlag = false
     @AppStorage(FeatureFlags.faceMarkersSpotlightKey) private var spotlightFlag = false
+    @AppStorage(FeatureFlags.faceMarkersScanlineKey) private var scanlineFlag = false
     @AppStorage(FeatureFlags.faceMarkersHiddenKey) private var hiddenFlag = false
 
     private var tuning: Binding<FaceMarkerTuning> { $store.tuning }
@@ -48,6 +49,8 @@ struct FaceMarkerLabView: View {
                         divider
                         spotlightSliders
                         divider
+                        scanlineSliders
+                        divider
                         actions
                     }
                     .padding(.horizontal, 16)
@@ -71,6 +74,7 @@ struct FaceMarkerLabView: View {
             calm: calmFlag,
             reticle: reticleFlag,
             spotlight: spotlightFlag,
+            scanline: scanlineFlag,
             hidden: hiddenFlag
         )
         previewOptions = live.isDefault ? FaceMarkerOptions(calm: true, reticle: true) : live
@@ -251,6 +255,31 @@ struct FaceMarkerLabView: View {
         }
     }
 
+    private var scanlineSliders: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("SCANLINE")
+                .font(.silkscreenSectionTitle)
+                .foregroundColor(.white)
+
+            ParameterSliderRow(
+                label: "SWEEP",
+                value: normalized(tuning.scanlineDuration, in: 0.4...4),
+                valueText: String(format: "%.1fS", store.tuning.scanlineDuration)
+            )
+            ParameterSliderRow(
+                label: "STRENGTH",
+                value: normalized(tuning.scanlineOpacity, in: 0...1),
+                allowsZero: true,
+                valueText: String(format: "%.2f", store.tuning.scanlineOpacity)
+            )
+            ParameterSliderRow(
+                label: "BAND",
+                value: normalized(tuning.scanlineHeight, in: 0.02...0.6),
+                valueText: String(format: "%.2f", store.tuning.scanlineHeight)
+            )
+        }
+    }
+
     /// Maps a real range onto the 0…1 lattice `ParameterSliderRow` binds to.
     ///
     /// The row is a 20-step discrete control (`EffectParameter.sliderSteps`) and its knob shows a
@@ -280,6 +309,7 @@ struct FaceMarkerLabView: View {
                 calmFlag = previewOptions.calm
                 reticleFlag = previewOptions.reticle
                 spotlightFlag = previewOptions.spotlight
+                scanlineFlag = previewOptions.scanline
                 hiddenFlag = previewOptions.hidden
             } label: {
                 Text("APPLY VARIANTS")
