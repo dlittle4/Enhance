@@ -87,6 +87,28 @@ struct FaceMarkerTuning: Codable, Equatable {
     /// large ones as light washing over the face.
     var scanlineHeight: Double
 
+    // MARK: Entrance
+
+    /// The order the marker's parts arrive in.
+    ///
+    /// Separate from *what* the parts look like, because the same reticle reads completely
+    /// differently depending on whether it snaps on and then starts scanning, or sweeps the face
+    /// twice and only then commits to a lock.
+    var entranceOrder: EntranceOrder
+
+    /// Sweeps before the reticle appears under `.scanFirst`, and the total run when the scan does
+    /// not repeat. Counted in **passes** — one traversal of the marker — so 2 is down and back.
+    var entranceScanPasses: Double
+
+    /// Seconds between one face's entrance and the next one's. 0 starts them together.
+    ///
+    /// Only observable with more than one face, which is exactly when a simultaneous entrance reads
+    /// as a flash of chrome rather than as the app noticing people one at a time.
+    var entranceStagger: Double
+
+    /// Whether the scan keeps running after the entrance, or was only the arrival.
+    var scanRepeats: Bool
+
     // MARK: Spotlight
 
     /// Peak darkness applied outside the chosen face.
@@ -122,6 +144,10 @@ struct FaceMarkerTuning: Codable, Equatable {
         scanlineDuration: 1.6,
         scanlineOpacity: 0.35,
         scanlineHeight: 0.18,
+        entranceOrder: .scanFirst,
+        entranceScanPasses: 2,
+        entranceStagger: 0.18,
+        scanRepeats: true,
         spotlightDimming: 0.45,
         spotlightRadiusScale: 1.3,
         spotlightFeather: 0.55
@@ -148,6 +174,69 @@ struct FaceMarkerTuning: Codable, Equatable {
         max(4, side * CGFloat(max(0.05, min(0.5, bracketLength))))
     }
 
+    // MARK: - Entrance timeline
+
+    /// Which part of the marker arrives first.
+    enum EntranceOrder: String, Codable, CaseIterable {
+        /// Everything at once — brackets lock on while the band starts sweeping.
+        case together
+        /// The band sweeps the face `entranceScanPasses` times, *then* the reticle locks on.
+        case scanFirst
+        /// The reticle locks on, and the sweep starts once it has settled.
+        case reticleFirst
+
+        var title: String {
+            switch self {
+            case .together:     return "TOGETHER"
+            case .scanFirst:    return "SCAN FIRST"
+            case .reticleFirst: return "LOCK FIRST"
+            }
+        }
+    }
+
+    /// When each part of one face's marker should start, in seconds from the moment the markers
+    /// appear.
+    ///
+    /// Pure, and returned as a value rather than applied directly, because the interesting bugs in
+    /// a choreography are arithmetic — a reticle that arrives before the scan it was supposed to
+    /// follow is invisible in a screenshot and obvious in a test.
+    struct EntranceTimeline: Equatable {
+        var scanStart: Double
+        var reticleStart: Double
+        /// When the band stops. `nil` means it never does.
+        var scanStop: Double?
+    }
+
+    func entranceTimeline(faceIndex: Int) -> EntranceTimeline {
+        let base = max(0, Double(faceIndex)) * max(0, entranceStagger)
+        let pass = max(0.2, scanlineDuration)
+        let passes = max(1, entranceScanPasses.rounded())
+        let scanRun = passes * pass
+
+        let scanStart: Double
+        let reticleStart: Double
+
+        switch entranceOrder {
+        case .together:
+            scanStart = base
+            reticleStart = base
+        case .scanFirst:
+            scanStart = base
+            reticleStart = base + scanRun
+        case .reticleFirst:
+            reticleStart = base
+            // After the brackets have settled, not during — two things moving at once is what
+            // `together` already offers, and the point of this order is that they take turns.
+            scanStart = base + max(0.05, lockOnDuration)
+        }
+
+        return EntranceTimeline(
+            scanStart: scanStart,
+            reticleStart: reticleStart,
+            scanStop: scanRepeats ? nil : scanStart + scanRun
+        )
+    }
+
     // MARK: - Export
 
     /// A paste-ready Swift block, for when a variant graduates and these stop being live knobs.
@@ -171,6 +260,10 @@ struct FaceMarkerTuning: Codable, Equatable {
             scanlineDuration: \(Self.number(scanlineDuration)),
             scanlineOpacity: \(Self.number(scanlineOpacity)),
             scanlineHeight: \(Self.number(scanlineHeight)),
+            entranceOrder: .\(entranceOrder.rawValue),
+            entranceScanPasses: \(Self.number(entranceScanPasses)),
+            entranceStagger: \(Self.number(entranceStagger)),
+            scanRepeats: \(scanRepeats),
             spotlightDimming: \(Self.number(spotlightDimming)),
             spotlightRadiusScale: \(Self.number(spotlightRadiusScale)),
             spotlightFeather: \(Self.number(spotlightFeather))
@@ -223,6 +316,11 @@ extension FaceMarkerTuning {
             scanlineDuration: number(.scanlineDuration, fallback.scanlineDuration),
             scanlineOpacity: number(.scanlineOpacity, fallback.scanlineOpacity),
             scanlineHeight: number(.scanlineHeight, fallback.scanlineHeight),
+            entranceOrder: ((try? container.decodeIfPresent(EntranceOrder.self, forKey: .entranceOrder)) ?? nil)
+                ?? fallback.entranceOrder,
+            entranceScanPasses: number(.entranceScanPasses, fallback.entranceScanPasses),
+            entranceStagger: number(.entranceStagger, fallback.entranceStagger),
+            scanRepeats: flag(.scanRepeats, fallback.scanRepeats),
             spotlightDimming: number(.spotlightDimming, fallback.spotlightDimming),
             spotlightRadiusScale: number(.spotlightRadiusScale, fallback.spotlightRadiusScale),
             spotlightFeather: number(.spotlightFeather, fallback.spotlightFeather)

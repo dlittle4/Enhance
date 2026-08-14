@@ -18,6 +18,9 @@ struct FaceMarkerLabView: View {
     /// turning it on for the whole app. APPLY is what pushes these out to the flags.
     @State private var previewOptions = FaceMarkerOptions(calm: true, reticle: true)
     @State private var previewSelection: Int? = 0
+    /// Bumped by REPLAY ENTRANCE. A counter rather than a bool because the interesting event is
+    /// *another* tap, and a bool has nowhere to put the second one.
+    @State private var replayToken = 0
     @State private var didCopy = false
 
     @AppStorage(FeatureFlags.faceMarkersCalmKey) private var calmFlag = false
@@ -50,6 +53,8 @@ struct FaceMarkerLabView: View {
                         spotlightSliders
                         divider
                         scanlineSliders
+                        divider
+                        sequenceSliders
                         divider
                         actions
                     }
@@ -95,7 +100,8 @@ struct FaceMarkerLabView: View {
             FaceMarkerPreview(
                 options: previewOptions,
                 tuning: store.tuning,
-                selectedIndex: $previewSelection
+                selectedIndex: $previewSelection,
+                replayToken: replayToken
             )
             .frame(height: 200)
             .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
@@ -216,7 +222,7 @@ struct FaceMarkerLabView: View {
                     get: { store.tuning.showsIndexLabel },
                     set: { store.tuning.showsIndexLabel = $0 }
                 ),
-                label: { $0 ? "FACE 01" : "OFF" }
+                label: { $0 ? "NUMBER" : "OFF" }
             )
         }
     }
@@ -277,6 +283,69 @@ struct FaceMarkerLabView: View {
                 value: normalized(tuning.scanlineHeight, in: 0.02...0.6),
                 valueText: String(format: "%.2f", store.tuning.scanlineHeight)
             )
+        }
+    }
+
+    /// How the marker arrives, rather than what it looks like once it has.
+    private var sequenceSliders: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("SEQUENCE")
+                .font(.silkscreenSectionTitle)
+                .foregroundColor(.white)
+
+            Text("ORDER")
+                .font(.silkscreenSubheadline)
+                .foregroundColor(.textPrimary)
+
+            SegmentedToggle(
+                items: FaceMarkerTuning.EntranceOrder.allCases,
+                selection: Binding(
+                    get: { store.tuning.entranceOrder },
+                    set: { store.tuning.entranceOrder = $0 }
+                ),
+                label: { $0.title }
+            )
+
+            ParameterSliderRow(
+                label: "SCAN PASSES",
+                value: normalized(tuning.entranceScanPasses, in: 1...6),
+                valueText: "\(Int(store.tuning.entranceScanPasses.rounded()))"
+            )
+            ParameterSliderRow(
+                label: "STAGGER",
+                value: normalized(tuning.entranceStagger, in: 0...1),
+                allowsZero: true,
+                valueText: store.tuning.entranceStagger < 0.02
+                    ? "TOGETHER"
+                    : String(format: "%.2fS", store.tuning.entranceStagger)
+            )
+
+            Text("SCAN AFTER ENTRANCE")
+                .font(.silkscreenSubheadline)
+                .foregroundColor(.textPrimary)
+
+            SegmentedToggle(
+                items: [true, false],
+                selection: Binding(
+                    get: { store.tuning.scanRepeats },
+                    set: { store.tuning.scanRepeats = $0 }
+                ),
+                label: { $0 ? "KEEPS GOING" : "STOPS" }
+            )
+
+            // The entrance only runs once per marker, so there has to be a way to see it again
+            // without leaving the sheet. It re-arms the marker views directly: toggling the
+            // selection was the obvious way and does nothing, because the views are pooled and
+            // survive it — which is exactly why `resetEntrance` exists.
+            Button {
+                HapticService.selection()
+                replayToken += 1
+            } label: {
+                Text("REPLAY ENTRANCE")
+                    .font(.silkscreenButtonLabel)
+                    .foregroundColor(Color.enhanceMint)
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -360,16 +429,29 @@ private struct FaceMarkerPreview: UIViewRepresentable {
     let options: FaceMarkerOptions
     let tuning: FaceMarkerTuning
     @Binding var selectedIndex: Int?
+    let replayToken: Int
+
+    final class Coordinator {
+        var lastReplayToken = 0
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> FaceMarkerPreviewView {
         let view = FaceMarkerPreviewView()
         view.onSelect = { index in
             selectedIndex = selectedIndex == index ? nil : index
         }
+        context.coordinator.lastReplayToken = replayToken
         return view
     }
 
     func updateUIView(_ view: FaceMarkerPreviewView, context: Context) {
+        // Before the update, so the reset cannot be undone by the layout pass it triggers.
+        if replayToken != context.coordinator.lastReplayToken {
+            context.coordinator.lastReplayToken = replayToken
+            view.replayEntrance()
+        }
         view.update(options: options, tuning: tuning, selectedIndex: selectedIndex)
     }
 }
@@ -411,6 +493,12 @@ private final class FaceMarkerPreviewView: UIView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    /// Re-arms every marker's entrance, then lets the next layout pass play it.
+    func replayEntrance() {
+        markerViews.forEach { $0.resetEntrance() }
+        setNeedsLayout()
+    }
 
     func update(options: FaceMarkerOptions, tuning: FaceMarkerTuning, selectedIndex: Int?) {
         self.options = options

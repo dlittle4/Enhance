@@ -42,6 +42,17 @@ final class FaceMarkerView: UIView {
     private var hasLockedOn = false
     private var lastTargetState: Bool?
 
+    /// Work scheduled by the entrance choreography, held so a reconfigure can cancel it.
+    ///
+    /// These views are pooled and reused across photos. Without cancellation a marker could inherit
+    /// the tail of the previous face's entrance and lock on at a moment that means nothing.
+    private var entranceWork: [DispatchWorkItem] = []
+
+    /// Whether the reticle has been revealed yet. Distinct from `hasLockedOn`, which only records
+    /// that the animation has run once: under SCAN FIRST the brackets exist but are held invisible
+    /// until the sweeps finish.
+    private var reticleRevealed = false
+
     // MARK: - Init
 
     override init(frame: CGRect) {
@@ -113,8 +124,91 @@ final class FaceMarkerView: UIView {
 
         if options.reticle && !hasLockedOn {
             hasLockedOn = true
-            lockOn()
+            beginEntrance(marker: marker)
         }
+    }
+
+    // MARK: - Entrance
+
+    /// Runs the arrival sequence described by `FaceMarkerTuning.entranceTimeline(faceIndex:)`.
+    ///
+    /// The timeline itself is computed there, and is pure — this method only schedules against it.
+    /// That split is deliberate: the arithmetic is where a choreography goes wrong, and arithmetic
+    /// is testable in a way that "did it look right" is not.
+    private func beginEntrance(marker: FaceMarker) {
+        cancelEntrance()
+
+        let timeline = tuning.entranceTimeline(faceIndex: marker.index)
+
+        // Held invisible rather than unbuilt, so the geometry is already correct when it is
+        // revealed and the reveal cannot flash a half-laid-out reticle.
+        reticleRevealed = timeline.reticleStart <= 0
+        bracketLayer.opacity = reticleRevealed ? 1 : 0
+        labelLayer.opacity = reticleRevealed ? 1 : 0
+
+        if reticleRevealed {
+            lockOn()
+        } else {
+            schedule(after: timeline.reticleStart) { [weak self] in
+                guard let self else { return }
+                self.reticleRevealed = true
+                self.bracketLayer.opacity = 1
+                self.labelLayer.opacity = 1
+                self.lockOn()
+            }
+        }
+
+        // The scan's own start is handled by `updateScanline`, which reads `scanStartTime`; this
+        // only has to nudge it once the delay has elapsed.
+        if timeline.scanStart > 0 {
+            scanLayer.isHidden = true
+            schedule(after: timeline.scanStart) { [weak self] in
+                guard let self, let marker = self.marker else { return }
+                self.updateScanline(marker: marker, force: true)
+            }
+        }
+
+        if let stop = timeline.scanStop {
+            schedule(after: stop) { [weak self] in
+                self?.stopScanning()
+            }
+        }
+    }
+
+    private func schedule(after delay: Double, _ body: @escaping () -> Void) {
+        let work = DispatchWorkItem(block: body)
+        entranceWork.append(work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(0, delay), execute: work)
+    }
+
+    private func cancelEntrance() {
+        entranceWork.forEach { $0.cancel() }
+        entranceWork.removeAll()
+    }
+
+    private func stopScanning() {
+        scanLayer.removeAnimation(forKey: "scan")
+        scanLayer.isHidden = true
+        isScanning = false
+    }
+
+    deinit {
+        entranceWork.forEach { $0.cancel() }
+    }
+
+    /// Re-arms the entrance so it plays again on the next `configure`.
+    ///
+    /// Needed because these views are **pooled**: a marker survives a selection change, so
+    /// `hasLockedOn` stays true and the choreography would never run twice. In the editor the views
+    /// are rebuilt on entering the face tab, which re-arms it naturally; the lab has no such moment,
+    /// which is what REPLAY ENTRANCE is for.
+    func resetEntrance() {
+        cancelEntrance()
+        hasLockedOn = false
+        reticleRevealed = false
+        stopScanning()
+        bracketLayer.opacity = 0
+        labelLayer.opacity = 0
     }
 
     /// Cheap path for a pinch: only the counter-scaled geometry changes, so nothing re-evaluates
@@ -304,7 +398,15 @@ final class FaceMarkerView: UIView {
     ///
     /// Only the *targets* scan. A face the user has deselected is not being examined, and sweeping
     /// every face at once turns a scanner into a disco.
-    private func updateScanline(marker: FaceMarker) {
+    private func updateScanline(marker: FaceMarker, force: Bool = false) {
+        // A scan whose entrance delay has not elapsed stays hidden. `force` is how the scheduled
+        // work item says "the delay is over" without racing the next `redraw`.
+        if !force, !isScanning, tuning.entranceTimeline(faceIndex: marker.index).scanStart > 0,
+           !entranceWork.isEmpty {
+            scanLayer.isHidden = true
+            return
+        }
+
         guard options.scanline, marker.isTarget else {
             scanLayer.isHidden = true
             scanLayer.removeAnimation(forKey: "scan")

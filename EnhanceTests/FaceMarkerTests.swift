@@ -245,6 +245,114 @@ struct FaceMarkerTests {
         #expect(tuning.bracketArm(forSide: 100) <= 50)
     }
 
+    // MARK: - Entrance choreography
+
+    private func sequenced(
+        _ order: FaceMarkerTuning.EntranceOrder,
+        passes: Double = 2,
+        stagger: Double = 0,
+        repeats: Bool = true
+    ) -> FaceMarkerTuning {
+        var tuning = FaceMarkerTuning.default
+        tuning.entranceOrder = order
+        tuning.entranceScanPasses = passes
+        tuning.entranceStagger = stagger
+        tuning.scanRepeats = repeats
+        tuning.scanlineDuration = 1.0
+        tuning.lockOnDuration = 0.25
+        return tuning
+    }
+
+    @Test func together_startsEverythingAtOnce() {
+        let timeline = sequenced(.together).entranceTimeline(faceIndex: 0)
+
+        #expect(timeline.scanStart == 0)
+        #expect(timeline.reticleStart == 0)
+    }
+
+    /// **The sequence the whole feature was asked for**: sweep the face twice, then lock on.
+    @Test func scanFirst_holdsTheReticleUntilThePassesAreDone() {
+        let timeline = sequenced(.scanFirst, passes: 2).entranceTimeline(faceIndex: 0)
+
+        #expect(timeline.scanStart == 0)
+        // Two passes at a 1s pass duration.
+        #expect(abs(timeline.reticleStart - 2.0) < 0.0001)
+    }
+
+    @Test func scanFirst_passCountMovesTheLock() {
+        let two = sequenced(.scanFirst, passes: 2).entranceTimeline(faceIndex: 0)
+        let four = sequenced(.scanFirst, passes: 4).entranceTimeline(faceIndex: 0)
+
+        #expect(four.reticleStart > two.reticleStart)
+        #expect(abs(four.reticleStart - 4.0) < 0.0001)
+    }
+
+    /// The two must never overlap under this order — that is what `together` is for.
+    @Test func reticleFirst_startsTheScanOnlyOnceTheLockHasSettled() {
+        let timeline = sequenced(.reticleFirst).entranceTimeline(faceIndex: 0)
+
+        #expect(timeline.reticleStart == 0)
+        #expect(abs(timeline.scanStart - 0.25) < 0.0001)
+        #expect(timeline.scanStart > timeline.reticleStart)
+    }
+
+    /// A reticle that arrives before the scan it was meant to follow is invisible in a screenshot
+    /// and obvious here, which is the reason this arithmetic is a pure function.
+    @Test func scanFirst_neverLocksOnBeforeItHasScanned() {
+        for passes in stride(from: 1.0, through: 6.0, by: 1.0) {
+            let timeline = sequenced(.scanFirst, passes: passes).entranceTimeline(faceIndex: 0)
+            #expect(timeline.reticleStart > timeline.scanStart, "passes \(passes) locked on too early")
+        }
+    }
+
+    @Test func stagger_offsetsEachFaceInTurn() {
+        let tuning = sequenced(.scanFirst, stagger: 0.2)
+
+        let first = tuning.entranceTimeline(faceIndex: 0)
+        let second = tuning.entranceTimeline(faceIndex: 1)
+        let third = tuning.entranceTimeline(faceIndex: 2)
+
+        #expect(first.scanStart == 0)
+        #expect(abs(second.scanStart - 0.2) < 0.0001)
+        #expect(abs(third.scanStart - 0.4) < 0.0001)
+        // The whole sequence shifts, not just its first beat.
+        #expect(abs(third.reticleStart - second.reticleStart - 0.2) < 0.0001)
+    }
+
+    @Test func zeroStagger_startsEveryFaceTogether() {
+        let tuning = sequenced(.scanFirst, stagger: 0)
+        #expect(tuning.entranceTimeline(faceIndex: 0) == tuning.entranceTimeline(faceIndex: 3))
+    }
+
+    @Test func repeatingScan_neverStops() {
+        #expect(sequenced(.scanFirst, repeats: true).entranceTimeline(faceIndex: 0).scanStop == nil)
+    }
+
+    /// An entrance-only scan runs exactly the passes it was given, then stops.
+    @Test func nonRepeatingScan_stopsAfterItsPasses() {
+        let timeline = sequenced(.scanFirst, passes: 3, repeats: false).entranceTimeline(faceIndex: 0)
+        #expect(timeline.scanStop.map { abs($0 - 3.0) < 0.0001 } == true)
+    }
+
+    /// Under LOCK FIRST the stop has to be measured from when the scan actually began, not from
+    /// zero, or an entrance-only sweep is cut short by the lock-on delay.
+    @Test func nonRepeatingScan_underReticleFirst_measuresFromItsOwnStart() {
+        let timeline = sequenced(.reticleFirst, passes: 2, repeats: false).entranceTimeline(faceIndex: 0)
+        #expect(timeline.scanStop.map { abs($0 - (0.25 + 2.0)) < 0.0001 } == true)
+    }
+
+    @Test func entranceOrder_survivesAJSONRoundTrip() throws {
+        var tuning = FaceMarkerTuning.default
+        tuning.entranceOrder = .reticleFirst
+        tuning.scanRepeats = false
+
+        let decoded = try JSONDecoder().decode(
+            FaceMarkerTuning.self, from: try JSONEncoder().encode(tuning)
+        )
+        #expect(decoded.entranceOrder == .reticleFirst)
+        #expect(decoded.scanRepeats == false)
+    }
+
     // MARK: - Persistence
 
     private func scratchDefaults() -> UserDefaults {
@@ -315,6 +423,7 @@ struct FaceMarkerTests {
                       "bracketLength", "bracketThickness", "markerScale", "lockOnScale",
                       "lockOnDuration", "showsIndexLabel", "labelSize", "unselectedOpacity",
                       "scanlineDuration", "scanlineOpacity", "scanlineHeight",
+                      "entranceOrder", "entranceScanPasses", "entranceStagger", "scanRepeats",
                       "spotlightDimming", "spotlightRadiusScale", "spotlightFeather"] {
             #expect(snippet.contains(field), "snippet is missing \(field)")
         }
