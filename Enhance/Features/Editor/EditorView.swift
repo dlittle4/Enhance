@@ -17,6 +17,19 @@ struct EditorView: View {
     @State private var textDraft = ""
     @FocusState private var textFieldFocused: Bool
 
+    /// The face-marker experiments, bound to the flag keys themselves so a toggle in Settings
+    /// repaints the canvas without the editor being rebuilt. See `faceMarkerOptions`.
+    @AppStorage(FeatureFlags.faceMarkersCalmKey) private var faceMarkersCalm: Bool = false
+    @AppStorage(FeatureFlags.faceMarkersReticleKey) private var faceMarkersReticle: Bool = false
+    @AppStorage(FeatureFlags.faceMarkersSpotlightKey) private var faceMarkersSpotlight: Bool = false
+    @AppStorage(FeatureFlags.faceMarkersScanlineKey) private var faceMarkersScanline: Bool = false
+    @AppStorage(FeatureFlags.faceMarkersHiddenKey) private var faceMarkersHidden: Bool = false
+
+    /// The numeric knobs behind those experiments. An `ObservableObject` rather than `@AppStorage`
+    /// because it holds a struct, and because dragging a slider in FACE MARKER LAB has to redraw
+    /// the markers mid-gesture.
+    @ObservedObject private var markerTuningStore = FaceMarkerTuningStore.shared
+
     private let canvasSize: CGFloat = 325
     private let borderInset: CGFloat = 5
     private let outerRadius: CGFloat = 28
@@ -376,7 +389,9 @@ struct EditorView: View {
                 image: viewModel.previewImage ?? image,
                 scale: $viewModel.currentScale,
                 visibleRect: $viewModel.visibleRect,
-                faceOverlays: activeFaceOverlays,
+                faceMarkers: activeFaceMarkers,
+                markerOptions: faceMarkerOptions,
+                markerTuning: markerTuningStore.tuning,
                 onFaceSelected: { index in
                     viewModel.pushUndo()
                     HapticService.selection()
@@ -1293,18 +1308,38 @@ struct EditorView: View {
 
     // MARK: - Face Detection Overlay
 
-    /// Face overlay data passed into ImageCanvasView. Empty when not in face filter mode.
-    private var activeFaceOverlays: [(id: UUID, rect: CGRect, isSelected: Bool)] {
+    /// Face marker data passed into ImageCanvasView. Empty when not in face filter mode.
+    ///
+    /// The selection rules themselves live in `FaceMarkerPlan` — pure, and unit-tested — because
+    /// whether a marker exists at all is now a decision (CALM draws nothing over a lone face) and
+    /// that is exactly the kind of rule a screenshot cannot check.
+    private var activeFaceMarkers: [FaceMarker] {
         guard viewModel.selectedEffectCategory == .faceFilters else { return [] }
-        // Boxes belong to the editable photo, so they follow it rather than guessing from
+        // Markers belong to the editable photo, so they follow it rather than guessing from
         // `isSplit` — which stopped meaning "the GIF is showing" once the panel could bring the
         // live canvas back after ENHANCE.
         guard viewModel.showsLiveCanvas else { return [] }
-        let singleSelected = viewModel.selectedFaceIndex
-        return viewModel.detectedFaces.enumerated().map { index, face in
-            let isSelected = singleSelected == nil || singleSelected == index
-            return (id: face.id, rect: face.normalizedBoundingBox, isSelected: isSelected)
-        }
+
+        return FaceMarkerPlan.markers(
+            for: viewModel.detectedFaces,
+            selectedIndex: viewModel.selectedFaceIndex,
+            options: faceMarkerOptions
+        )
+    }
+
+    /// The live experiment flags.
+    ///
+    /// Read here as `@AppStorage` rather than through `FeatureFlags`' static getters so that
+    /// toggling one in Settings repaints the canvas immediately — the static getters sample
+    /// `UserDefaults` and publish nothing, which is right for `EditorViewModel` and wrong for a view.
+    private var faceMarkerOptions: FaceMarkerOptions {
+        FaceMarkerOptions(
+            calm: faceMarkersCalm,
+            reticle: faceMarkersReticle,
+            spotlight: faceMarkersSpotlight,
+            scanline: faceMarkersScanline,
+            hidden: faceMarkersHidden
+        )
     }
 
     /// Shows a loading spinner while face detection is in progress.

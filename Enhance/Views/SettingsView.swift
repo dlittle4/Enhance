@@ -21,6 +21,17 @@ struct SettingsView: View {
 
     @State private var showGradientLab = false
 
+    /// The three face-marker experiments. Bound here and in `EditorView` to the same keys —
+    /// `@AppStorage` on both ends republishes, so a toggle repaints the canvas with no plumbing
+    /// between the two screens.
+    @AppStorage(FeatureFlags.faceMarkersCalmKey) private var faceMarkersCalm: Bool = false
+    @AppStorage(FeatureFlags.faceMarkersReticleKey) private var faceMarkersReticle: Bool = false
+    @AppStorage(FeatureFlags.faceMarkersSpotlightKey) private var faceMarkersSpotlight: Bool = false
+    @AppStorage(FeatureFlags.faceMarkersScanlineKey) private var faceMarkersScanline: Bool = false
+    @AppStorage(FeatureFlags.faceMarkersHiddenKey) private var faceMarkersHidden: Bool = false
+
+    @State private var showFaceMarkerLab = false
+
     private let mintGreen = Color.enhanceMint
     private let themes = ["PIXEL", "THEME 2", "THEME 3"]
     private let appIcons: [(name: String, preview: String, identifier: String?)] = [
@@ -37,6 +48,14 @@ struct SettingsView: View {
                     autoPlayRow
                     divider
 
+                    // Face markers lead the two experiment sections. The sheet opens at the
+                    // `.medium` detent, and adding this section pushed FACE MARKER LAB below that
+                    // fold — a destination row you have to drag the sheet up to discover is a
+                    // destination most people will not find. Verified on the simulator, both ways
+                    // round.
+                    faceMarkerSection
+                    divider
+
                     experimentsSection
                     divider
 
@@ -48,6 +67,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showGradientLab) {
             GradientLabView(isPresented: $showGradientLab)
+        }
+        .sheet(isPresented: $showFaceMarkerLab) {
+            FaceMarkerLabView(isPresented: $showFaceMarkerLab)
         }
     }
 
@@ -84,26 +106,75 @@ struct SettingsView: View {
             experimentRow("DITHERED BUTTON GRADIENT", isOn: $ditherGradient)
             experimentRow("STATIC BUTTON BORDER", isOn: $staticBorder)
 
-            // No checkmark: this opens a sheet rather than holding a state. The arrow is what
-            // distinguishes a destination from a toggle in a list that is otherwise all toggles.
-            Button {
-                HapticService.selection()
-                showGradientLab = true
-            } label: {
-                HStack(spacing: 10) {
-                    Color.clear.frame(width: 24, height: 24)
-                    Text("GRADIENT LAB →")
-                        .font(.silkscreenLabel)
-                        .foregroundColor(mintGreen)
-                }
-                .padding(.vertical, 10)
-            }
-            .buttonStyle(.plain)
+            labRow("GRADIENT LAB →") { showGradientLab = true }
         }
     }
 
-    /// One toggle in EXPERIMENTS. Extracted once there were five of them and the section was
-    /// four copies of the same fourteen lines.
+    // MARK: - Face markers
+
+    /// Its own section rather than four more rows under EXPERIMENTS, because **DEFAULT is not an
+    /// experiment** — it is what the app does today, and filing it under that heading would say the
+    /// opposite. The four rows are one exclusive-ish group governing a single question (what the
+    /// face overlay looks like), which is also why they share a component with the lab.
+    private var faceMarkerSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("FACE MARKERS")
+                .font(.silkscreenSectionTitle)
+                .foregroundColor(.white)
+
+            FaceMarkerVariantList(options: faceMarkerOptions)
+
+            labRow("FACE MARKER LAB →") { showFaceMarkerLab = true }
+        }
+    }
+
+    /// A destination rather than a toggle. No checkmark, and an arrow — that contrast is what
+    /// distinguishes the two in a list that is otherwise all toggles. The blank 24pt box keeps
+    /// its label on the same left edge as every checkmarked row above it.
+    private func labRow(_ title: String, action: @escaping () -> Void) -> some View {
+        Button {
+            HapticService.selection()
+            action()
+        } label: {
+            HStack(spacing: 10) {
+                Color.clear.frame(width: 24, height: 24)
+                Text(title)
+                    .font(.silkscreenLabel)
+                    .foregroundColor(mintGreen)
+            }
+            .padding(.vertical, 10)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Bridges the four `@AppStorage` booleans to the one value the shared list edits.
+    ///
+    /// The flags stay separate booleans in `UserDefaults` — `FeatureFlags` documents that
+    /// convention, and each is read independently by `EditorView` — so this assembles and
+    /// disassembles rather than storing the struct.
+    private var faceMarkerOptions: Binding<FaceMarkerOptions> {
+        Binding(
+            get: {
+                FaceMarkerOptions(
+                    calm: faceMarkersCalm,
+                    reticle: faceMarkersReticle,
+                    spotlight: faceMarkersSpotlight,
+                    scanline: faceMarkersScanline,
+                    hidden: faceMarkersHidden
+                )
+            },
+            set: { new in
+                faceMarkersCalm = new.calm
+                faceMarkersReticle = new.reticle
+                faceMarkersSpotlight = new.spotlight
+                faceMarkersScanline = new.scanline
+                faceMarkersHidden = new.hidden
+            }
+        )
+    }
+
+    /// One toggle in EXPERIMENTS. Extracted once the section was several copies of the same
+    /// fourteen lines.
     private func experimentRow(_ title: String, isOn: Binding<Bool>) -> some View {
         Button {
             HapticService.selection()
