@@ -26,13 +26,13 @@ struct AppButton: View {
         Button(action: action) {
             Text(animatedText)
                 .font(.silkscreenButton)
-                .foregroundColor(.textOnGradient)
+                .gradientButtonLabel()
                 .frame(maxWidth: fullWidth ? .infinity : nil)
                 .frame(height: noBackground ? nil : 80)
                 .background(
                     noBackground ? AnyView(Color.clear) :
                         useGradientBackground ? 
-                            AnyView(SimpleGradientBackground()) : 
+                            AnyView(ButtonGradientBackground(cornerRadius: 100)) :
                             AnyView(Color.mintDim)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: noBackground ? 0 : 100, style: .continuous))

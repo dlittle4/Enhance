@@ -187,11 +187,11 @@ struct GalleryView: View {
             } label: {
                 Text("MAKE YOUR FIRST GIF")
                     .font(.silkscreenButtonLabel)
-                    .foregroundColor(Color.textOnGradient)
+                    .gradientButtonLabel()
                     .frame(maxWidth: .infinity)
                     .frame(height: 60)
                     .background(
-                        SimpleGradientBackground()
+                        ButtonGradientBackground()
                             .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
                     )
             }
@@ -245,7 +245,7 @@ struct GalleryView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 60)
                         .background(
-                            SimpleGradientBackground()
+                            ButtonGradientBackground()
                                 .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
                         )
                 }
@@ -415,11 +415,11 @@ struct GalleryView: View {
         PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
             Text("MAKE A GIF")
                 .font(.silkscreenButtonLabel)
-                .foregroundColor(Color.textOnGradient)
+                .gradientButtonLabel()
                 .frame(maxWidth: .infinity)
                 .frame(height: 60)
                 .background(
-                    SimpleGradientBackground()
+                    ButtonGradientBackground()
                         .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
                 )
         }

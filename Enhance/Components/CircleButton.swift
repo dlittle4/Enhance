@@ -26,18 +26,16 @@ struct CircleButton: View {
             Circle()
                 .foregroundColor(.clear)
                 .overlay(
-                    SimpleGradientBackground()
+                    ButtonGradientBackground(cornerRadius: 30, borderWidth: 4, showsBorder: showBorder)
                         .clipShape(Circle())
                 )
-            
-            // Optional animated border
+
+            // Optional animated border. The radius matches the 60pt frame's inscribed circle, so
+            // the ring the border draws for itself *is* the circle — the old code masked a
+            // rounded-rect ring with a circular one and got their intersection, which is four
+            // arcs rather than a ring.
             if showBorder {
-                // Use a mask to clip the SimpleGradientBorder to a circle
-                SimpleGradientBorder()
-                    .mask(
-                        Circle()
-                            .strokeBorder(lineWidth: 4)
-                    )
+                ButtonGradientBorder(cornerRadius: 30, lineWidth: 4)
             }
             
             // "X" text on top

@@ -11,6 +11,16 @@ struct SettingsView: View {
     /// `UserDefaults` is the shared surface between the two; see `FeatureFlags`.
     @AppStorage(FeatureFlags.zoomOptionalKey) private var zoomOptional: Bool = false
 
+    /// These three are read by views rather than by a view model, so they could have been passed
+    /// down — but `ButtonGradientBackground` is instantiated at seven unrelated call sites, and
+    /// threading a binding to all of them would put the flag in every intermediate signature.
+    /// `@AppStorage` on both ends republishes without that.
+    @AppStorage(FeatureFlags.staticGradientKey) private var staticGradient: Bool = false
+    @AppStorage(FeatureFlags.ditherGradientKey) private var ditherGradient: Bool = false
+    @AppStorage(FeatureFlags.staticBorderKey) private var staticBorder: Bool = false
+
+    @State private var showGradientLab = false
+
     private let mintGreen = Color.enhanceMint
     private let themes = ["PIXEL", "THEME 2", "THEME 3"]
     private let appIcons: [(name: String, preview: String, identifier: String?)] = [
@@ -35,6 +45,9 @@ struct SettingsView: View {
                 .padding(.horizontal, 16)
                 .padding(.bottom, 48)
             }
+        }
+        .sheet(isPresented: $showGradientLab) {
+            GradientLabView(isPresented: $showGradientLab)
         }
     }
 
@@ -66,20 +79,45 @@ struct SettingsView: View {
                 .font(.silkscreenSectionTitle)
                 .foregroundColor(.white)
 
+            experimentRow("MAKE GIFS WITHOUT ZOOMING", isOn: $zoomOptional)
+            experimentRow("STATIC BUTTON GRADIENT", isOn: $staticGradient)
+            experimentRow("DITHERED BUTTON GRADIENT", isOn: $ditherGradient)
+            experimentRow("STATIC BUTTON BORDER", isOn: $staticBorder)
+
+            // No checkmark: this opens a sheet rather than holding a state. The arrow is what
+            // distinguishes a destination from a toggle in a list that is otherwise all toggles.
             Button {
                 HapticService.selection()
-                zoomOptional.toggle()
+                showGradientLab = true
             } label: {
                 HStack(spacing: 10) {
-                    checkmark(isSelected: zoomOptional)
-                    Text("MAKE GIFS WITHOUT ZOOMING")
+                    Color.clear.frame(width: 24, height: 24)
+                    Text("GRADIENT LAB →")
                         .font(.silkscreenLabel)
-                        .foregroundColor(zoomOptional ? mintGreen : .textPrimary)
+                        .foregroundColor(mintGreen)
                 }
                 .padding(.vertical, 10)
             }
             .buttonStyle(.plain)
         }
+    }
+
+    /// One toggle in EXPERIMENTS. Extracted once there were five of them and the section was
+    /// four copies of the same fourteen lines.
+    private func experimentRow(_ title: String, isOn: Binding<Bool>) -> some View {
+        Button {
+            HapticService.selection()
+            isOn.wrappedValue.toggle()
+        } label: {
+            HStack(spacing: 10) {
+                checkmark(isSelected: isOn.wrappedValue)
+                Text(title)
+                    .font(.silkscreenLabel)
+                    .foregroundColor(isOn.wrappedValue ? mintGreen : .textPrimary)
+            }
+            .padding(.vertical, 10)
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Themes
