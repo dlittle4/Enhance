@@ -117,6 +117,10 @@ struct GalleryView: View {
             if status != .notDetermined {
                 photoManager.checkAuthorizationStatus()
             }
+            // The parallax normally starts from `isIdleForAmbience` *changing* — but on a fresh
+            // launch the gallery can arrive already idle, in which case that transition never
+            // happens and the accelerometer never starts until something else toggles the state.
+            if isIdleForAmbience { startDeviceMotionIfWanted() }
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
@@ -146,7 +150,7 @@ struct GalleryView: View {
         // A single timer at a fixed 1s tick, counting up to the tuned interval, rather than a
         // publisher rebuilt whenever the interval slider moves — recreating the publisher mid-drag
         // restarts the countdown on every step, so the sweep would never fire while tuning it.
-        .onReceive(Timer.publish(every: 1, on: .main, in: .common).autoconnect()) { _ in
+        .onReceive(shimmerTick) { _ in
             tickShimmer()
         }
         .onChange(of: isIdleForAmbience) { _, idle in
@@ -165,6 +169,12 @@ struct GalleryView: View {
     /// Seconds the gallery has been quiet. Reset by anything that makes a sweep unwelcome, so the
     /// interval measures *idle* time rather than wall-clock time.
     @State private var idleSeconds: Double = 0
+
+    /// The 1s tick behind `tickShimmer`, held in `@State` so it survives body re-evaluation.
+    /// Built inline in `onReceive` it was a *new* publisher on every body pass — and the gallery's
+    /// body re-runs constantly (photo refreshes, parallax tilt at 30Hz), so the freshly-restarted
+    /// timer never reached its first tick and the shimmer never fired at all.
+    @State private var shimmerTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private func tickShimmer() {
         guard motionShimmer, !reduceMotion, isIdleForAmbience else {
