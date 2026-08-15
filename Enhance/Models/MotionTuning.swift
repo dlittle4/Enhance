@@ -1,5 +1,30 @@
 import SwiftUI
 
+/// What plays over the canvas while a GIF is being generated.
+///
+/// Four concepts rather than one setting, because "indicate that work is happening" has no
+/// single right answer and they can only be told apart by watching them *(user's call,
+/// 2026-08-15)*. All three pixel styles reuse the gallery's `PixelReveal.metal` and
+/// `Pixellate.metal` rather than inventing a fourth pixel treatment — the app already has a
+/// pixel vocabulary and the generating moment should speak it.
+enum GeneratingStyle: String, Codable, CaseIterable, Identifiable, Equatable {
+    /// Today's plain `ProgressView`. The baseline every other option is judged against.
+    case spinner = "SPIN"
+    /// Blocks assemble the photo over and over, the same build the gallery plays on save.
+    case build = "BUILD"
+    /// The photo sits coarsely pixelated and sharpens, repeatedly — the app's own name as a
+    /// loading state.
+    case resolve = "ENHANCE"
+    /// Blocks flicker in and out on a re-rolled scatter each pass, so the image never settles.
+    case scramble = "SCRAMBLE"
+
+    var id: String { rawValue }
+
+    /// Whether this style draws the pixel overlay at all. `spinner` does not, which is what
+    /// keeps the shipped behaviour reachable from the picker.
+    var usesPixels: Bool { self != .spinner }
+}
+
 /// A spring, editable and drawable as a curve rather than as two abstract numbers.
 ///
 /// Deliberately still a *spring* — `response` + `dampingFraction` — rather than a cubic-bezier
@@ -109,6 +134,22 @@ struct MotionTuning: Codable, Equatable {
     /// `nil` inherits `globalCurve`.
     var entranceCurve: MotionCurve?
 
+    /// Whether the photo builds itself out of pixel blocks as the editor opens, instead of
+    /// simply fading in with the rest of the chrome *(user's call, 2026-08-15)*.
+    ///
+    /// The canvas is a `UIViewRepresentable` around a `UIScrollView`, and SwiftUI's Metal
+    /// renderer cannot sample UIKit-backed content — so this is not a `layerEffect` on the
+    /// canvas but an opaque `PixelBuildOverlay` drawn over it and removed when it completes.
+    /// See that view for why that is the only shape this can take.
+    var canvasPixelEntrance: Bool
+
+    /// Block edge in points for the canvas build. Larger than the gallery's, because the canvas
+    /// is 325pt against a 114pt thumbnail and the same cell reads as noise at that size.
+    var canvasRevealCell: Double
+
+    /// Seconds for the canvas to finish building in.
+    var canvasRevealTime: Double
+
     // MARK: - Category switch (Idea 4)
 
     /// Scale the incoming card gallery grows from. 1 is a plain cross-fade.
@@ -137,6 +178,18 @@ struct MotionTuning: Codable, Equatable {
 
     /// Expected to end up below the global's damping — that ring *is* the bounce.
     var tilePressCurve: MotionCurve?
+
+    // MARK: - Generating (Idea 7)
+
+    /// Which animation plays over the canvas while a GIF is being generated.
+    var generatingStyle: GeneratingStyle
+
+    /// Block edge in points for the generating animation.
+    var generatingCell: Double
+
+    /// Seconds for one pass of the generating animation. It loops until generation finishes,
+    /// which takes as long as it takes — so this is the *cadence*, not the total.
+    var generatingCycle: Double
 
     // MARK: - Save reveal (Idea 2)
 
@@ -186,6 +239,11 @@ struct MotionTuning: Codable, Equatable {
         entranceScale: 1,
         entranceOffsetY: 0,
         entranceCurve: nil,
+        // Off by default: the entrance experiment's contract is that its geometry knobs are
+        // inert until moved, and a pixel build is the least inert thing here.
+        canvasPixelEntrance: false,
+        canvasRevealCell: 18,
+        canvasRevealTime: 1.2,
         categorySwitchScale: 1,
         categorySwitchCurve: nil,
         cascadeStagger: 0,
@@ -197,6 +255,9 @@ struct MotionTuning: Codable, Equatable {
         // The ambient effects have no "off by geometry" value the way a scale of 1 is inert, so
         // their defaults are simply the shape they should take the first time someone turns the
         // flag on. The flag is what keeps the app unchanged, not these numbers.
+        generatingStyle: .spinner,
+        generatingCell: 22,
+        generatingCycle: 1.1,
         revealCellSize: 6,
         revealDuration: 1.6,
         revealDelay: 0.35,
@@ -212,6 +273,9 @@ struct MotionTuning: Codable, Equatable {
         entranceScale: 0.92,
         entranceOffsetY: 12,
         entranceCurve: nil,
+        canvasPixelEntrance: true,
+        canvasRevealCell: 18,
+        canvasRevealTime: 1.2,
         categorySwitchScale: 0.96,
         categorySwitchCurve: MotionCurve(response: 0.22, dampingFraction: 0.82),
         cascadeStagger: 0.06,
@@ -220,6 +284,9 @@ struct MotionTuning: Codable, Equatable {
         tilePressScale: 0.95,
         tileBrightnessDelta: -0.05,
         tilePressCurve: MotionCurve(response: 0.25, dampingFraction: 0.45),
+        generatingStyle: .build,
+        generatingCell: 22,
+        generatingCycle: 1.1,
         revealCellSize: 6,
         revealDuration: 1.6,
         revealDelay: 0.35,
@@ -255,6 +322,9 @@ struct MotionTuning: Codable, Equatable {
             entranceScale: \(Self.number(entranceScale)),
             entranceOffsetY: \(Self.number(entranceOffsetY)),
             entranceCurve: \(Self.curve(entranceCurve)),
+            canvasPixelEntrance: \(canvasPixelEntrance),
+            canvasRevealCell: \(Self.number(canvasRevealCell)),
+            canvasRevealTime: \(Self.number(canvasRevealTime)),
             categorySwitchScale: \(Self.number(categorySwitchScale)),
             categorySwitchCurve: \(Self.curve(categorySwitchCurve)),
             cascadeStagger: \(Self.number(cascadeStagger)),
@@ -263,6 +333,9 @@ struct MotionTuning: Codable, Equatable {
             tilePressScale: \(Self.number(tilePressScale)),
             tileBrightnessDelta: \(Self.number(tileBrightnessDelta)),
             tilePressCurve: \(Self.curve(tilePressCurve)),
+            generatingStyle: .\(generatingStyle),
+            generatingCell: \(Self.number(generatingCell)),
+            generatingCycle: \(Self.number(generatingCycle)),
             revealCellSize: \(Self.number(revealCellSize)),
             revealDuration: \(Self.number(revealDuration)),
             revealDelay: \(Self.number(revealDelay)),
@@ -301,6 +374,10 @@ extension MotionTuning {
             ((try? container.decodeIfPresent(Double.self, forKey: key)) ?? nil) ?? or
         }
 
+        func flag(_ key: CodingKeys, _ or: Bool) -> Bool {
+            ((try? container.decodeIfPresent(Bool.self, forKey: key)) ?? nil) ?? or
+        }
+
         /// Absent and explicitly-null both mean inherit, which is also the honest reading of a
         /// blob written before this field existed.
         func curve(_ key: CodingKeys) -> MotionCurve? {
@@ -313,6 +390,9 @@ extension MotionTuning {
             entranceScale: number(.entranceScale, fallback.entranceScale),
             entranceOffsetY: number(.entranceOffsetY, fallback.entranceOffsetY),
             entranceCurve: curve(.entranceCurve),
+            canvasPixelEntrance: flag(.canvasPixelEntrance, fallback.canvasPixelEntrance),
+            canvasRevealCell: number(.canvasRevealCell, fallback.canvasRevealCell),
+            canvasRevealTime: number(.canvasRevealTime, fallback.canvasRevealTime),
             categorySwitchScale: number(.categorySwitchScale, fallback.categorySwitchScale),
             categorySwitchCurve: curve(.categorySwitchCurve),
             cascadeStagger: number(.cascadeStagger, fallback.cascadeStagger),
@@ -321,6 +401,9 @@ extension MotionTuning {
             tilePressScale: number(.tilePressScale, fallback.tilePressScale),
             tileBrightnessDelta: number(.tileBrightnessDelta, fallback.tileBrightnessDelta),
             tilePressCurve: curve(.tilePressCurve),
+            generatingStyle: ((try? container.decodeIfPresent(GeneratingStyle.self, forKey: .generatingStyle)) ?? nil) ?? fallback.generatingStyle,
+            generatingCell: number(.generatingCell, fallback.generatingCell),
+            generatingCycle: number(.generatingCycle, fallback.generatingCycle),
             revealCellSize: number(.revealCellSize, fallback.revealCellSize),
             revealDuration: number(.revealDuration, fallback.revealDuration),
             revealDelay: number(.revealDelay, fallback.revealDelay),

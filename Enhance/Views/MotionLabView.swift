@@ -62,6 +62,8 @@ struct MotionLabView: View {
                         divider
                         tilePressSection
                         divider
+                        generatingSection
+                        divider
                         gallerySection
                         divider
                         actions
@@ -309,10 +311,77 @@ struct MotionLabView: View {
                 valueText: "\(Int(store.tuning.entranceOffsetY))PT"
             )
 
+            // The photo's own arrival, on top of the chrome stagger above: it can either fade in
+            // with everything else or build itself out of blocks first.
+            ParameterPickerRow(label: "PHOTO") {
+                SegmentedToggle(
+                    items: [false, true],
+                    selection: tuning.canvasPixelEntrance,
+                    label: { $0 ? "BUILD" : "FADE" }
+                )
+            }
+
+            if store.tuning.canvasPixelEntrance {
+                ParameterSliderRow(
+                    label: "PHOTO CELL",
+                    value: normalized(tuning.canvasRevealCell, in: 4...80),
+                    valueText: "\(Int(store.tuning.canvasRevealCell))PT"
+                )
+                ParameterSliderRow(
+                    label: "PHOTO TIME",
+                    value: normalized(tuning.canvasRevealTime, in: 0.2...5),
+                    valueText: String(format: "%.2fS", store.tuning.canvasRevealTime)
+                )
+            }
+
             curveOverride(
                 override: tuning.entranceCurve,
                 effective: store.tuning.entranceEffective
             )
+        }
+    }
+
+    /// The four generating concepts, with a live loop of whichever is selected.
+    ///
+    /// Previewed here rather than only in the editor because the whole point is comparing them,
+    /// and the real thing appears for exactly as long as a GIF takes to generate — which is both
+    /// too short to judge and impossible to replay on demand.
+    private var generatingSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("GENERATING")
+                .font(.silkscreenSectionTitle)
+                .foregroundColor(.white)
+
+            Text("PLAYS OVER THE CANVAS WHILE A GIF IS BEING MADE.")
+                .font(.silkscreenSmall)
+                .foregroundColor(.textInactive)
+
+            GeneratingPreview(
+                style: store.tuning.generatingStyle,
+                cellSize: store.tuning.generatingCell,
+                cycle: store.tuning.generatingCycle
+            )
+
+            ParameterPickerRow(label: "STYLE") {
+                SegmentedToggle(
+                    items: GeneratingStyle.allCases,
+                    selection: tuning.generatingStyle,
+                    label: { $0.rawValue }
+                )
+            }
+
+            if store.tuning.generatingStyle.usesPixels {
+                ParameterSliderRow(
+                    label: "CELL",
+                    value: normalized(tuning.generatingCell, in: 4...80),
+                    valueText: "\(Int(store.tuning.generatingCell))PT"
+                )
+                ParameterSliderRow(
+                    label: "CYCLE",
+                    value: normalized(tuning.generatingCycle, in: 0.2...5),
+                    valueText: String(format: "%.2fS", store.tuning.generatingCycle)
+                )
+            }
         }
     }
 
@@ -575,6 +644,71 @@ struct MotionLabView: View {
 /// Split out of `MotionLabView` because it owns the entrance's replay state, and that state has
 /// to reset and re-run without the surrounding sheet re-evaluating — the same separation
 /// `FaceMarkerPreview` makes for the same reason.
+/// A looping sample of the selected generating style, at canvas proportions.
+///
+/// Draws a synthesized swatch rather than one of the user's photos: the lab is reachable from
+/// Settings with no editor open and no photo chosen, and a preview that was blank half the time
+/// would be worse than one that is honestly a stand-in. What is being judged is the *motion* —
+/// block size, cadence, how much of the picture is missing at any instant — and a swatch with
+/// broad areas and fine detail shows all three.
+private struct GeneratingPreview: View {
+    let style: GeneratingStyle
+    let cellSize: Double
+    let cycle: Double
+
+    private let side: CGFloat = 150
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: AppConstants.CornerRadius.standard, style: .continuous)
+                .fill(Color.black)
+
+            if style.usesPixels {
+                GeneratingAnimationView(
+                    image: Self.swatch,
+                    // The canvas is 325pt and this is 150pt, so a cell tuned here would read
+                    // twice as coarse in the editor. Scaling keeps the preview honest about
+                    // what the real thing will look like.
+                    style: style,
+                    cellSize: cellSize * Double(side / 325),
+                    cycle: cycle,
+                    side: side,
+                    cornerRadius: AppConstants.CornerRadius.standard
+                )
+            } else {
+                ProgressView()
+                    .tint(.white)
+                    .scaleEffect(1.2)
+            }
+        }
+        .frame(width: side, height: side)
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Built once. A mint-to-magenta ramp with a bright diagonal, so both flat regions and a
+    /// hard edge are present for the blocks to chew on.
+    private static let swatch: UIImage = {
+        let size = CGSize(width: 300, height: 300)
+        return UIGraphicsImageRenderer(size: size).image { ctx in
+            let cg = ctx.cgContext
+            let colors = [UIColor.enhanceMint.cgColor,
+                          UIColor(red: 0.55, green: 0.35, blue: 0.95, alpha: 1).cgColor,
+                          UIColor(red: 0.95, green: 0.25, blue: 0.65, alpha: 1).cgColor]
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                         colors: colors as CFArray,
+                                         locations: [0, 0.5, 1]) {
+                cg.drawLinearGradient(gradient, start: .zero,
+                                      end: CGPoint(x: size.width, y: size.height), options: [])
+            }
+            cg.setFillColor(UIColor.white.withAlphaComponent(0.85).cgColor)
+            cg.fill(CGRect(x: 0, y: size.height * 0.42, width: size.width, height: size.height * 0.1))
+            cg.setFillColor(UIColor.black.withAlphaComponent(0.55).cgColor)
+            cg.fillEllipse(in: CGRect(x: size.width * 0.55, y: size.height * 0.12,
+                                      width: size.width * 0.3, height: size.width * 0.3))
+        }
+    }()
+}
+
 private struct MotionPreviewStage: View {
     let tuning: MotionTuning
     @Binding var category: EffectCategory

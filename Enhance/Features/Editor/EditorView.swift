@@ -44,6 +44,7 @@ struct EditorView: View {
     @AppStorage(FeatureFlags.motionCategorySwitchKey) private var motionCategorySwitch = false
     @AppStorage(FeatureFlags.motionTilePressKey) private var motionTilePress = false
     @AppStorage(FeatureFlags.motionEntranceKey) private var motionEntrance = false
+    @AppStorage(FeatureFlags.motionGeneratingKey) private var motionGenerating = false
 
     /// `nil` leaves the chrome's arrival as the flat fade it has always been.
     private var entranceMotion: ChromeEntrance.Motion? {
@@ -105,8 +106,13 @@ struct EditorView: View {
             Color.surfacePrimary.ignoresSafeArea()
 
             VStack(spacing: 16) {
+                // The editor's actions and the photo ride the same staggered entrance as the
+                // controls below them *(user's call, 2026-08-15)*, so the screen arrives as one
+                // cascade from the top down rather than a static frame with animated innards.
                 topBar
+                    .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 0)
                 canvasSection
+                    .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 1)
 
                 // Removed from the hierarchy rather than faded, so the panel can grow
                 // into the space the tabs and card gallery were using.
@@ -147,7 +153,7 @@ struct EditorView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
                     bottomButtons
-                        .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 2)
+                        .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 4)
                         .frame(width: borderedSize)
                         .padding(.bottom, 16)
                         .transition(.opacity)
@@ -448,7 +454,52 @@ struct EditorView: View {
         }
         .overlay(faceStatusOverlay)
         .overlay(regeneratingOverlay)
+        // Above the regenerating scrim: this *is* the progress indicator when a pixel style is
+        // chosen, so it must not sit behind the dimming that used to carry the spinner.
+        .overlay(generatingOverlay)
+        // Last of the canvas layers, so the build covers the spinner and the scrim while it
+        // plays and hands over a finished picture rather than a dimmed one.
+        .overlay(canvasBuildInOverlay)
         .overlay(toastOverlay)
+    }
+
+    /// The photo the pixel overlays draw. The preview when there is one — so the build shows the
+    /// effect the user has applied rather than the untouched original — and the source otherwise.
+    private var canvasSourceImage: UIImage? {
+        viewModel.previewImage ?? viewModel.image ?? viewModel.sourceImage
+    }
+
+    /// The one-shot build the photo plays as the editor opens. Rides the entrance flag, since it
+    /// is one element of that entrance rather than a separate experiment.
+    @ViewBuilder
+    private var canvasBuildInOverlay: some View {
+        if motionEntrance, !reduceMotion, motionStore.tuning.canvasPixelEntrance {
+            CanvasBuildInView(
+                image: canvasSourceImage,
+                cellSize: motionStore.tuning.canvasRevealCell,
+                duration: motionStore.tuning.canvasRevealTime,
+                side: canvasSize,
+                cornerRadius: innerRadius
+            )
+        }
+    }
+
+    /// What plays while a GIF is being generated — first ENHANCE and every regeneration alike,
+    /// since both are the same wait from the user's side.
+    @ViewBuilder
+    private var generatingOverlay: some View {
+        if motionGenerating, !reduceMotion,
+           viewModel.isGenerating || viewModel.isRegenerating {
+            GeneratingAnimationView(
+                image: canvasSourceImage,
+                style: motionStore.tuning.generatingStyle,
+                cellSize: motionStore.tuning.generatingCell,
+                cycle: motionStore.tuning.generatingCycle,
+                side: canvasSize,
+                cornerRadius: innerRadius
+            )
+            .transition(.opacity)
+        }
     }
 
     /// The editable canvas, shared by the face-filter and text categories. Face boxes and the text
@@ -525,10 +576,10 @@ struct EditorView: View {
                 motion: tabMotion
             )
             .frame(width: borderedSize)
-            // The tabs lead the entrance; the card gallery below follows one stagger step
-            // later *(user's call, 2026-08-14)*. With the experiment off both collapse to
-            // the same flat fade the section used to wear as one piece.
-            .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 0)
+            // The tabs follow the canvas, and the card gallery follows them one stagger step
+            // later *(user's call, 2026-08-14)*. With the experiment off all five collapse to
+            // the same flat fade the editor used to wear as one piece.
+            .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 2)
 
             Group {
                 switch viewModel.selectedEffectCategory {
@@ -555,7 +606,7 @@ struct EditorView: View {
                     .transition(categorySwitchTransition)
                 }
             }
-            .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 1)
+            .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 3)
 
         }
         .animation(categorySwitchAnimation, value: viewModel.selectedEffectCategory)
@@ -1419,9 +1470,16 @@ struct EditorView: View {
 
     // MARK: - Regenerating Overlay
 
+    /// Whether a pixel style is carrying the wait, in which case the scrim and spinner stand
+    /// down — two progress indicators at once reads as a rendering fault, and the build cannot
+    /// be judged through a 40% black wash.
+    private var pixelGenerating: Bool {
+        motionGenerating && !reduceMotion && motionStore.tuning.generatingStyle.usesPixels
+    }
+
     private var regeneratingOverlay: some View {
         Group {
-            if viewModel.isRegenerating {
+            if viewModel.isRegenerating, !pixelGenerating {
                 RoundedRectangle(cornerRadius: outerRadius, style: .continuous)
                     .fill(Color.black.opacity(0.4))
                     .frame(width: borderedSize, height: borderedSize)

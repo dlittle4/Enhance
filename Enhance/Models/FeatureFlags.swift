@@ -155,6 +155,12 @@ enum FeatureFlags {
     static let motionSaveRevealKey = "featureMotionSaveReveal"
     static var motionSaveReveal: Bool { UserDefaults.standard.bool(forKey: motionSaveRevealKey) }
 
+    /// The animation over the canvas while a GIF is being generated. Which of the four concepts
+    /// plays is `MotionTuning.generatingStyle`; this only decides whether the editor reads it,
+    /// so the shipped spinner survives the flag being off.
+    static let motionGeneratingKey = "featureMotionGenerating"
+    static var motionGenerating: Bool { UserDefaults.standard.bool(forKey: motionGeneratingKey) }
+
     /// Device-tilt parallax on the gallery grid. Note this one starts a `CMMotionManager`, so
     /// unlike the others it has a running cost while it is on.
     static let motionParallaxKey = "featureMotionParallax"

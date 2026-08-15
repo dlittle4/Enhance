@@ -40,6 +40,7 @@ struct SettingsView: View {
     @AppStorage(FeatureFlags.motionTabScaleKey) private var motionTabScale: Bool = false
     @AppStorage(FeatureFlags.motionTilePressKey) private var motionTilePress: Bool = false
     @AppStorage(FeatureFlags.motionSaveRevealKey) private var motionSaveReveal: Bool = false
+    @AppStorage(FeatureFlags.motionGeneratingKey) private var motionGenerating: Bool = false
     @AppStorage(FeatureFlags.motionParallaxKey) private var motionParallax: Bool = false
     @AppStorage(FeatureFlags.motionSharedZoomKey) private var motionSharedZoom: Bool = false
 
@@ -147,6 +148,7 @@ struct SettingsView: View {
             experimentRow("EFFECT TILE PRESS", isOn: $motionTilePress)
             experimentRow("GALLERY ZOOM INTO EDITOR", isOn: $motionSharedZoom)
             experimentRow("PIXEL REVEAL ON SAVE", isOn: $motionSaveReveal)
+            experimentRow("GENERATING ANIMATION", isOn: $motionGenerating)
             experimentRow("GALLERY TILT PARALLAX", isOn: $motionParallax)
         }
     }
