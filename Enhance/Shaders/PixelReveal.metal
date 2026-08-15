@@ -19,6 +19,11 @@ static float cellHash(float2 cell, float seed) {
 /// app's pixel-art identity — `Pixellate.metal` and `DitherEffect` are both cell-based for the
 /// same reason.
 ///
+/// A landed cell is a **flat mosaic block** — sampled once at the cell centre, exactly as
+/// `Pixellate.metal` does — not a window onto the sharp image *(user's call, 2026-08-14)*. The
+/// point of the animation is the picture being *built* from chunky pixels; the sharp image
+/// arrives only at the end, when the reveal completes and this shader steps aside.
+///
 /// Note this is a **plain stitchable SwiftUI shader, not a `.ci.metal` Core Image kernel**, so it
 /// is compiled by Xcode's stock Metal rule and never touches the `-fcikernel` build rule that
 /// ROADMAP §1c scoped to `Shaders/CI/`. That gate exists for kernels used in GIF generation; a UI
@@ -27,16 +32,17 @@ static float cellHash(float2 cell, float seed) {
                                    SwiftUI::Layer layer,
                                    float progress,
                                    float cellSize,
-                                   float seed) {
+                                   float seed,
+                                   float4 bounds) {
     float size = max(cellSize, 1.0);
     float2 cell = floor(position / size);
 
-    // Sampled at the true position rather than the cell centre: the cell decides *when* a region
-    // appears, not what it looks like, so a revealed area is the real image rather than a mosaic.
-    half4 color = layer.sample(position);
+    // The block's one colour: the cell centre, clamped so edge cells do not sample past the
+    // layer and come back as a dark fringe.
+    float2 centre = cell * size + size * 0.5;
+    centre = clamp(centre, float2(0.0), bounds.zw - 1.0);
+    half4 color = layer.sample(centre);
 
-    // Scale the threshold band so the last cell lands exactly at progress 1. Without this the
-    // highest-threshold cells would still be missing when the animation finishes.
     float threshold = cellHash(cell, seed);
     return threshold < progress ? color : half4(0.0h);
 }

@@ -49,15 +49,25 @@ struct GifGridItem: View {
     @State private var thumbnail: UIImage? = nil
     @State private var longPressTriggered: Bool = false
 
-    /// 0 while the cell is still building in, 1 once it has arrived. Also the gate on the
-    /// animated layer: the GIF only starts once the still image has finished assembling.
+    /// 0 while the cell is still building in, 1 once it has arrived.
     @State private var revealProgress: Double = 1
+
+    /// True from the moment the reveal starts until its completion callback — the gate on the
+    /// animated layer and the shader.
+    ///
+    /// **Deliberately not derived from `revealProgress`.** `withAnimation { revealProgress = 1 }`
+    /// sets the *model* value to 1 instantly — only the presentation interpolates — so a
+    /// `revealProgress < 1` check turns false the moment the animation is scheduled. Gated on
+    /// that, the GIF layer's opacity flipped inside the same `withAnimation` and *faded in over
+    /// the whole reveal*, covering the block build underneath. A plain Bool flipped at start and
+    /// at completion is immune to the model-vs-presentation distinction.
+    @State private var revealActive = false
 
     /// Stable per-cell scatter, so a re-render mid-reveal does not reshuffle which cells have
     /// already landed.
     @State private var revealSeed: Double = Double.random(in: 0..<1000)
 
-    private var isRevealing: Bool { reveal != nil && revealProgress < 1 }
+    private var isRevealing: Bool { revealActive }
 
     var body: some View {
         Button {
@@ -151,10 +161,9 @@ struct GifGridItem: View {
     /// Plays the arrival, once, and only when there is something to reveal.
     ///
     /// Idempotent by design: it is called from `onAppear` and from both of the things it waits on,
-    /// because either can be the last to arrive. `revealProgress` doubles as the "already ran"
-    /// marker — it only sits below 1 between the reset and the animation's end.
+    /// because either can be the last to arrive. `revealActive` is the "already running" marker.
     private func startRevealIfReady() {
-        guard let reveal, thumbnail != nil, revealProgress == 1 else { return }
+        guard let reveal, thumbnail != nil, !revealActive else { return }
 
         // A reduced-motion user gets the cell, not a dissolve. Cleared immediately so the gallery
         // does not keep waiting for an animation that will never run.
@@ -164,16 +173,20 @@ struct GifGridItem: View {
         }
 
         revealSeed = Double.random(in: 0..<1000)
+        revealActive = true
         revealProgress = 0
         // The delay is the placeholder phase: the box sits empty while it elapses, then the
-        // pixels assemble over `duration`.
+        // blocks assemble over `duration`.
         withAnimation(.easeOut(duration: reveal.duration).delay(reveal.delay)) {
             revealProgress = 1
         }
-        // Snapped to 1 rather than left to the animation, so an interruption — backgrounding,
-        // entering select mode, a second save — can never strand a cell part-transparent.
+        // Ended by the clock rather than left to the animation, so an interruption —
+        // backgrounding, entering select mode, a second save — can never strand a cell
+        // part-built. Flipping `revealActive` here is also what swaps the finished mosaic for
+        // the sharp, playing GIF.
         DispatchQueue.main.asyncAfter(deadline: .now() + reveal.delay + reveal.duration) {
             revealProgress = 1
+            revealActive = false
             onRevealComplete?()
         }
     }
@@ -238,11 +251,22 @@ struct GifGridItem: View {
 /// A `ViewModifier` with an `isActive` gate rather than a conditional at the call site: a
 /// `layerEffect` that comes and goes changes the view's identity and can drop the very animation
 /// it is meant to render. This way the modifier is always in the tree and only its contents change.
-private struct PixelRevealModifier: ViewModifier {
-    let progress: Double
+///
+/// **`Animatable` is load-bearing, not decoration.** A shader uniform is not animatable on its
+/// own: without `animatableData`, `withAnimation { revealProgress = 1 }` hands the shader 1 on
+/// the next render and the whole image pops in at once — the per-cell build never draws a single
+/// intermediate frame. Conforming is what makes SwiftUI call this modifier per frame with
+/// interpolated progress values for the shader to consume.
+private struct PixelRevealModifier: ViewModifier, Animatable {
+    var progress: Double
     let cellSize: Double
     let seed: Double
     let isActive: Bool
+
+    var animatableData: Double {
+        get { progress }
+        set { progress = newValue }
+    }
 
     func body(content: Content) -> some View {
         if isActive {
@@ -250,9 +274,13 @@ private struct PixelRevealModifier: ViewModifier {
                 ShaderLibrary.pixelReveal(
                     .float(progress),
                     .float(cellSize),
-                    .float(seed)
+                    .float(seed),
+                    .boundingRect
                 ),
-                maxSampleOffset: .zero
+                // The shader samples each cell's *centre*, which can sit up to a cell away from
+                // the pixel being shaded. `.zero` would let Metal clamp those reads and smear
+                // the edges.
+                maxSampleOffset: CGSize(width: cellSize, height: cellSize)
             )
         } else {
             content
