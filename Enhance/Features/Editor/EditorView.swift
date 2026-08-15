@@ -296,15 +296,16 @@ struct EditorView: View {
             // colour, so a shadow renders in the text's own colour and a block plate fills solid
             // over the glyphs. Those decorations need a second, contrasting fill pass before they
             // are worth a control. `TextDecoration` stays in the model for that work.
-            // The toggle and the swatches it switches between are **one row**, 4pt apart.
+            // The toggle and the swatches it switches between are **one row**, 8pt apart
+            // *(user's call, 2026-08-15: 4pt read as cramped against the 46pt toggle)*.
             //
             // They used to be two `ParameterPickerRow`s, the second with an empty label — which
             // bought a full inter-row gap (24pt) *plus* the height of a blank label line between
             // a control and the thing it controls. The swatches are not a separate parameter;
-            // they are what FILL currently resolves to, so they belong inside its row, tight
-            // enough to read as one group.
+            // they are what FILL currently resolves to, so they belong inside its row, close
+            // enough to still read as one group.
             ParameterPickerRow(label: "FILL") {
-                VStack(spacing: AppConstants.Spacing.xsmall) {
+                VStack(spacing: AppConstants.Spacing.small) {
                     SegmentedToggle(
                         items: TextFillMode.allCases,
                         selection: textFillModeBinding,
