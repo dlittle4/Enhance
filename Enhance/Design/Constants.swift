@@ -99,7 +99,9 @@ enum AppConstants {
         /// size from measured space means one layout adapts instead of special-casing
         /// short devices.
         static func effectCardSize(forControlsHeight controlsHeight: CGFloat) -> CGFloat {
-            let forCards = controlsHeight - categoryTabsHeight - Spacing.small
+            // `Spacing.grid`, not `small`: the tab row now carries a 16pt bottom padding
+            // to the carousel, so that is the gap the cards have to give up.
+            let forCards = controlsHeight - categoryTabsHeight - Spacing.grid
             return min(effectCardMaxSize, max(effectCardMinSize, forCards))
         }
 

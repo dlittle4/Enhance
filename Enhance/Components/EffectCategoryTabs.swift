@@ -65,14 +65,11 @@ struct EffectCategoryTabs: View {
                 .foregroundColor(isActive ? .enhanceMint : .textInactive)
                 .frame(width: 72, height: 40)
                 .background(
+                    // Fill only — the 1pt mint outline is gone *(user's call, 2026-08-15)*.
+                    // It also retires the stroke/fill arrival mismatch the scaled capsule
+                    // used to have, since there is now one shape to grow rather than two.
                     Capsule()
                         .fill(isActive ? Color.mintDim : Color.clear)
-                        // The stroke rides inside the scaled shape, not in a separate overlay —
-                        // outside it, the outline popped in at full size while the fill was
-                        // still growing, so the two halves of one capsule arrived separately.
-                        .overlay(
-                            Capsule().stroke(isActive ? Color.enhanceMint : Color.clear, lineWidth: 1)
-                        )
                         // Grows in rather than fading in at full size. At the default
                         // `scaleFrom` of 1 this is inert, which is today's behaviour.
                         .scaleEffect(isActive ? 1 : (motion?.scaleFrom ?? 1))

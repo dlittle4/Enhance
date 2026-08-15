@@ -280,8 +280,9 @@ struct EffectParameterTests {
         #expect(L.effectCardSize(forControlsHeight: 60) == L.effectCardMinSize)
         #expect(L.effectCardSize(forControlsHeight: 0) == L.effectCardMinSize)
 
-        // In between: tracks the space, minus the tabs row and its spacing.
-        let mid = L.categoryTabsHeight + AppConstants.Spacing.small + 90
+        // In between: tracks the space, minus the tabs row and the 16pt gap it now holds
+        // to the carousel (was `Spacing.small` before the 2026-08-15 margin pass).
+        let mid = L.categoryTabsHeight + AppConstants.Spacing.grid + 90
         #expect(L.effectCardSize(forControlsHeight: mid) == 90)
     }
 

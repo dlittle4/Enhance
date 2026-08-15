@@ -83,7 +83,14 @@ struct EditorViewModelTests {
     // MARK: - resetEffects
     
     @Test func resetEffects_restoresDefaults() {
-        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        // Injected for the same reason as `makeHintReadyViewModel`: RESET returns to
+        // `defaultAnimatorType`, which is `nil` rather than `.zoomIn` when the shared
+        // zoom-optional flag happens to be on.
+        let vm = EditorViewModel(
+            content: .newImage(makeImage()),
+            gifGenerator: StubGIFGenerator(),
+            allowsGenerationWithoutZoom: false
+        )
         vm.selectedAnimatorType = .pulse
         vm.selectedModifier = .spiral
         vm.playbackSpeed = 3.0
@@ -195,7 +202,15 @@ struct EditorViewModelTests {
     // MARK: - showsZoomHint
 
     private func makeHintReadyViewModel() -> EditorViewModel {
-        let vm = EditorViewModel(content: .newImage(makeImage()), gifGenerator: StubGIFGenerator())
+        // The flag is injected rather than left to `FeatureFlags.zoomOptional`, which reads the
+        // *shared* defaults: with the experiment switched on in Settings on the test device, the
+        // hint is correctly silent and this test failed for a reason that has nothing to do with
+        // the hint. `EditorViewModel.allowsGenerationWithoutZoom` documents exactly this leak.
+        let vm = EditorViewModel(
+            content: .newImage(makeImage()),
+            gifGenerator: StubGIFGenerator(),
+            allowsGenerationWithoutZoom: false
+        )
         // The editor fades its controls in after the open transition; the hint rides in
         // with them rather than popping in mid-transition.
         vm.showControls = true

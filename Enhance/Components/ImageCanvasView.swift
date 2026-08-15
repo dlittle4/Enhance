@@ -46,7 +46,10 @@ struct ImageCanvasView: View {
     /// callback under the user's fingers.
     var onInteractionEnded: (() -> Void)? = nil
 
-    private let canvasSize: CGFloat = 325
+    /// Side of the square canvas. A parameter rather than a constant since the editor sizes the
+    /// canvas from the screen's 24pt margins *(2026-08-15)*; the default keeps previews and any
+    /// fixed-size call site working.
+    var canvasSize: CGFloat = 325
 
     var body: some View {
         ZStack {

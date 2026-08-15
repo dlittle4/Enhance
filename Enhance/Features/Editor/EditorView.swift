@@ -87,16 +87,22 @@ struct EditorView: View {
         return .init(stagger: tuning.cascadeStagger, curve: tuning.categorySwitchEffective)
     }
 
-    private let canvasSize: CGFloat = 325
-    private let borderInset: CGFloat = 5
+    /// The screen's margin, and the line the top bar, canvas, tabs, cards and buttons all sit
+    /// on *(Figma "Edit" frame, 2026-08-15: a 393pt screen with content at x=24, width 345)*.
+    private let canvasInset: CGFloat = 24
+
+    /// Measured at the top of `body`. Everything the margin governs is derived from it, so the
+    /// same layout holds on a 375pt SE and a 440pt Pro Max instead of a fixed 335pt column
+    /// floating in the middle of a wide screen.
+    @State private var contentWidth: CGFloat = 345
+
+    /// The photo frame is the full content width; the photo is inset inside it by the border.
+    private var borderedSize: CGFloat { contentWidth }
+    private let borderInset: CGFloat = 6
+    private var canvasSize: CGFloat { max(0, borderedSize - borderInset * 2) }
+
     private let outerRadius: CGFloat = 28
     private var innerRadius: CGFloat { outerRadius - borderInset }
-    private var borderedSize: CGFloat { canvasSize + borderInset * 2 }
-
-    /// Gap between the screen edge and the canvas. The carousel spans the full width and
-    /// insets its content by this, so cards line up with the canvas at rest while still
-    /// being able to scroll out to the edge.
-    private let canvasInset: CGFloat = 20
 
     private let mintGreen = Color.enhanceMint
     private let buttonHeight: CGFloat = 60
@@ -104,6 +110,16 @@ struct EditorView: View {
     var body: some View {
         ZStack {
             Color.surfacePrimary.ignoresSafeArea()
+
+            // Publishes the width the 24pt margins are measured against. A background reader
+            // rather than wrapping the column in a `GeometryReader`, which is greedy and would
+            // take over the vertical distribution the editing panel depends on.
+            Color.clear
+                .onGeometryChange(for: CGFloat.self) { proxy in
+                    max(0, proxy.size.width - canvasInset * 2)
+                } action: { width in
+                    contentWidth = width
+                }
 
             VStack(spacing: 16) {
                 // The editor's actions and the photo ride the same staggered entrance as the
@@ -408,7 +424,7 @@ struct EditorView: View {
                     .foregroundColor(.white)
             }
         }
-        .padding(.horizontal, 17)
+        .padding(.horizontal, canvasInset)
         .padding(.top, 32)
         .padding(.bottom, 8)
     }
@@ -533,7 +549,8 @@ struct EditorView: View {
                     openTextEntry()
                 },
                 onInteraction: { viewModel.noteCanvasInteraction() },
-                onInteractionEnded: { viewModel.commitZoomCardFraming() }
+                onInteractionEnded: { viewModel.commitZoomCardFraming() },
+                canvasSize: canvasSize
             )
             .frame(width: canvasSize, height: canvasSize)
         }
@@ -563,7 +580,9 @@ struct EditorView: View {
     // MARK: - Controls
 
     private func controlsSection(cardSize: CGFloat) -> some View {
-        VStack(spacing: 8) {
+        // Zero spacing: the tab row carries the 16pt gap to the carousel itself, so there is
+        // one source for it rather than a padding and a stack spacing adding up.
+        VStack(spacing: 0) {
             // The tap site deliberately carries **no** `withAnimation` of its own; the
             // container-level `.animation(_:value:)` at the bottom of this method owns the
             // switch. Two calls used to race here — 0.2s at the tap, 0.25s on the container —
@@ -575,7 +594,11 @@ struct EditorView: View {
                 onWillChange: { viewModel.pushUndo() },
                 motion: tabMotion
             )
-            .frame(width: borderedSize)
+            .frame(width: contentWidth)
+            // 16pt above and below *(user's call, 2026-08-15; Figma has the tab row 16pt under
+            // the canvas and 16pt over the carousel)*. Only the bottom is padding — the top 16
+            // is the column spacing in `body`, and adding both would make it 32.
+            .padding(.bottom, AppConstants.Spacing.grid)
             // The tabs follow the canvas, and the card gallery follows them one stagger step
             // later *(user's call, 2026-08-14)*. With the experiment off all five collapse to
             // the same flat fade the editor used to wear as one piece.

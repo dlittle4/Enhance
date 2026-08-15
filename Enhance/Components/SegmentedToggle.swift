@@ -41,7 +41,6 @@ struct SegmentedToggle<T: Hashable>: View {
     /// From the design spec, and the same on every panel — see the note above on why this is a
     /// constant rather than an environment read.
     private let height: CGFloat = 46
-    private let selectedBorderWidth: CGFloat = 2
 
     var body: some View {
         HStack(spacing: 0) {
@@ -56,22 +55,20 @@ struct SegmentedToggle<T: Hashable>: View {
                     }
                     onChange?()
                 } label: {
+                    // Solid mint with dark type for the selection, and **no outline**
+                    // *(user's call, 2026-08-15)*. The old treatment was a dim mint wash plus
+                    // a 2pt mint ring, which spent two devices — fill and stroke — saying one
+                    // thing; a filled segment reads as selected on its own.
                     Text(label(item))
                         .font(.silkscreenSubheadline)
-                        .foregroundColor(isSelected ? .enhanceMint : .textPrimary)
+                        .foregroundColor(isSelected ? .textOnGradient : .textPrimary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(
                             RoundedRectangle(cornerRadius: AppConstants.CornerRadius.control,
                                              style: .continuous)
-                                .fill(isSelected ? Color.mintDim : Color.clear)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: AppConstants.CornerRadius.control,
-                                             style: .continuous)
-                                .stroke(isSelected ? Color.enhanceMint : Color.clear,
-                                        lineWidth: selectedBorderWidth)
+                                .fill(isSelected ? Color.enhanceMint : Color.clear)
                         )
                 }
                 .buttonStyle(.plain)
