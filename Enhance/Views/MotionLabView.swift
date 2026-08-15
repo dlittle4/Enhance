@@ -389,16 +389,16 @@ struct MotionLabView: View {
         }
     }
 
-    /// The three gallery animations, which have no curve of their own.
+    /// The two gallery animations, which have no curve of their own.
     ///
-    /// Grouped in one section rather than given three of their own because none of them takes a
-    /// spring: the reveal is a linear-ish dissolve, the shimmer is a single eased pass, and the
-    /// parallax follows a filtered sensor rather than animating at all. A USE GLOBAL / CUSTOM
-    /// control on any of them would offer a choice that changes nothing.
+    /// Grouped in one section rather than given two of their own because neither takes a
+    /// spring: the reveal is a linear-ish dissolve, and the parallax follows a filtered sensor
+    /// rather than animating at all. A USE GLOBAL / CUSTOM control on either would offer a
+    /// choice that changes nothing.
     ///
-    /// They are also the three the preview above cannot show — the reveal needs a real save, the
-    /// shimmer needs the gallery, and the parallax needs a device being tilted. The note says so
-    /// rather than letting the sliders look broken.
+    /// They are also the two the preview above cannot show — the reveal needs a real save, and
+    /// the parallax needs a device being tilted. The note says so rather than letting the
+    /// sliders look broken.
     private var gallerySection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("GALLERY")
@@ -425,16 +425,6 @@ struct MotionLabView: View {
                 value: normalized(tuning.revealDelay, in: 0...2),
                 allowsZero: true,
                 valueText: String(format: "%.2fS", store.tuning.revealDelay)
-            )
-            ParameterSliderRow(
-                label: "SHIMMER EVERY",
-                value: normalized(tuning.shimmerInterval, in: 1...60),
-                valueText: "\(Int(store.tuning.shimmerInterval))S"
-            )
-            ParameterSliderRow(
-                label: "SHIMMER TIME",
-                value: normalized(tuning.shimmerDuration, in: 0.1...5),
-                valueText: String(format: "%.2fS", store.tuning.shimmerDuration)
             )
             ParameterSliderRow(
                 label: "TILT DRIFT",

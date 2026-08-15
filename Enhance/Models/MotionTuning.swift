@@ -154,16 +154,11 @@ struct MotionTuning: Codable, Equatable {
 
     // MARK: - Gallery ambience (Idea 3)
 
-    /// Seconds between shimmer sweeps while the gallery sits idle.
-    var shimmerInterval: Double
-
-    /// Seconds for one sweep to cross the grid.
-    var shimmerDuration: Double
-
-    /// How far the grid drifts with device tilt, in points. 0 disables the parallax entirely.
+    /// The *deepest* cell's tilt drift, in points. 0 disables the parallax entirely.
     ///
-    /// Applied to the grid **as one transform** rather than per cell: independent per-cell motion
-    /// reads as jitter, which is the opposite of the considered feel this is for.
+    /// Applied per cell *(user's call, 2026-08-14)*: each GIF gets a stable fraction of this
+    /// derived from its identity (`GalleryView.cellDepth`), so neighbours separate under tilt
+    /// and the grid reads as a stack of cards at different depths.
     var parallaxMagnitude: Double
 
     /// How heavily raw device motion is smoothed, 0…1 — higher is calmer.
@@ -205,8 +200,6 @@ struct MotionTuning: Codable, Equatable {
         revealCellSize: 6,
         revealDuration: 1.6,
         revealDelay: 0.35,
-        shimmerInterval: 20,
-        shimmerDuration: 1.0,
         parallaxMagnitude: 4,
         parallaxSmoothing: 0.9
     )
@@ -230,8 +223,6 @@ struct MotionTuning: Codable, Equatable {
         revealCellSize: 6,
         revealDuration: 1.6,
         revealDelay: 0.35,
-        shimmerInterval: 20,
-        shimmerDuration: 1.0,
         parallaxMagnitude: 4,
         parallaxSmoothing: 0.9
     )
@@ -275,8 +266,6 @@ struct MotionTuning: Codable, Equatable {
             revealCellSize: \(Self.number(revealCellSize)),
             revealDuration: \(Self.number(revealDuration)),
             revealDelay: \(Self.number(revealDelay)),
-            shimmerInterval: \(Self.number(shimmerInterval)),
-            shimmerDuration: \(Self.number(shimmerDuration)),
             parallaxMagnitude: \(Self.number(parallaxMagnitude)),
             parallaxSmoothing: \(Self.number(parallaxSmoothing))
         )
@@ -335,8 +324,6 @@ extension MotionTuning {
             revealCellSize: number(.revealCellSize, fallback.revealCellSize),
             revealDuration: number(.revealDuration, fallback.revealDuration),
             revealDelay: number(.revealDelay, fallback.revealDelay),
-            shimmerInterval: number(.shimmerInterval, fallback.shimmerInterval),
-            shimmerDuration: number(.shimmerDuration, fallback.shimmerDuration),
             parallaxMagnitude: number(.parallaxMagnitude, fallback.parallaxMagnitude),
             parallaxSmoothing: number(.parallaxSmoothing, fallback.parallaxSmoothing)
         )

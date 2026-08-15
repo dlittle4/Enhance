@@ -123,9 +123,9 @@ struct EditorView: View {
                         )
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     }
-                    // First of the two staggered chrome elements. With the experiment off this is
-                    // exactly the opacity gate it has always been — see `ChromeEntrance`.
-                    .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 0)
+                    // No entrance on the container: the tabs and the card gallery stagger
+                    // *separately* inside `controlsSection` — tabs first, cards second
+                    // *(user's call, 2026-08-14)* — so the section cannot also fade as one.
                 }
                 // No `Spacer` in the editing branch. A Spacer and the panel's
                 // `.frame(maxHeight: .infinity)` are both fully flexible, so SwiftUI
@@ -147,7 +147,7 @@ struct EditorView: View {
                     .transition(.move(edge: .bottom).combined(with: .opacity))
                 } else {
                     bottomButtons
-                        .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 1)
+                        .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 2)
                         .frame(width: borderedSize)
                         .padding(.bottom, 16)
                         .transition(.opacity)
@@ -525,30 +525,37 @@ struct EditorView: View {
                 motion: tabMotion
             )
             .frame(width: borderedSize)
+            // The tabs lead the entrance; the card gallery below follows one stagger step
+            // later *(user's call, 2026-08-14)*. With the experiment off both collapse to
+            // the same flat fade the section used to wear as one piece.
+            .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 0)
 
-            switch viewModel.selectedEffectCategory {
-            case .zoomEffects:
-                VStack(spacing: 8) {
-                    zoomEffectsGrid(cardSize: cardSize)
-                }
-                .transition(categorySwitchTransition)
-            case .visualEffects:
-                VStack(spacing: 8) {
-                    visualEffectsGrid(cardSize: cardSize)
+            Group {
+                switch viewModel.selectedEffectCategory {
+                case .zoomEffects:
+                    VStack(spacing: 8) {
+                        zoomEffectsGrid(cardSize: cardSize)
+                    }
+                    .transition(categorySwitchTransition)
+                case .visualEffects:
+                    VStack(spacing: 8) {
+                        visualEffectsGrid(cardSize: cardSize)
 
+                    }
+                    .transition(categorySwitchTransition)
+                case .faceFilters:
+                    VStack(spacing: 8) {
+                        faceFiltersGrid(cardSize: cardSize)
+                    }
+                    .transition(categorySwitchTransition)
+                case .text:
+                    VStack(spacing: 8) {
+                        textPresetsGrid(cardSize: cardSize)
+                    }
+                    .transition(categorySwitchTransition)
                 }
-                .transition(categorySwitchTransition)
-            case .faceFilters:
-                VStack(spacing: 8) {
-                    faceFiltersGrid(cardSize: cardSize)
-                }
-                .transition(categorySwitchTransition)
-            case .text:
-                VStack(spacing: 8) {
-                    textPresetsGrid(cardSize: cardSize)
-                }
-                .transition(categorySwitchTransition)
             }
+            .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 1)
 
         }
         .animation(categorySwitchAnimation, value: viewModel.selectedEffectCategory)

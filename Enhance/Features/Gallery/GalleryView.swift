@@ -31,7 +31,6 @@ struct GalleryView: View {
     /// Scaffolding — see `MotionTuning` for what graduation looks like.
     @ObservedObject private var motionStore = MotionTuningStore.shared
     @AppStorage(FeatureFlags.motionSaveRevealKey) private var motionSaveReveal = false
-    @AppStorage(FeatureFlags.motionShimmerKey) private var motionShimmer = false
     @AppStorage(FeatureFlags.motionParallaxKey) private var motionParallax = false
     @AppStorage(FeatureFlags.motionSharedZoomKey) private var motionSharedZoom = false
 
@@ -41,10 +40,6 @@ struct GalleryView: View {
     @State private var zoomingIndex: Int?
 
     @StateObject private var deviceMotion = DeviceMotionService()
-
-    /// Bumped on each shimmer sweep. A counter rather than a bool because a second sweep needs
-    /// somewhere to land while the first is still fading.
-    @State private var shimmerToken = 0
 
     private var gridColumns: [GridItem] {
         let count = gridColumnCount
@@ -147,12 +142,6 @@ struct GalleryView: View {
             Text("This will permanently remove the selected GIFs from your photo library.")
         }
         .photosPicker(isPresented: $showPhotoPicker, selection: $selectedPhotoItem, matching: .images)
-        // A single timer at a fixed 1s tick, counting up to the tuned interval, rather than a
-        // publisher rebuilt whenever the interval slider moves — recreating the publisher mid-drag
-        // restarts the countdown on every step, so the sweep would never fire while tuning it.
-        .onReceive(shimmerTick) { _ in
-            tickShimmer()
-        }
         .onChange(of: isIdleForAmbience) { _, idle in
             // The accelerometer is the one effect here with a running cost, so it is started and
             // stopped rather than left on and ignored.
@@ -165,28 +154,6 @@ struct GalleryView: View {
     }
 
     // MARK: - Ambient lifecycle
-
-    /// Seconds the gallery has been quiet. Reset by anything that makes a sweep unwelcome, so the
-    /// interval measures *idle* time rather than wall-clock time.
-    @State private var idleSeconds: Double = 0
-
-    /// The 1s tick behind `tickShimmer`, held in `@State` so it survives body re-evaluation.
-    /// Built inline in `onReceive` it was a *new* publisher on every body pass — and the gallery's
-    /// body re-runs constantly (photo refreshes, parallax tilt at 30Hz), so the freshly-restarted
-    /// timer never reached its first tick and the shimmer never fired at all.
-    @State private var shimmerTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-
-    private func tickShimmer() {
-        guard motionShimmer, !reduceMotion, isIdleForAmbience else {
-            idleSeconds = 0
-            return
-        }
-        idleSeconds += 1
-        if idleSeconds >= motionStore.tuning.shimmerInterval {
-            idleSeconds = 0
-            shimmerToken += 1
-        }
-    }
 
     private func startDeviceMotionIfWanted() {
         guard motionParallax, !reduceMotion else {
@@ -432,7 +399,7 @@ struct GalleryView: View {
 
     private var gridEntries: [GridEntry] {
         let count = min(photoManager.myGifs.count, photoManager.myGifURLs.count)
-        return (0..<count).map { index in
+        let entries = (0..<count).map { index in
             GridEntry(
                 index: index,
                 id: photoManager.myGifAssetIdentifiers[safe: index]
@@ -440,6 +407,16 @@ struct GalleryView: View {
                     ?? "index-\(index)"
             )
         }
+        // A just-saved GIF stays out of the grid until the editor is off screen. The library
+        // refresh lands ~1s before the overlay closes, so without this the shift-over and the
+        // insertion both play *behind the editor* and all the user sees is the pixel fill.
+        // Holding the entry back moves the whole choreography — neighbours sliding over, the
+        // placeholder scaling in, the pixels assembling — to after the gallery is visible.
+        if motionSaveReveal, !reduceMotion, isEditorPresented,
+           let pending = photoManager.justSavedIdentifier {
+            return entries.filter { $0.id != pending }
+        }
+        return entries
     }
 
     private var gridLayer: some View {
@@ -483,65 +460,57 @@ struct GalleryView: View {
                             // The newcomer's arrival: the empty box scales in first (phase 1),
                             // then `GifGridItem`'s reveal fills it with pixels (phase 2).
                             .transition(.scale(scale: 0.6).combined(with: .opacity))
+                            // Per-cell rather than one transform on the whole grid *(user's
+                            // call, 2026-08-14)*: each GIF drifts at its own depth, so the tilt
+                            // reads as looking into a stack of cards rather than the grid
+                            // sliding as a plane.
+                            .offset(cellParallax(for: entry.id))
                         }
                     }
                 }
                 // Animates insertions — the shift-over plus the newcomer's transition. Scoped to
-                // the identifier list so scrolling and selection cannot trigger it, and inert
+                // the *visible* entries so scrolling and selection cannot trigger it, and inert
                 // without the flag so the shipped gallery still snaps.
                 .animation(
                     motionSaveReveal && !reduceMotion
                         ? .spring(response: 0.45, dampingFraction: 0.8)
                         : nil,
-                    value: photoManager.myGifAssetIdentifiers
+                    value: gridEntries.map(\.id)
                 )
 
                 Spacer(minLength: 100)
             }
             .padding(.horizontal, 16)
             .animation(.interactiveSpring(response: 0.35, dampingFraction: 0.86), value: gridColumnCount)
-            // **One transform for the whole grid, not one per cell.** Independent per-cell motion
-            // reads as jitter; moving the grid as a plane is what reads as considered. Unanimated
-            // on purpose — `DeviceMotionService` already smooths the signal, and layering a spring
-            // on top of a filtered stream adds lag without adding calm.
-            .offset(parallaxOffset)
-            // Drawn over the grid rather than behind it, and non-interactive so it can never eat
-            // a tap meant for a GIF.
-            .overlay(shimmerOverlay.allowsHitTesting(false))
         }
     }
 
     // MARK: - Ambient motion
 
-    private var parallaxOffset: CGSize {
+    /// This GIF's tilt drift. `parallaxMagnitude` is the *deepest* cell's travel; every cell
+    /// gets a stable fraction of it derived from its identity, so neighbours separate under
+    /// tilt and the same GIF keeps the same depth across re-renders.
+    private func cellParallax(for id: String) -> CGSize {
         guard motionParallax, !reduceMotion else { return .zero }
-        let magnitude = motionStore.tuning.parallaxMagnitude
+        let magnitude = motionStore.tuning.parallaxMagnitude * cellDepth(for: id)
         return CGSize(
             width: deviceMotion.tilt.width * magnitude,
             height: deviceMotion.tilt.height * magnitude
         )
     }
 
-    /// A diagonal band that crosses the grid, keyed to `shimmerToken` so each tick re-inserts it
-    /// and the transition plays the sweep.
-    @ViewBuilder
-    private var shimmerOverlay: some View {
-        if motionShimmer, !reduceMotion {
-            GeometryReader { geo in
-                ShimmerSweep(
-                    token: shimmerToken,
-                    duration: motionStore.tuning.shimmerDuration,
-                    size: geo.size
-                )
-            }
+    /// A stable 0.35…1.0 per identity. Hand-rolled rather than `Hasher`, which is seeded per
+    /// launch — a depth that reshuffled on every cold start would make the same gallery feel
+    /// subtly different each time for no reason.
+    private func cellDepth(for id: String) -> Double {
+        var hash: UInt64 = 1469598103934665603
+        for byte in id.utf8 {
+            hash = (hash ^ UInt64(byte)) &* 1099511628211
         }
+        return 0.35 + 0.65 * Double(hash % 1000) / 999
     }
 
-    /// Whether the gallery is quiet enough for a shimmer.
-    ///
-    /// A sweep crossing the grid behind an active edit, a pinch, or a selection reads as a
-    /// rendering fault rather than as delight, so the effect skips those ticks entirely instead
-    /// of queueing them up for later.
+    /// Whether the gallery is quiet enough for the ambient motion to run.
     private var isIdleForAmbience: Bool {
         scenePhase == .active
             && !isSelectMode
@@ -795,52 +764,5 @@ struct GalleryView: View {
             activityVC.popoverPresentationController?.sourceView = presenter.view
             presenter.present(activityVC, animated: true)
         }
-    }
-}
-
-
-/// One diagonal pass of light across the gallery.
-///
-/// Its own view so the sweep owns its animation state: re-inserted on each `token` change, it
-/// animates from one edge to the other and then stops. Keeping this out of `GalleryView` means a
-/// grid re-render for any other reason cannot restart or interrupt a sweep in progress.
-private struct ShimmerSweep: View {
-    let token: Int
-    let duration: Double
-    let size: CGSize
-
-    @State private var travelled = false
-
-    /// Width of the band, as a fraction of the view. Wide enough to read as light passing over
-    /// rather than as a line crossing the screen.
-    private var bandWidth: CGFloat { max(size.width * 0.35, 80) }
-
-    var body: some View {
-        LinearGradient(
-            colors: [
-                .clear,
-                Color.white.opacity(0.10),
-                Color.white.opacity(0.16),
-                Color.white.opacity(0.10),
-                .clear
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-        .frame(width: bandWidth)
-        .rotationEffect(.degrees(20))
-        // Tall enough that the rotation cannot expose a corner as it crosses.
-        .frame(height: size.height * 1.6)
-        .offset(x: travelled ? size.width + bandWidth : -bandWidth)
-        .blendMode(.plusLighter)
-        .onAppear {
-            // The band starts off the leading edge and is asked to travel in the same frame it
-            // appears; a zero-duration first pass would otherwise show it already arrived.
-            travelled = false
-            withAnimation(.easeInOut(duration: duration)) {
-                travelled = true
-            }
-        }
-        .id(token)
     }
 }

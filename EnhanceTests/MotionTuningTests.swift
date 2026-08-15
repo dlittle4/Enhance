@@ -95,8 +95,6 @@ struct MotionTuningTests {
         let tuning = MotionTuning.default
         #expect(tuning.revealCellSize >= 2)
         #expect(tuning.revealDuration > 0)
-        #expect(tuning.shimmerInterval > 0)
-        #expect(tuning.shimmerDuration > 0)
         #expect(tuning.parallaxSmoothing > 0 && tuning.parallaxSmoothing < 1)
     }
 
