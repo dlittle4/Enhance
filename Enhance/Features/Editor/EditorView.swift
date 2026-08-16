@@ -1421,7 +1421,11 @@ struct EditorView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 60)
-                        .surface(.card, opacity: 0.8)
+                        // `.control`, not `.card`. `BottomSheet` paints itself `surfaceCard`, so
+                        // a card surface here was the sheet's own colour drawn back over itself
+                        // and the buttons had no visible background at all. `.control` is the
+                        // token for a raised element *on* a card — see `SurfaceModifier.Style`.
+                        .surface(.control)
                 }
                 .buttonStyle(.plain)
 
@@ -1434,7 +1438,8 @@ struct EditorView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 60)
-                        .surface(.card, opacity: 0.8)
+                        // Same card-on-card fix as the button above.
+                        .surface(.control)
                 }
                 .buttonStyle(.plain)
             }
