@@ -87,9 +87,12 @@ struct EditorView: View {
         return .init(stagger: tuning.cascadeStagger, curve: tuning.categorySwitchEffective)
     }
 
-    /// The screen's margin, and the line the top bar, canvas, tabs, cards and buttons all sit
-    /// on *(Figma "Edit" frame, 2026-08-15: a 393pt screen with content at x=24, width 345)*.
-    private let canvasInset: CGFloat = 24
+    /// The screen's margin, and the line the top bar, canvas, tabs, cards and buttons all sit on.
+    ///
+    /// 16pt to match the gallery's grid *(user's call, 2026-08-15)*. The Figma "Edit" frame
+    /// specifies 24, but the editor and the gallery are the app's two screens and a margin that
+    /// changes between them reads as drift rather than as a decision.
+    private let canvasInset: CGFloat = 16
 
     /// Measured at the top of `body`. Everything the margin governs is derived from it, so the
     /// same layout holds on a 375pt SE and a 440pt Pro Max instead of a fixed 335pt column

@@ -558,8 +558,10 @@ struct GalleryView: View {
             }
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: isSelectMode)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 16)
+        // The grid's own margin, so MAKE A GIF lines up with the cells above it rather than
+        // running 6pt wider than the content it belongs to *(user's call, 2026-08-15)*.
+        .padding(.horizontal, AppConstants.Spacing.grid)
+        .padding(.vertical, AppConstants.Spacing.grid)
         .background(Color.surfacePrimary)
     }
     
