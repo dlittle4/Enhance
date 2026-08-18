@@ -61,10 +61,9 @@ struct EffectDetailPanel<Rows: View>: View {
                 VStack(alignment: .leading, spacing: AppConstants.Spacing.standard) {
                     rows()
 
-                    // Anchor for the scroll nudge. Zero-height, so it costs no layout.
+                    // Zero-height run-out below the last row (it buys one VStack spacing).
                     Color.clear
                         .frame(height: 0)
-                        .id(panelBottomAnchor)
                 }
                 // Replaces the panel's bottom padding, which had to go so the rows could scroll
                 // all the way to the panel's edge — see the overlay note below. Applied to the
@@ -73,6 +72,12 @@ struct EffectDetailPanel<Rows: View>: View {
                 // `needsScroll` off and oscillate.
                 .padding(.bottom, needsScroll ? AppConstants.Spacing.grid : 0)
                 .frame(maxWidth: .infinity)
+                // The nudge's scroll target — on the *padded* content, not a zero-height element
+                // inside it. `scrollTo(anchor: .bottom)` aligns the identified view's bottom edge
+                // with the viewport's, so an anchor inside the padding stopped 16pt short of the
+                // end; `isAtBottom`'s 4pt tolerance read that as "not there yet" and the nudge
+                // survived its own tap.
+                .id(panelBottomAnchor)
                 .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
             }
             // Only scrollable when the rows genuinely don't fit.
