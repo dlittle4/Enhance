@@ -384,9 +384,20 @@ notion of a silhouette.
       throws on the iOS Simulator** (no model), so the real path cannot be exercised there at all;
       the tests inject a stub deliberately. Combined with the spike having run on macOS, the
       capability has been seen working on macOS, seen throwing in the Simulator, and **never once
-      run on iOS**. Re-run the showcase corpus through `Tools/segmentation-spike.swift`'s logic on
-      hardware before any §2f effect is built on it — that is what turns the 7/8 hit rate from
-      indicative into real. Full write-up: LEARNINGS, 2026-08-18.
+      run on iOS**. `EnhanceTests/SubjectSegmentationDeviceTests.swift` exists to settle it: it
+      runs the real path over all eight `showcase-*` assets and attaches a CSV of
+      subject/background/edge coverage plus one cutout GIF per hit, so the numbers can be diffed
+      against the macOS run recorded above. **It reports rather than asserts** — the only
+      assertion is that Vision does not throw, because a coverage threshold invented in advance
+      would be a guess. The file is `#if !targetEnvironment(simulator)`, so CI stays green and the
+      test simply does not exist on the Simulator. Full write-up: LEARNINGS, 2026-08-18.
+
+      ```
+      xcrun xctrace list devices          # find the device name
+      xcodebuild test -project Enhance.xcodeproj -scheme Enhance \
+        -destination 'platform=iOS,name=<DEVICE>' \
+        -only-testing:EnhanceTests/SubjectSegmentationDeviceTests
+      ```
 
 **Two things to carry into every effect built on this**, both already learned elsewhere:
 
