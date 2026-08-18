@@ -84,13 +84,16 @@ struct SubjectMaskCompositorTests {
         #expect(isBlue(pixel(out, x: 48, y: 32)))  // right half → background
     }
 
-    /// A 32pt source aspect-filled into a 64pt frame. Without `contentScale` the mask would
+    /// A 32pt source aspect-filled into a 64pt frame. Without `contentRect` the mask would
     /// cover only the left quarter of the frame and the split would land at x=16 instead of
     /// x=32 — the drift this field exists to prevent.
-    @Test func contentScale_stretchesTheMaskToTheFilledFrame() {
+    @Test func contentRect_stretchesTheMaskToTheFilledFrame() {
         let source: CGFloat = 32
         let frameSide: CGFloat = 64
-        let geometry = FrameGeometry(scale: 1.0, contentOrigin: .zero, contentScale: 2.0)
+        let geometry = FrameGeometry(
+            scale: 1.0, contentOrigin: .zero,
+            contentRect: CGRect(x: 0, y: 0, width: 64, height: 64)
+        )
 
         let out = compositor.subject(
             of: solid(.red, side: frameSide), over: solid(.blue, side: frameSide),
@@ -106,11 +109,12 @@ struct SubjectMaskCompositorTests {
     /// Zoom multiplies on top of the fill factor, and the origin shifts with the pan.
     @Test func zoomAndPan_moveTheSplitWithTheContent() {
         let frameSide: CGFloat = 64
-        // Source 32pt, filled ×1 then zoomed ×2 → the 16pt mask boundary lands at 32pt,
-        // then the pan pushes it a further 8pt right.
-        let geometry = FrameGeometry(scale: 2.0,
-                                     contentOrigin: CGPoint(x: 8, y: 0),
-                                     contentScale: 1.0)
+        // Source 32pt zoomed ×2 → a 64pt content rect, panned 8pt right, so the mask's 16pt
+        // boundary lands at 8 + 32 = 40.
+        let geometry = FrameGeometry(
+            scale: 2.0, contentOrigin: CGPoint(x: 8, y: 0),
+            contentRect: CGRect(x: 8, y: 0, width: 64, height: 64)
+        )
 
         let out = compositor.subject(
             of: solid(.red, side: frameSide), over: solid(.blue, side: frameSide),
@@ -125,9 +129,10 @@ struct SubjectMaskCompositorTests {
     /// frame extends its border rather than exposing an untreated strip.
     @Test func maskIsClampedRatherThanLeavingAnUntreatedEdge() {
         let frameSide: CGFloat = 64
-        let geometry = FrameGeometry(scale: 1.0,
-                                     contentOrigin: CGPoint(x: 16, y: 0),
-                                     contentScale: 1.0)
+        let geometry = FrameGeometry(
+            scale: 1.0, contentOrigin: CGPoint(x: 16, y: 0),
+            contentRect: CGRect(x: 16, y: 0, width: 32, height: 32)
+        )
 
         let out = compositor.subject(
             of: solid(.red, side: frameSide), over: solid(.blue, side: frameSide),
@@ -143,16 +148,22 @@ struct SubjectMaskCompositorTests {
 
     @Test func nonFiniteGeometry_returnsFrameUnchanged() {
         let frame = solid(.red, side: 32)
-        let geometry = FrameGeometry(scale: .nan, contentOrigin: .zero, contentScale: 1.0)
+        let geometry = FrameGeometry(
+            scale: 1.0, contentOrigin: .zero,
+            contentRect: CGRect(x: CGFloat.nan, y: 0, width: 32, height: 32)
+        )
 
         let out = compositor.subject(of: frame, over: solid(.blue, side: 32),
                                      mask: leftHalfMask(side: 32), geometry: geometry)
         #expect(isRed(pixel(out, x: 16, y: 16)))
     }
 
-    @Test func zeroContentScale_returnsFrameUnchanged() {
+    @Test func zeroSizedContentRect_returnsFrameUnchanged() {
         let frame = solid(.red, side: 32)
-        let geometry = FrameGeometry(scale: 1.0, contentOrigin: .zero, contentScale: 0)
+        let geometry = FrameGeometry(
+            scale: 1.0, contentOrigin: .zero,
+            contentRect: CGRect(x: 0, y: 0, width: 0, height: 0)
+        )
 
         let out = compositor.subject(of: frame, over: solid(.blue, side: 32),
                                      mask: leftHalfMask(side: 32), geometry: geometry)

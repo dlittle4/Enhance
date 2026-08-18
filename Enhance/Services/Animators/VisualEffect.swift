@@ -25,34 +25,44 @@ public struct FrameGeometry {
     /// absolute position.
     public var contentOrigin: CGPoint
 
-    /// How the source photo's *pixels* were scaled to fill the output frame, before any
-    /// zoom. The GIF pipeline aspect-fills a photo of arbitrary size into a 600×600 frame,
-    /// so this is that fill factor; `scale` is the zoom applied on top of it.
+    /// Where the source photo actually lands in the frame — its full rect in frame pixels,
+    /// CIImage coordinates (bottom-left origin), after both the aspect-fill and the zoom.
     ///
-    /// Grid effects do not need this — a dither cell is defined in frame space and only has
-    /// to track the zoom. It exists for effects carrying data computed in *source* space,
-    /// where the full mapping matters: a subject mask from `SubjectSegmentationService` is
-    /// the size of the photo, and placing it on the frame needs `scale * contentScale` for
-    /// size and `contentOrigin` for position. Getting only the zoom right leaves the cutout
-    /// drifting off the subject as the frame pans — the same class of bug `contentOrigin`
-    /// was added to prevent for grids.
+    /// **Distinct from `contentOrigin`, and not redundant with it.** `contentOrigin` is a
+    /// *phase* for grid effects, which only ever read it modulo a cell size; it is computed
+    /// from the content's top edge, and being a whole content-height out makes no difference
+    /// to a remainder. Placing a source-space image needs a real position and a real size, so
+    /// it needs this instead. An earlier version of this field was a bare scale factor paired
+    /// with `contentOrigin`, which put the subject mask a full frame-height off in the GIF —
+    /// the cutout was invisible in the export while working in the preview, because the
+    /// preview passes `.identity` and never exercises the mapping.
     ///
-    /// Defaults to 1, which is correct for the preview: it applies effects to the un-zoomed
-    /// source, so source space and frame space are already the same.
-    public var contentScale: CGFloat
+    /// `.null` means source space and frame space coincide — the preview's case, where
+    /// effects run on the un-zoomed source.
+    public var contentRect: CGRect
 
-    public init(scale: CGFloat = 1.0, contentOrigin: CGPoint = .zero, contentScale: CGFloat = 1.0) {
+    public init(scale: CGFloat = 1.0, contentOrigin: CGPoint = .zero, contentRect: CGRect = .null) {
         self.scale = scale
         self.contentOrigin = contentOrigin
-        self.contentScale = contentScale
+        self.contentRect = contentRect
     }
 
-    /// The full source-pixel → frame-pixel transform. Source is in CIImage coordinates
-    /// (bottom-left origin), matching `contentOrigin`.
-    public var sourceToFrame: CGAffineTransform {
-        let total = scale * contentScale
-        return CGAffineTransform(scaleX: total, y: total)
-            .concatenating(CGAffineTransform(translationX: contentOrigin.x, y: contentOrigin.y))
+    /// Transform mapping an image in source space onto the frame.
+    ///
+    /// Derived from the source image's own extent rather than a stored scale, so it stays
+    /// correct even when the mask's pixel size differs from the photo the frame was drawn
+    /// from — which happens whenever the pipeline normalises orientation before drawing.
+    public func sourceToFrame(sourceExtent: CGRect) -> CGAffineTransform {
+        guard !contentRect.isNull,
+              sourceExtent.width > 0, sourceExtent.height > 0,
+              contentRect.width > 0, contentRect.height > 0
+        else { return .identity }
+
+        let sx = contentRect.width / sourceExtent.width
+        let sy = contentRect.height / sourceExtent.height
+        return CGAffineTransform(translationX: -sourceExtent.minX, y: -sourceExtent.minY)
+            .concatenating(CGAffineTransform(scaleX: sx, y: sy))
+            .concatenating(CGAffineTransform(translationX: contentRect.minX, y: contentRect.minY))
     }
 
     /// Un-zoomed, un-panned — what the preview path uses.

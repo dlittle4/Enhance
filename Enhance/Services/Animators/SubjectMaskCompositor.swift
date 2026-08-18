@@ -30,14 +30,16 @@ struct SubjectMaskCompositor {
     /// covers the frame exactly, but a zoom that pans toward an edge would otherwise expose
     /// unmasked border — which reads as the background effect abruptly stopping.
     func maskInFrameSpace(_ mask: CIImage, frame: CIImage, geometry: FrameGeometry) -> CIImage? {
-        let transform = geometry.sourceToFrame
-        guard mask.extent.width >= 1, mask.extent.height >= 1,
-              geometry.scale.isFinite, geometry.scale > 0,
-              geometry.contentScale.isFinite, geometry.contentScale > 0,
-              geometry.contentOrigin.x.isFinite, geometry.contentOrigin.y.isFinite
+        // `.null` is the legitimate "source space is frame space" case (the preview). Anything
+        // else has to describe a real rect — a zero-sized or non-finite one is bad input, and
+        // falling back to an identity mapping there would composite at the wrong scale rather
+        // than visibly failing.
+        let rect = geometry.contentRect
+        guard mask.extent.width >= 1, mask.extent.height >= 1, mask.extent.hasFiniteComponents,
+              rect.isNull || (rect.hasFiniteComponents && rect.width > 0 && rect.height > 0)
         else { return nil }
 
-        let placed = mask.transformed(by: transform)
+        let placed = mask.transformed(by: geometry.sourceToFrame(sourceExtent: mask.extent))
         guard placed.extent.hasFiniteComponents else { return nil }
 
         return placed.clampedToExtent().cropped(to: frame.extent)

@@ -296,18 +296,31 @@ public class GIFGenerator: GIFGenerating {
     /// LEARNINGS 2026-03-10 for the bug this caused when it was missed before.
     private func frameGeometry(params: AnimationParameters, transform: CGAffineTransform, context: DrawingContext) -> FrameGeometry {
         let originInFrame = context.drawRect.origin.applying(transform)
-        // The aspect-fill factor applied before any zoom — see `FrameGeometry.contentScale`.
-        // Taken from the drawn width rather than recomputed so it cannot drift from
-        // `calculateDrawRect`.
-        let sourceWidth = context.normalizedImage.size.width * context.normalizedImage.scale
-        let contentScale = sourceWidth > 0 ? context.drawRect.width / sourceWidth : 1
+
+        // The drawn photo's full rect in CIImage coordinates — see `FrameGeometry.contentRect`.
+        // `originInFrame` is the content's *top-left* in UIKit coordinates, so the bottom edge
+        // is one drawn height further down, and flipping that gives the CI-space minY. Note
+        // this is deliberately not `contentOrigin` flipped: that value is a grid phase and is a
+        // content-height away from the real origin, which a remainder hides and an image
+        // placement does not.
+        let drawnSize = CGSize(
+            width: context.drawRect.width * params.scale,
+            height: context.drawRect.height * params.scale
+        )
+        let contentRect = CGRect(
+            x: originInFrame.x,
+            y: context.outputSize.height - originInFrame.y - drawnSize.height,
+            width: drawnSize.width,
+            height: drawnSize.height
+        )
+
         return FrameGeometry(
             scale: params.scale,
             contentOrigin: CGPoint(
                 x: originInFrame.x,
                 y: context.outputSize.height - originInFrame.y
             ),
-            contentScale: contentScale
+            contentRect: contentRect
         )
     }
 

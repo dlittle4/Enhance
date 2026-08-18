@@ -109,6 +109,31 @@ struct SubjectSegmentationDeviceTests {
         }
     }
 
+    /// The export path, end to end: real segmentation, the shipped `BackgroundOnlyEffect`, and
+    /// `GIFGenerator` building its own `FrameGeometry`.
+    ///
+    /// This is the combination that shipped broken — the preview composited correctly while the
+    /// exported GIF did not, because `GIFGenerator` was the only thing constructing a real
+    /// geometry and nothing exercised it with a mask. Rendering through the generator rather
+    /// than a hand-rolled frame loop is the whole point of this case.
+    @Test func backgroundOnly_survivesTheRealExportPath() async throws {
+        guard let image = UIImage(named: "showcase-7") else { return }
+        let service = SubjectSegmentationService()
+        guard let mask = try service.subjectMaskOrThrow(for: image) else { return }
+
+        let effect = BackgroundOnlyEffect(wrapped: MonotoneEffect(intensity: 1.0), mask: mask)
+        let data = GIFGenerator().generateGIF(
+            from: image, currentScale: 1.6,
+            visibleRect: CGRect(x: 0.1, y: 0.1, width: 0.8, height: 0.8),
+            animator: ZoomInAnimator(),
+            visualEffects: [effect]
+        )
+        if let data {
+            Attachment.record(data, named: "export-path-bgonly.gif")
+        }
+        #expect(data != nil)
+    }
+
     // MARK: - Measurement
 
     private func coverage(of mask: CIImage) -> (subject: Double, background: Double, edge: Double, edgePx: Int) {
@@ -141,10 +166,8 @@ struct SubjectSegmentationDeviceTests {
     /// faithful picture of what a wrong `FrameGeometry` produces, which is why
     /// `SubjectMaskCompositor` documents it as the failure to watch for.
     ///
-    /// The transform below maps a source point `p` to `p * zoom + c * (1 - zoom)`, so `scale`
-    /// is the zoom and `contentOrigin` is that offset. `contentScale` stays 1 because these
-    /// frames are built in the source's own space rather than aspect-filled into a 600×600
-    /// output — the case that default exists for.
+    /// `contentRect` is the source's extent under the same transform the loop applies, which
+    /// is exactly what `GIFGenerator` computes for the real pipeline.
     private func effectGIF(image: UIImage, effect: VisualEffect) -> Data? {
         guard let cg = image.cgImage else { return nil }
         let source = CIImage(cgImage: cg)
@@ -156,10 +179,12 @@ struct SubjectSegmentationDeviceTests {
                 .scaledBy(x: zoom, y: zoom)
                 .translatedBy(x: -c.x, y: -c.y)
             let frame = source.transformed(by: t).cropped(to: source.extent)
+            // The content rect this loop actually draws: the source scaled about its centre,
+            // which is where `contentRect` has to point for the mask to land on the subject.
             let geometry = FrameGeometry(
                 scale: zoom,
                 contentOrigin: CGPoint(x: c.x * (1 - zoom), y: c.y * (1 - zoom)),
-                contentScale: 1
+                contentRect: source.extent.applying(t)
             )
             return effect.apply(to: frame, progress: p, frameIndex: i,
                                 viewportCenter: nil, geometry: geometry)

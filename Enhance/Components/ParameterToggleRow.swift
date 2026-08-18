@@ -34,9 +34,11 @@ struct ParameterToggleRow: View {
         }
         .frame(maxWidth: .infinity)
         .onChange(of: isOn) { _, _ in onCommit() }
-        // The whole row is the hit target, not just the switch — a 51pt control on the far
-        // edge of a 350pt row is a small target for a control whose label is right there.
-        .contentShape(Rectangle())
-        .onTapGesture { isOn.toggle() }
+        // **No row-wide `onTapGesture`.** An earlier version put one on this HStack to widen the
+        // hit target, which meant a tap landing on the switch was handled twice — once by the
+        // `Toggle` and once by the gesture — flipping the value and flipping it straight back.
+        // The control read as dead exactly where a user aims first. Widening the target has to
+        // avoid overlapping the switch, so it is not worth the ambiguity; `Toggle` already has
+        // a standard-size hit region.
     }
 }
