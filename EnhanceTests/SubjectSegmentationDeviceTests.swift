@@ -134,6 +134,32 @@ struct SubjectSegmentationDeviceTests {
         #expect(data != nil)
     }
 
+    /// ECHO — outlines of the subject radiating outward. Rendered at three spreads because the
+    /// whole question is whether the rings read as emanation or as a registration error, and
+    /// that depends almost entirely on how far apart they sit.
+    @Test func subjectEcho_rendersRadiatingOutlines() async throws {
+        for imageName in ["showcase-7", "showcase-3"] {
+            guard let image = UIImage(named: imageName), let cg = image.cgImage else { continue }
+            let service = SubjectSegmentationService()
+            guard let mask = try service.subjectMaskOrThrow(for: image) else { continue }
+
+            let source = CIImage(cgImage: cg)
+            for (label, spread, colour) in [
+                ("tight", 0.25, LaserColor.red),
+                ("wide", 0.7, LaserColor.red),
+                ("wide-white", 0.7, LaserColor.allCases.last ?? .red)
+            ] {
+                let effect = SubjectEchoEffect(
+                    intensity: 0.7, spread: spread, color: colour, mask: mask
+                )
+                if let data = effectGIF(image: image, effect: effect) {
+                    Attachment.record(data, named: "echo-\(imageName)-\(label).gif")
+                }
+                _ = source
+            }
+        }
+    }
+
     /// ANIME with the real silhouette against ANIME with its original elliptical cutout.
     /// The pair is the point: the upgrade is only worth having if the difference is visible.
     @Test func animeBackground_realMaskVersusEllipse() async throws {

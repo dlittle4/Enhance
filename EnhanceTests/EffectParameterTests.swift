@@ -27,8 +27,7 @@ struct EffectParameterTests {
         .fadeToBW:      ("INTENSITY", nil),
         .chromaShift:   ("INTENSITY", nil),
         .rainbow:       ("INTENSITY", "SPEED"),
-        .lensDistortion: ("INTENSITY", "REACH"),
-        .animeBackground: ("INTENSITY", "LINES")
+        .lensDistortion: ("INTENSITY", "REACH")
     ]
 
     /// The table above must cover the enum — otherwise adding a case would silently

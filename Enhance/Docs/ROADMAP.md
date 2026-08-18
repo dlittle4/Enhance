@@ -708,9 +708,31 @@ row, because the mask is the hard part and it is shared.
       hardening is still open** — coordinate before starting, do not fork the rasteriser. The seam
       is already in the right place: the rasteriser keeps the glyph coverage mask as a distinct step
       (§3a), so compositing under the subject mask is a layering change, not a rasteriser change.
-- [ ] **SUBJECT REPEATED INTO A PATTERN** — N transformed copies of the cutout tiled behind the
-      original. Ordinary once the mask exists; the only real parameter is count-and-transform.
-- [x] **ANIMATED BACKGROUND, STATIONARY SUBJECT — shipped 2026-08-18 as the ANIME face card.**
+- [x] **SUBJECT REPEATED INTO A PATTERN — shipped 2026-08-18 as the ECHO visual effect.**
+      Built to the user's brief: *outlines of the subject radiating out from it*. Mechanically the
+      row as written — N transformed copies of the cutout behind the original — with two choices
+      that change what it reads as: each copy is reduced to its edge by `CIMorphologyGradient`,
+      and the copies scale about the subject rather than tiling, so it reads as one subject with
+      an aura instead of several subjects. The rings travel outward with `progress`; static rings
+      read as a sticker border.
+      **Rendered on device before shipping** (`subjectEcho_rendersRadiatingOutlines`), at two
+      spreads and two colours.
+      Two things left deliberately simple, to revisit only if a render demands it: the ring count
+      is fixed at five (below three reads as a registration error, above six the rings merge), and
+      the rings expand about the mask's *extent centre* rather than a true centroid, because a
+      real centroid needs a render and these graphs must stay lazy. A subject well off to one side
+      will see the rings lean toward frame centre — the fix would be to carry a centroid on the
+      mask from the service, which already has a `CIContext`.
+      **BACKGROUND ONLY is deliberately not offered on it**: it is already a subject effect, so
+      the modifier would mask it with the same mask it draws from.
+- [x] ~~**ANIMATED BACKGROUND, STATIONARY SUBJECT**~~ — built and then **withdrawn 2026-08-18 on
+      the user's call**, the fourth effect declined on look (after HATCHING, BOKEH and Water
+      Caustic). The manga impact burst was not what "animated background" was wanted for; the
+      subject-outline idea below is. The card is unwired and `AnimeBackgroundEffect` is back to
+      being unreferenced — deliberately kept compiled rather than deleted, exactly as §2c does
+      for Water Caustic, since its subject-mask cutout is a working example of the pattern.
+      Original note follows.
+- [x] **(original) shipped 2026-08-18 as the ANIME face card.**
       **Correction to what this row used to say:** `AnimeBackgroundEffect` was described here as
       an existing effect to upgrade. It was not — it had no `FaceFilterType` case and was
       unreferenced anywhere outside its own file, so it was dead code rather than something a

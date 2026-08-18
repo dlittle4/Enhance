@@ -1305,6 +1305,11 @@ struct EditorView: View {
             if viewModel.selectedVisualEffect != effectType {
                 viewModel.pushUndo()
                 viewModel.selectedVisualEffect = effectType
+                // ECHO draws from the subject mask, so selecting it is the moment the mask is
+                // first needed — the same trigger point BACKGROUND ONLY uses.
+                if effectType == .subjectEcho {
+                    viewModel.segmentSubjectIfNeeded()
+                }
             }
             viewModel.beginEditing()
         }
@@ -1358,11 +1363,6 @@ struct EditorView: View {
             if viewModel.selectedFaceFilter != filterType {
                 viewModel.pushUndo()
                 viewModel.selectedFaceFilter = filterType
-                // ANIME cuts the subject out of its burst, so it needs the mask. Segmenting on
-                // selection rather than on tab entry keeps the cost on the one card that uses it.
-                if filterType == .animeBackground {
-                    viewModel.segmentSubjectIfNeeded()
-                }
             }
             viewModel.beginEditing()
         }

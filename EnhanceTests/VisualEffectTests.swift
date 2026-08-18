@@ -274,7 +274,10 @@ struct VisualEffectTests {
         // consumer renders through the same path GRADIENT already used. This test did its job —
         // it failed the moment RISO claimed the slot, which is exactly the prompt to go and
         // check that the view could render it.
-        #expect(visible == [.gradientMap, .coloredEdges, .risoPrint])
+        // ECHO joined on 2026-08-18, and needed no new branch either: `.tintColor` already
+        // renders through `colorSwatchContent`, the same path EDGES uses. Checked before
+        // widening this set, which is the whole point of it failing.
+        #expect(visible == [.gradientMap, .coloredEdges, .risoPrint, .subjectEcho])
     }
 
     // MARK: - Required filter names

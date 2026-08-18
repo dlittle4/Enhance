@@ -555,18 +555,6 @@ class EditorViewModel {
     var activeFaceEffect: FaceEffect? {
         guard let filter = selectedFaceFilter else { return nil }
 
-        // ANIME is the one filter that consumes segmentation, and `FaceFilterType.effect` has no
-        // access to it — so it is rebuilt here with the mask rather than widening that factory's
-        // signature for the one case that needs it. A nil mask is not a failure: the effect falls
-        // back to its elliptical cutout, which is what it shipped with.
-        if filter == .animeBackground {
-            return AnimeBackgroundEffect(
-                intensity: value(EffectParameter.intensityID, for: filter),
-                lineDensity: value(EffectParameter.secondaryID, for: filter),
-                subjectMask: subjectMask
-            )
-        }
-
         return filter.effect(
             intensity: value(EffectParameter.intensityID, for: filter),
             secondValue: value(EffectParameter.secondaryID, for: filter),
@@ -586,7 +574,13 @@ class EditorViewModel {
             gradientStops: gradientStops,
             pixelShape: pixelShape
         )
-        let built = effect.effect(intensity: value(EffectParameter.intensityID, for: effect), options: options)
+        var built = effect.effect(intensity: value(EffectParameter.intensityID, for: effect), options: options)
+
+        // ECHO draws *from* the subject mask rather than being masked by it, so it is the one
+        // effect the factory cannot finish building — the factory has no segmentation.
+        if let echo = built as? SubjectEchoEffect {
+            built = echo.withMask(subjectMask)
+        }
 
         // The one choke point both the preview and the GIF read, so wrapping here covers
         // both paths — there is no second place to keep in sync.

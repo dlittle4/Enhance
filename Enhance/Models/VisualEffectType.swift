@@ -60,6 +60,8 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     case risoPrint     = "RISO"
     case caustic       = "CAUSTIC"
     case stretch       = "STRETCH"
+    /// ROADMAP §2f — outlines of the segmented subject radiating outward from it.
+    case subjectEcho   = "ECHO"
 
     // MARK: - Retired
     // Hidden from the picker but kept compiled and tested — see `retired` below.
@@ -163,6 +165,8 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "SCALE"))
             params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "SPEED"))
             params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "SHARPNESS"))
+        case .subjectEcho:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "SPREAD"))
         case .stretch:
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "ANGLE"))
             params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "POSITION"))
@@ -182,7 +186,9 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
         // geometry-distorting effects are the ones to look at hardest: the subject is sampled
         // from the *undistorted* frame, so a strong warp can pull background detail up to a
         // silhouette that did not move.
-        if Self.selectable.contains(self) {
+        // ECHO is excluded: it *is* a subject effect, so "apply to the background only" is not a
+        // meaningful modifier on it — it would mask the effect with the same mask it draws from.
+        if Self.selectable.contains(self), self != .subjectEcho {
             params.append(.backgroundOnly)
         }
 
@@ -192,7 +198,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     /// Which picker row to show beneath the sliders, if any.
     var colorPickerKind: EffectPickerKind? {
         switch self {
-        case .duotone, .coloredEdges, .caustic: return .tintColor
+        case .duotone, .coloredEdges, .caustic, .subjectEcho: return .tintColor
         case .gradientMap, .risoPrint: return .gradientStops
         default:                      return nil
         }
@@ -242,6 +248,15 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
                                                    misregistration: max(0, min(1, options.tertiary)),
                                                    grain: max(0, min(1, options.quaternary)),
                                                    contrast: max(0, min(1, options.quinary)))
+        case .subjectEcho:
+            // The mask is injected by `EditorViewModel.activeVisualEffectList`, which is the only
+            // place that has one. Built here without it, the effect is a no-op — which is exactly
+            // what the card thumbnail should show, since a thumbnail has no segmentation either.
+            return SubjectEchoEffect(
+                intensity: clamped,
+                spread: max(0, min(1, options.size)),
+                color: options.tintColor
+            )
         case .stretch:      return StretchEffect(intensity: clamped,
                                                  angle: max(0, min(1, options.size)),
                                                  position: max(0, min(1, options.tertiary)),
