@@ -367,6 +367,7 @@ single colour. The other three are the signature look.
 | ~~**Bokeh (face-aware)**~~ | `CIMaskedVariableBlur` graded by a `FaceRegionMaskBuilder` mask | **Declined 2026-08-11**, before any code. Spec kept below so a revival needs no re-derivation — but it has been said no to once, so don't re-pitch it unprompted |
 | ~~**Slice shift**~~ | Horizontal bands, per-band displacement with a `frameIndex`-seeded hash | **Shipped 2026-08-11** as `SliceShiftEffect` — AMOUNT + SIZE + JITTER, strip compositing, no kernel. A grid effect: band height scales with `FrameGeometry.scale` and phase follows `contentOrigin` |
 | **Hatching** (straight lines) | Three luminance-banded line screens at 15°/45°/75°, composited with darken | **`CILineScreen` and `CIHatchedScreen` take angle and width directly** — closer than the `CIEdgeWork` / `CIComicEffect` route suggested previously. Grid effect: needs `FrameGeometry` scale *and* phase |
+| **Big head** (face) | `CIBumpDistortion` centred on the head with a positive scale, radius from `face.faceWidth` | *Filed 2026-08-18.* A `FaceEffect`, not a visual one. `HandsomeEffect.swift:19-27` already does this call to elongate a jaw; big head is one new file plus the wiring checklist. Animate with `progress` so the head inflates as the zoom lands, and distort *less* on estimated landmarks rather than vanishing |
 
 **Needs a spike first:**
 
@@ -374,6 +375,28 @@ single colour. The other three are the signature look.
 |---|---|---|
 | **Pattern refraction** | Procedural height → normal via finite differences → offset UV by `normal.xy * (IOR - 1)`; per-channel IOR for dispersion | **`CIDisplacementDistortion` exists** and expresses a per-pixel UV remap directly. Build the height field as a CIImage, displace, three passes for dispersion — the LENS trick. Test before assuming a kernel |
 | **Pixel stretch** | Project each pixel onto a line segment, replace one UV component with the projection, `smoothstep` falloff | Same spike: a displacement field can express this too |
+| **Bitmap** | 1-bit clustered-dot ordered dither in two arbitrary spot colours | *Filed 2026-08-18.* Spec below. **Not DITHER's MONO row** — the crosshatch midtones are a clustered-dot matrix, which `CIDither` noise cannot make. Spike is whether a stock screen (threshold against a tiled clustered-dot pattern) reaches it or it wants a small ordered-dither kernel; the §1c gate makes the kernel branch ordinary, so the spike is fidelity not risk |
+
+**Blocked on subject segmentation (ROADMAP §1g):**
+
+> Five effects, one shared mask. `VNGenerateForegroundInstanceMaskRequest` → `CIBlendWithMask`, then
+> per-variant compositing. The mask is the hard part and it is shared, so the spec is written once
+> below rather than per row. Nothing here is buildable until §1g's render-and-look proves the mask
+> holds up at 600×600 after GIF palettisation.
+
+| Effect | Approach | Notes |
+|---|---|---|
+| **Face cutout + background effects** | Subject held flat; any of the 15 shipped visual effects runs on the background alone | A *multiplier* on existing effects, not a new one. Needs the §3d design call — toggle vs modifier vs new cards — decided *with* stacking, not separately |
+| **Text behind subject** *(= partially obscured)* | Text raster composited between background and subject so the subject occludes it | Touches the text system **owned by another session (§3a)** — coordinate. The glyph coverage mask is already a distinct rasteriser step, so this is a layering change |
+| **Subject repeated into a pattern** | N transformed copies of the cutout tiled behind the original | Ordinary after the mask; parameter is count-and-transform |
+| **Animated background, stationary subject** | Subject held; background animates | `AnimeBackgroundEffect.swift:8` is already this with an *elliptical* mask. Real mask opens the category. Any procedural background wants Water Caustic's seamless-loop trick (below) |
+| **Parallax / subject motion** | Move the subject; fill the reveal | The one research risk: moving the subject reveals a hole. Spike is whether background-scale-and-blur hides it or motion must stay inside the silhouette. Bounce/pulse/rotate are trivial once that is answered |
+
+**Taste-gated — mechanism ready, look unproven:**
+
+| Effect | Approach | Notes |
+|---|---|---|
+| **Face swap** | Two `FaceRegionCompositor` composites with source/dest rects exchanged | *Filed 2026-08-18.* Mechanism exists (`FaceRegions/FaceRegionCompositor.swift`). First effect needing **≥2 faces** — define the one-face behaviour first. Skin tone won't match without a mean-colour shift, and maybe not even then. **Render one before committing** — same gate that stopped HATCHING/BOKEH/Water Caustic |
 
 **Genuinely needs the kernel gate:**
 
@@ -601,6 +624,86 @@ matrix), blur them separately, add back additively. Worth trying before reaching
 **Degrade, don't vanish.** Unlike THIRD EYE, this needs no precise landmark geometry — a blur is
 forgiving. It should still work from `LandmarkQuality.estimated` (a bounding box is enough),
 rather than requiring the precise Vision path.
+
+### Bitmap — 1-bit clustered-dot duotone
+
+> *Filed 2026-08-18.* The reference is a Game Boy Camera / Playdate look: two flat spot colours
+> (navy shadow, yellow highlight in the sample), a hard 1-bit threshold, and a **clustered-dot**
+> screen whose dots merge into a crosshatch through the midtones. Status in ROADMAP §2b.
+
+**Read this against three effects it is not**, because filing it as any of them builds the wrong
+thing:
+
+- **DITHER** posterises `CIDither`'s blue-*noise* toward grey levels (`DitherEffect.swift:96-105`).
+  Noise scatters; it never resolves into the regular X-hatch the reference shows in the midtones.
+  That hatch is the defining feature, and it is a property of the *matrix*, not of noise.
+- **DUOTONE** has the colour half exactly — grayscale through a `CIColorMatrix` into a
+  shadow→highlight ramp (`DuotoneEffect.swift:38-46`) — but no screen at all; it is a smooth map.
+- **HALFTONE** has a screen but it is `CICMYKHalftone`'s four-channel rosette in full colour, tuned
+  for print, not a 1-bit two-colour threshold.
+
+**So Bitmap is DUOTONE's colour mapping over a 1-bit clustered-dot threshold.** Two parts:
+
+1. **The screen (the spike).** Desaturate to luminance, then threshold each pixel against a value
+   read from a tiled **clustered-dot** matrix (a 4×4 or 8×8 ordered matrix whose entries spiral out
+   from the centre, so cells grow as a blob and touch corners in the midtones — that is the
+   crosshatch). Two routes to try, cheap first:
+   - *Stock:* build the matrix as a small tiled `CIImage` and threshold with a compare
+     (`luminance > matrixValue ? 1 : 0`, expressible with `CIColorMatrix` + `CIColorClamp` or a
+     tiny blend). Verify the tiling stays phase-locked under zoom.
+   - *Kernel:* a ~10-line `.ci.metal` ordered-dither kernel, now ordinary work since the §1c gate.
+     Reach for it only if the stock screen can't hold the clustered shape.
+2. **The colour.** Map the two threshold states to two **pickable** spot colours. Reuse
+   `GradientStops` for the picker as RISO does — **not** DUOTONE's fixed dark-complementary shadow,
+   because the reference's shadow is a chosen navy, not a derived one. Two stops (shadow, highlight);
+   a third mid stop is a possible future control, not a v1 need.
+
+**Grid effect — non-negotiable.** The screen cell must scale with `FrameGeometry.scale` and
+phase-align to `contentOrigin`, exactly as DITHER does (`DitherEffect.swift:55-90`): dither at
+`1/cell` resolution, nearest-neighbour back up, offset by `contentOrigin mod cell`. Skip this and
+the pattern crawls across the subject as the animation pans — the same bug DITHER was built to avoid.
+
+Likely rows: INTENSITY (threshold hardness / how much of the ramp is pure black or white), SCALE
+(cell size), COLOURS (the two stops). Three rows, comfortably inside the panel.
+
+### Subject-mask effects — one mask, five composites
+
+> *Filed 2026-08-18.* Blocked on ROADMAP §1g. The five effects in the "blocked on subject
+> segmentation" table above differ only in what they do with the subject and background halves; the
+> mask that separates them is shared, expensive, and the whole risk — so it is specified once here.
+
+**The mask.** `VNGenerateForegroundInstanceMaskRequest` (iOS 17+; target is 18.2). It returns a
+per-instance foreground mask; take the union for a single subject cutout. Cache it per photo the way
+`FaceDetectionService` caches detections on `cachedImageHash`/`cachedFaces`
+(`FaceDetectionService.swift:14-22`) — segmentation is heavier than detection, so running it once
+per photo instead of once per frame is the difference between usable and not.
+
+**The composite.** One `CIBlendWithMask` per frame splits subject from background; each effect is
+then a different assembly of the two:
+
+| Effect | Subject layer | Background layer |
+|---|---|---|
+| Face cutout + bg effect | original, unmodified | any shipped `VisualEffect` applied |
+| Text behind subject | original | background + text raster **under** the mask |
+| Repeated into pattern | original on top | N transformed copies of the cutout |
+| Animated bg, still subject | original, held | a procedural animation |
+| Parallax / motion | cutout, transformed per frame | fill for the reveal (the open question) |
+
+**Precedent to copy, not reinvent.** `FaceRegions/FaceRegionCompositor.swift` already samples a
+region, transforms it, and composites it under a feathered mask from `FaceRegionMaskBuilder`,
+keeping the mask and the source on the same transform so they never separate under scale/rotation.
+The subject-mask compositor is the same shape with a segmentation mask in place of an elliptical one.
+
+**Two hazards, both already recorded elsewhere:**
+
+- **Compositing effects surface interactions filters don't.** SLICE SHIFT (ROADMAP §2a) was the
+  first compositor and exposed a live-canvas regression and a pass-ordering bug that eleven
+  filter-style effects never hit. Rasterise between passes where the preview needs it, and device-QA
+  each one against a face effect.
+- **Loop seamlessly.** Any procedural background (the "animated background" variant especially)
+  wants Water Caustic's trick: orbit feature points with period 1 and quantise SPEED to whole
+  orbits, so progress 0 and 1 render the same frame and the GIF doesn't jump on wrap. `CausticTests`
+  has the test that pins it.
 
 ---
 

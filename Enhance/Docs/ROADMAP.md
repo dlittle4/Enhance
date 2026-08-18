@@ -48,14 +48,20 @@ is no in-flight work anywhere, so nothing below is owned by another session.
 
 **Next up, in order:**
 
-1. 🔍 **Confirm RISO's six-row panel on a real device** (§2c). Everything else about the effect is
+1. **Subject-segmentation spike** (§1g). One afternoon that de-risks six of the new effects at
+   once — face cutout and the whole subject-mask family (§2f) all wait on this one capability, and
+   nothing about them is decidable until a real cutout has been rendered into a GIF and looked at.
+   It leads because it unblocks the most, not because it is urgent.
+2. 🔍 **Confirm RISO's six-row panel on a real device** (§2c). Everything else about the effect is
    done and verified; this is the one open question, and it decides whether the params cap stays
-   at 6 or the panel needs a fix first.
-2. **Pattern Refraction** (§2c) is the last effect on the list, with the displacement spike (§2b)
-   worth running first for that one.
+   at 6 or the panel needs a fix first. Queued, but no longer gating new effect work.
+3. **Pattern Refraction** (§2c) is the last of the *old* effect list, with the displacement spike
+   (§2b) worth running first for that one. BIG HEAD (§2a) and BITMAP (§2b) are the ready-to-cheap
+   new arrivals if an effect is wanted before the spike lands.
    **Ask before starting another effect outright**: three have been declined on the user's call
    (HATCHING, BOKEH, Water Caustic), so the constraint is taste, not capability — the kernel path
-   is now proved three times over. Show a render early rather than polishing alone.
+   is now proved three times over. Show a render early rather than polishing alone. FACE SWAP
+   (§2g) sits under exactly this gate — its mechanism exists but its look is unproven.
 
 **CI shipped on 2026-08-12** (§1b) and guards `EnhanceTests` on every push to `main` and every PR.
 **The kernel gate passed the same day** (§1c) — and note it shipped with a real bug that only RISO
@@ -284,6 +290,49 @@ card per `selectable` effect, so this is no longer a uniform-cost list.
       15-item carousel. **Measure before optimising**: the cost is asserted here, never timed, and
       `previewProgress` means each card renders one frame rather than an animation.
 
+### 1g. Subject segmentation → unblocks the six effects in §2f
+
+*Filed 2026-08-18 from a ten-idea intake.* Six of the new effect ideas are one missing capability
+wearing six hats, which is what puts this here rather than in §2: **face cutout with background
+effects, subject-repeated-into-a-pattern, text behind the subject, text partially obscured by the
+subject, animated background with a stationary subject, and the parallax/bounce family** all need
+the same thing — a mask that separates subject from background. None of them is buildable without
+it and all of them are ordinary work after it.
+
+**The app has no subject segmentation today.** Verified by grep, not assumed: no
+`VNGenerateForegroundInstanceMaskRequest`, no `VNGeneratePersonSegmentationRequest`, anywhere in
+`Enhance/`. The nearest thing is `FaceRegionMaskBuilder.ellipticalMask`
+(`FaceRegions/FaceRegionMaskBuilder.swift:19`), which inscribes an **ellipse** in a face's bounds —
+right for copying a feature, useless for a cutout that must read as a person, because it has no
+notion of a silhouette.
+
+- [ ] **The spike, and it is a render-and-look.** `VNGenerateForegroundInstanceMaskRequest` is
+      iOS 17+ and the deployment target is 18.2, so availability is not the question.
+      **The question is quality at our output size**: hair edges, and how much feather survives a
+      600×600 frame after the GIF's 256-colour palettisation. Run the request on a handful of real
+      photos — including one with fine hair and one with a low-contrast background — composite a
+      naive cutout, generate an actual GIF, and look at it. Per EFFECTS.md, structural tests cannot
+      see a wrong-looking effect, so a green test proves nothing here.
+- [ ] **Then the service.** Mirror `FaceDetectionService`'s shape — it caches per image on
+      `cachedImageHash` / `cachedFaces` (`FaceDetectionService.swift:14-22`) so detection runs once
+      per photo rather than once per frame. Segmentation is more expensive than detection, so the
+      cache matters more, not less. In the frame loop the mask is one `CIBlendWithMask` against the
+      already-lazy CIImage chain — the per-frame cost is small; the per-photo cost is the whole cost.
+
+**Two things to carry into every effect built on this**, both already learned elsewhere:
+
+- **This family composites rather than filters.** §2a records what that cost the first time: SLICE
+  SHIFT, the app's first compositing effect, surfaced a class of interaction that eleven
+  filter-style effects never had — a `wantsLiveCanvas` regression it merely exposed, and laser eyes
+  rendering black because the preview does not rasterise between passes the way the GIF does.
+  Budget a device pass per effect, and expect the interactions with face effects rather than being
+  surprised by them.
+- **§1f gets worse.** The carousel is at 15 thumbnails and this family could add five or more, on
+  top of a segmentation pass. That is the point at which a fifth `EffectCategory`
+  (`Models/EffectCategory.swift` — a `SUBJECT` tab beside ZOOM/FACE/VISUAL/TEXT) is probably the
+  honest answer rather than a longer VISUAL carousel. **Flagged, not decided** — decide it when the
+  second subject effect lands, not now.
+
 ---
 
 ## 2 — Effects
@@ -330,6 +379,14 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       **It is the first effect that composites rather than filters**, which is why it surfaced a
       class of interaction eleven filter-style effects never had; worth remembering before adding
       another compositing effect.
+- [ ] **BIG HEAD** *(new, 2026-08-18)* — the cheapest item on the intake list, and a face effect
+      rather than a visual one. `HandsomeEffect` (`HandsomeEffect.swift:19-27`) already scales
+      `CIBumpDistortion` off `face.faceWidth` centred on face landmarks to elongate a jaw; big head
+      is the same call with a head-sized radius and a positive scale, so it is one new file
+      conforming to `FaceEffect` plus the §2 wiring checklist in EFFECTS.md. Two things to decide
+      while building: whether it animates with `progress` (it should — a head that inflates as the
+      zoom lands is the joke; a permanently big head is a still) and how it degrades on estimated
+      landmarks, where it should distort *less* rather than vanish.
 - [ ] **HATCHING (straight lines)** — `CILineScreen` / `CIHatchedScreen` take angle and width
       directly, which is closer than the `CIEdgeWork` route EFFECTS.md suggests. Three screens at
       15°/45°/75°, each masked by a luminance band, composited with darken. Grid effect: needs
@@ -348,6 +405,30 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       per-channel dispersion, and that is the trick LENS already uses with `CIZoomBlur`. The
       pay-off is now "one fewer kernel to maintain" rather than "avoid the gate", so it is a
       smaller prize than when it was written.
+- [ ] **BITMAP** *(new, 2026-08-18)* — a 1-bit **clustered-dot** ordered dither in **two arbitrary
+      spot colours**. Spec in [EFFECTS.md](EFFECTS.md#bitmap--1-bit-clustered-dot-duotone).
+      **It is not DITHER's deferred MONO row**, and filing it there would build the wrong thing:
+      DITHER is `CIDither`'s *noise* posterised toward grey levels (`DitherEffect.swift:96-105`),
+      where the reference's midtones resolve into a regular crosshatch — the signature of a
+      clustered-dot matrix, which noise cannot produce at any setting. DUOTONE has the colour
+      mapping but no screen at all (`DuotoneEffect.swift:38-46`); HALFTONE has a screen but it is
+      `CICMYKHalftone`'s four-channel rosette, in full colour.
+      **The spike is where the screen comes from**: whether a stock route (desaturate → threshold
+      against a tiled clustered-dot pattern → the two-colour matrix) reaches the look, or whether it
+      wants a small ordered-dither kernel. The §1c gate passing makes the kernel branch ordinary
+      work rather than a blocker, so the spike is about fidelity, not risk.
+      **Grid effect either way** — the screen cell must scale with `FrameGeometry.scale` and
+      phase-align to `contentOrigin` exactly as DITHER does (`DitherEffect.swift:55-90`), or the
+      pattern crawls across the subject as the animation pans.
+- [ ] **PARALLAX / SUBJECT MOTION** *(new, 2026-08-18; depends on §1g)* — the "3D photo" move, plus
+      subject bounce, pulse and rotation. Grouped because they share one problem and it is the only
+      genuine research risk on the intake list: **moving the subject reveals a hole where it was**.
+      The spike is whether a cheap fill hides it — the background scaled ~5% about the subject
+      centroid and blurred, which is what most "3D photo" implementations actually do — or whether
+      the motion has to stay small enough that the hole never leaves the silhouette. If neither
+      works it needs real inpainting, which is a different project. **Do not schedule the effects
+      past this spike**; the bounce/pulse/rotate variants are trivial once the fill question is
+      answered and unbuildable until it is.
 
 ### 2c. Kernel effects — **unblocked 2026-08-12**, the gate in §1c passed
 
@@ -459,6 +540,57 @@ that was written while three rows was still believed marginal.
 - [ ] 🔍 **GRADIENT colour wells** — confirmed working, but never seen alongside the rest of the row
       on device.
 
+### 2f. Subject-mask effects — **blocked on §1g**
+
+*Filed 2026-08-18.* Five effects that all consume the same segmentation mask and differ only in
+what they do with the two halves. None is buildable until §1g's spike proves the mask is good
+enough at GIF resolution; all are ordinary compositing work after it. Specs are collected in
+[EFFECTS.md](EFFECTS.md#subject-mask-effects--one-mask-five-composites) rather than repeated per
+row, because the mask is the hard part and it is shared.
+
+- [ ] **FACE CUTOUT + background effects** — the subject is held flat while any of the 15 shipped
+      visual effects runs on the background alone. The highest-leverage idea on the list, because it
+      is a *multiplier* on effects that already exist rather than a new effect. **It needs a design
+      call before code**, and it is the same call §3d raises: is background-only application a
+      per-effect toggle, a modifier like SHAKE, or a new set of cards? Decide it against §3d
+      stacking, not in isolation — they are the same question about whether an effect can be scoped
+      to part of the frame.
+- [ ] **TEXT BEHIND SUBJECT** *(and "partially obscured by the subject" — the same composite)* —
+      the text raster is drawn between background and subject, so the subject occludes it. **This
+      touches the text-overlay system, which is owned by another session (§3a) and whose Stage G
+      hardening is still open** — coordinate before starting, do not fork the rasteriser. The seam
+      is already in the right place: the rasteriser keeps the glyph coverage mask as a distinct step
+      (§3a), so compositing under the subject mask is a layering change, not a rasteriser change.
+- [ ] **SUBJECT REPEATED INTO A PATTERN** — N transformed copies of the cutout tiled behind the
+      original. Ordinary once the mask exists; the only real parameter is count-and-transform.
+- [ ] **ANIMATED BACKGROUND, STATIONARY SUBJECT** — the inverse of face cutout: the subject is held
+      and the background animates. `AnimeBackgroundEffect` (`AnimeBackgroundEffect.swift:8`) is
+      already exactly this idea with an *elliptical* mask (spikes on white behind a feathered face
+      cutout); §1g's real mask upgrades it and opens the category. Any procedural background wants
+      Water Caustic's **seamless-loop** trick — feature points orbit with period 1, speed quantised
+      to whole orbits so progress 0 and 1 render identically — pinned by `CausticTests` and recorded
+      in §2c, so the GIF does not jump on wrap.
+
+### 2g. FACE SWAP — mechanism ready, look unproven
+
+*Filed 2026-08-18; taste-gated, not blocked.* Swapping two faces within one photo. **The
+compositing mechanism already exists**: `FaceRegionCompositor` samples a region, transforms it, and
+re-composites under a feathered elliptical mask from `FaceRegionMaskBuilder` — a swap is two such
+composites with the source and destination rects exchanged. Two things make it a taste gate rather
+than a build task:
+
+- **It is the first effect that requires ≥2 faces.** No effect today has a face-cardinality
+  precondition; face effects run per selected face and degrade to one. Swap needs a defined,
+  non-embarrassing behaviour on a one-face photo (do nothing? disable the card?) — decide it before
+  building, not after a user reports a self-swap.
+- **Skin tone and lighting will not match** between two arbitrary faces, and an unmatched swap reads
+  as a collage rather than an effect. It likely needs a rough tone-match pass (mean-colour shift
+  under the mask), and whether even that is enough is a looking question.
+
+**Render one before committing to it.** This is the exact gate that stopped HATCHING, BOKEH and
+Water Caustic — three effects declined on the user's call after the approach was proved — so treat
+a working composite as the *start* of the decision, not the end.
+
 ---
 
 ## 3 — Product bets
@@ -535,7 +667,12 @@ Both are more feasible than they look, because groundwork landed for other reaso
       (`EditorViewModel.generationFraming`).
 - [ ] **Onboarding**: five default photos demonstrating the app; a "give the gift of a GIF" viral
       unlock for face effects.
-- [ ] **Settings & social**: RATE THE APP (`SKStoreReviewController`), SHARE WITH FRIENDS.
+- [ ] **Settings & social**: RATE THE APP (`SKStoreReviewController`), SHARE WITH FRIENDS
+      (a `ShareLink` with the App Store URL — nothing to design), and **BUY ME A COFFEE** *(new,
+      2026-08-18)*. One constraint on the coffee tip that decides the whole shape of it: a tip for a
+      *digital* good must be a **StoreKit consumable IAP**, not a link out to buymeacoffee.com or
+      similar — an external payment link for digital content is an App Store rejection under the
+      IAP rules. So it is a small StoreKit product plus a thank-you state, not a web link.
 - [ ] **Editor UX**: a stateful save button; pause/edit during preview playback; RESET/X spacing in
       the header (RESET currently reads as a label for X); a crosshair showing the zoom focal point;
       fix the action-button copy.
@@ -547,6 +684,20 @@ Both are more feasible than they look, because groundwork landed for other reaso
 - [ ] **Real-time preview via Metal shaders** (iOS 17+ `.colorEffect()` / `.distortionEffect()` /
       `.layerEffect()`), replacing the CIFilter preview path. Note this is a *preview* technology
       and cannot render GIF frames — it does not substitute for §1c.
+- ~~**iMessage stickers / Messages extension**~~ — **parked 2026-08-18** on the user's call, from
+      the same ten-idea intake. Not deleted, because two findings stay true if it is revived and are
+      worth not re-deriving:
+      - **The hard part is the export, not the framework.** `MSSticker` is trivial; Messages caps a
+        sticker at roughly **500 KB and 618×618**, and the app's GIFs are 600×600 and routinely
+        heavier. A sticker-optimised export (frame cap, palette reduction, resize) is the real work
+        and would be the *first* work. The "reaction-sticker mode" pitched in the source chat —
+        cutout, tight crop, big text — is just §1g's subject segmentation again, so the two programs
+        converge rather than competing.
+      - **The extension's storage requirement is already a P0 fix in disguise.** A Messages
+        extension needs an **App Group** shared container to see the app's exports. §4 P0 Stage B
+        already wants originals moved out of `Caches/`; pointing that move at an App Group container
+        instead of `Application Support` solves the purge bug *and* pre-wires the extension — one
+        migration, two payoffs. See the note left on that item.
 
 ### 3f. Open questions — decide either way, then record it
 
@@ -587,6 +738,12 @@ repairs. Stage B remains:
       `url: URL?`) and resolve lazily on tap. Around 9 sites in `GalleryView`.
 - [ ] **Consider moving originals out of `Caches/`** to `Application Support/MyGIFs/` with
       `isExcludedFromBackup = true`, so iOS never purges them in the first place.
+      **When this is done, weigh an App Group container against `Application Support`.** A future
+      iMessage extension (parked, §3e) can only read the app's exports from a shared App Group
+      container, and this is the migration that decides where they live — so targeting the App
+      Group now costs nothing extra and pre-wires that feature, while `Application Support` forecloses
+      it until a second migration. Don't build the extension; just don't move the files somewhere it
+      can't reach them.
 
 ### P1 — Correctness
 
