@@ -1690,3 +1690,40 @@ synchronized group.
 `Enhance/`. Before adding any `.swift` file that is not app code — a script, a generator, a
 scratch experiment — put it at the repo root and build once to confirm. The failure is loud, but
 it is loud *at the app target*, which makes it look like the app broke rather than the file.
+
+---
+
+## 2026-08-18: Vision's foreground-instance segmentation throws on the Simulator — and the failure looks like an empty result
+
+**Problem:** `SubjectSegmentationService` landed with tests that passed and proved nothing. Two of
+them asserted that a flat grey image has no subject; both were green. Neither had reached Vision
+at all.
+
+**Root cause:** `VNGenerateForegroundInstanceMaskRequest` **throws on the iOS Simulator** — there
+is no segmentation model to run. The service's convenience wrapper used `try?`, which flattened
+that throw into `nil`, and `nil` is also how the API reports the perfectly ordinary "this photo
+has no subject". So a total capability failure and a normal answer arrived at the call site as
+the same value, and the assertion `subjectMask(for:) == nil` was true for the wrong reason.
+
+The cache tests are what exposed it. They counted segmentation passes rather than timing them,
+and the count came back 2 where 1 was expected — because the throwing path returned before
+reaching the cache. A timing-based assertion would have masked this: the throw is *fast*, so
+"second call was quicker" would have looked like a cache hit.
+
+**Rules:**
+- **Never let a capability failure share a return value with a legitimate empty result.** The
+  service now has `subjectMaskOrThrow(for:)` alongside the `try?` convenience, and the
+  distinction is part of the contract — a caller that conflates them would disable the subject
+  effects permanently on one transient error.
+- **Vision segmentation cannot be tested in the Simulator, so do not try.** The service takes an
+  injectable `MaskProvider`; tests stub it and assert only what the service itself owns —
+  caching, absence-vs-failure, rescaling. The real path is judged by
+  `Tools/segmentation-spike.swift` on hardware. This is the same lesson as the CIKernel gate
+  recorded above: a passthrough proves the pipeline runs, not that it works.
+- **Count, don't time.** Asserting "this was fast enough to be cached" is both flaky and blind.
+  `segmentationCount` makes the cache's behaviour observable, and it is what caught the bug.
+
+**Note this is separate from the macOS-vs-iOS question.** The §1g spike ran Vision on macOS,
+where segmentation works fine. So the capability has now been seen working on macOS and seen
+throwing in the Simulator, and has still never run on an iOS device — which is why §1g's device
+pass stays open.

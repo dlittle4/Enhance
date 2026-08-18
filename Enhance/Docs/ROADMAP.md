@@ -1,6 +1,6 @@
 # Enhance (ZoomGif) — Roadmap
 
-> Last updated: 2026-08-12 (session 18 — roadmap accuracy pass, CI test gate, CIKernel gate)
+> Last updated: 2026-08-18 (subject-segmentation spike + service; new effects/features intake)
 
 ## Vision
 
@@ -41,26 +41,35 @@ Items marked 🔍 are landed and green but never confirmed on hardware.
 
 ## Pick up here
 
-**State:** `main` has LENS, THIRD EYE, SLICE SHIFT, text-overlay Stages A–F, and the design-system
-plan. The pattern is to commit on a branch and fast-forward `main` at each green stage, so Xcode
-always sees a working build. **As of 2026-08-12 every side branch is at or behind `main`** — there
-is no in-flight work anywhere, so nothing below is owned by another session.
+**State:** `main` has LENS, THIRD EYE, SLICE SHIFT, text-overlay Stages A–F, the design-system
+plan, and — as of 2026-08-18 — `SubjectSegmentationService` and the §1g spike behind it. The
+pattern is to commit on a branch and fast-forward `main` at each green stage, so Xcode always sees
+a working build.
+
+**Check for in-flight work before starting; do not trust a dated claim here.** This paragraph used
+to assert every side branch was at or behind `main`, which was true on 2026-08-12 and quietly
+stopped being true. On 2026-08-18 there were six worktrees, one of them ahead. `git worktree list`
+and `git log --oneline main..<branch>` take a second and are the only honest answer.
 
 **Next up, in order:**
 
-1. **`SubjectSegmentationService`** (§1g, second box). **The spike ran on 2026-08-18 and passed** —
-   the mask is good enough at 600×600, and the findings moved the risk somewhere nobody was
-   looking: not hair edges, but *background banding* under the 256-colour global palette, which is
-   a constraint on which §2f pairings ship first. Read the four findings on §1g before building on
-   it. What is left is the service itself, plus the two decisions the spike forced: what happens on
-   a photo with **no subject** (1 in 8 of our own showcase assets), and where the ~215 ms cold model
-   load gets paid. Still the item that unblocks the most.
-2. 🔍 **Confirm RISO's six-row panel on a real device** (§2c). Everything else about the effect is
+1. 🔍 **Put subject segmentation on a device** (§1g, third box). The spike passed and
+   `SubjectSegmentationService` has landed, so §2f is mechanically unblocked — **but the capability
+   has never run on iOS.** It worked on macOS in the spike and it *throws* in the Simulator, which
+   is also why its tests inject a stub. One device pass over the showcase corpus converts the whole
+   thing from indicative to real, and it gates every effect below it. Cheap, and the last thing in
+   the way.
+2. **The first §2f effect — FACE CUTOUT + background effect.** Read §1g's four spike findings
+   first; the one that changes the plan is that the palettisation cost lands on *background
+   banding*, not the mask edge, so pair it with an effect that flattens the background to few
+   colours (MONOTONE, DUOTONE, RISO, DITHER) rather than one that leaves a smooth gradient. It
+   still needs the §3d design call — toggle vs modifier vs new cards — decided *with* stacking.
+3. 🔍 **Confirm RISO's six-row panel on a real device** (§2c). Everything else about the effect is
    done and verified; this is the one open question, and it decides whether the params cap stays
    at 6 or the panel needs a fix first. Queued, but no longer gating new effect work.
-3. **Pattern Refraction** (§2c) is the last of the *old* effect list, with the displacement spike
+4. **Pattern Refraction** (§2c) is the last of the *old* effect list, with the displacement spike
    (§2b) worth running first for that one. BIG HEAD (§2a) and BITMAP (§2b) are the ready-to-cheap
-   new arrivals if an effect is wanted before the spike lands.
+   new arrivals if an effect is wanted before the displacement spike lands.
    **Ask before starting another effect outright**: three have been declined on the user's call
    (HATCHING, BOKEH, Water Caustic), so the constraint is taste, not capability — the kernel path
    is now proved three times over. Show a render early rather than polishing alone. FACE SWAP
@@ -343,11 +352,29 @@ notion of a silhouette.
       may not be, so the *hit rate* and silhouette fidelity above are indicative, not measured for
       our target. Re-run the same corpus on device before treating the 7/8 number as real.
       Harness: `Tools/segmentation-spike.swift` (see §1g note below).
-- [ ] **Then the service.** Mirror `FaceDetectionService`'s shape — it caches per image on
-      `cachedImageHash` / `cachedFaces` (`FaceDetectionService.swift:14-22`) so detection runs once
-      per photo rather than once per frame. Segmentation is more expensive than detection, so the
-      cache matters more, not less. In the frame loop the mask is one `CIBlendWithMask` against the
-      already-lazy CIImage chain — the per-frame cost is small; the per-photo cost is the whole cost.
+- [x] **The service — landed 2026-08-18** as `Services/SubjectSegmentationService.swift`, with 14
+      tests green and the full suite at 565. Mirrors `FaceDetectionService`'s cache-per-image shape
+      (`FaceDetectionService.swift:14-22`), and adds three things the build forced:
+      - **No subject is an ordinary answer, and it is cached.** `subjectMask(for:)` returns `nil`,
+        `hasSubject(in:)` is the editor's gate. **Decision, on the user's call: when a photo has no
+        subject the editor disables the effect** rather than offering one that silently does
+        nothing. Note this *differs from the face precedent* — `detectFacesIfNeeded`
+        (`EditorViewModel.swift:689-703`) shows a "NO FACES DETECTED" toast and leaves the cards
+        live. Worth aligning the two when the first subject effect ships; they are the same
+        situation and currently answer it two different ways.
+      - **Failure is kept distinct from absence.** `subjectMaskOrThrow(for:)` throws where the
+        convenience wrapper returns `nil`. This is not fastidiousness — see the LEARNINGS entry
+        below; conflating them made a green test that proved nothing.
+      - **`prewarm()`**, to pay the ~215 ms cold model load at photo-pick instead of on the tap
+        that enables the effect. **Not yet wired to a caller** — do that when the first subject
+        effect lands and there is something to warm *for*.
+- [ ] 🔍 **Run it on a device — the one thing still unverified.** **`VNGenerateForegroundInstanceMaskRequest`
+      throws on the iOS Simulator** (no model), so the real path cannot be exercised there at all;
+      the tests inject a stub deliberately. Combined with the spike having run on macOS, the
+      capability has been seen working on macOS, seen throwing in the Simulator, and **never once
+      run on iOS**. Re-run the showcase corpus through `Tools/segmentation-spike.swift`'s logic on
+      hardware before any §2f effect is built on it — that is what turns the 7/8 hit rate from
+      indicative into real. Full write-up: LEARNINGS, 2026-08-18.
 
 **Two things to carry into every effect built on this**, both already learned elsewhere:
 
