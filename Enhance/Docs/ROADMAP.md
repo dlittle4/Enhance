@@ -364,6 +364,16 @@ notion of a silhouette.
         handed a `nil` mask must return the frame unchanged**, the way face effects degrade when no
         face is selected — a card that stays tappable must not render a broken frame. Write that
         into the first one and it is free for the rest.
+
+        **Seen on device 2026-08-18, and the requirement above does not cover it: live cards on a
+        photo with nothing detected render as *blank grey rectangles*.** `generateFaceFilterThumbnails`
+        bails on `guard let face = detectedFaces.first` (`EditorViewModel.swift:926`), so the FACE
+        carousel on a landscape photo is a row of empty cards with labels — verified in the
+        Simulator on a waterfall shot. The subject carousel will inherit exactly this unless the
+        first §2f effect renders its thumbnails from the *unmasked* photo when the mask is `nil`.
+        A frame that stays correct and a thumbnail that goes blank are two different problems, and
+        only the first was written down. Filed against the face tab in §4 as well, since it is a
+        live defect there today rather than a new one.
       - **Failure is kept distinct from absence.** `subjectMaskOrThrow(for:)` throws where the
         convenience wrapper returns `nil`. This is not fastidiousness — see the LEARNINGS entry
         below; conflating them made a green test that proved nothing.
@@ -841,6 +851,13 @@ repairs. Stage B remains:
       tappable face boxes**. Both now consult `viewModel.showsLiveCanvas`
       (`EditorView.swift:1196` and `:1207`). Found by grepping the proxy the fix replaced — see
       LEARNINGS 2026-08-11 on converting every reader.
+- [ ] **Face cards render blank when no faces are detected.** *Seen on device 2026-08-18.*
+      `generateFaceFilterThumbnails` returns early on `guard let face = detectedFaces.first`
+      (`EditorViewModel.swift:926`), so the FACE carousel on a photo with no faces is a row of
+      empty grey rectangles with labels — the cards stay tappable, which is the intended pattern,
+      but they look broken rather than inapplicable. Cheapest fix is to fall back to an unmodified
+      crop of the photo so the card shows *something*. **Decide this before the first §2f effect
+      ships**, because the subject carousel inherits the same shape (§1g).
 - [ ] **"NO FACES DETECTED" toast repeats.** `detectFacesIfNeeded` guards on `detectedFaces.isEmpty`
       (`EditorViewModel.swift:346`), which stays true forever when detection legitimately finds
       nothing, so every return to the face tab re-runs detection and re-toasts. Needs a separate
