@@ -710,10 +710,23 @@ row, because the mask is the hard part and it is shared.
       (§3a), so compositing under the subject mask is a layering change, not a rasteriser change.
 - [ ] **SUBJECT REPEATED INTO A PATTERN** — N transformed copies of the cutout tiled behind the
       original. Ordinary once the mask exists; the only real parameter is count-and-transform.
-- [ ] **ANIMATED BACKGROUND, STATIONARY SUBJECT** — the inverse of face cutout: the subject is held
-      and the background animates. `AnimeBackgroundEffect` (`AnimeBackgroundEffect.swift:8`) is
-      already exactly this idea with an *elliptical* mask (spikes on white behind a feathered face
-      cutout); §1g's real mask upgrades it and opens the category. Any procedural background wants
+- [x] **ANIMATED BACKGROUND, STATIONARY SUBJECT — shipped 2026-08-18 as the ANIME face card.**
+      **Correction to what this row used to say:** `AnimeBackgroundEffect` was described here as
+      an existing effect to upgrade. It was not — it had no `FaceFilterType` case and was
+      unreferenced anywhere outside its own file, so it was dead code rather than something a
+      user could reach. Wiring the card was therefore part of the work, not a given.
+      It now takes the segmentation mask when there is one and falls back to its original
+      feathered ellipse when there is not, which keeps the card live on the 1-in-8 photos with no
+      subject (§1g). Controls are INTENSITY and LINES.
+      **No `FrameGeometry` mapping is needed here, unlike the visual-effect path**: face effects
+      run on the un-zoomed source (`GIFGenerator.faceEffectedSource`), so a source-space mask
+      already aligns. Worth knowing before the next §2f effect — whether a mask needs mapping
+      depends entirely on which of the two pipelines the effect sits in.
+- [ ] 🔍 **Look at ANIME's two cutouts side by side.** The upgrade is only worth having if the
+      silhouette visibly beats the ellipse. A device render was set up
+      (`SubjectSegmentationDeviceTests.animeBackground_realMaskVersusEllipse`) but the phone went
+      offline mid-run, so **this has never been looked at** — the effect is green and unseen,
+      which per EFFECTS.md means nothing about how it reads. Any procedural background wants
       Water Caustic's **seamless-loop** trick — feature points orbit with period 1, speed quantised
       to whole orbits so progress 0 and 1 render identically — pinned by `CausticTests` and recorded
       in §2c, so the GIF does not jump on wrap.

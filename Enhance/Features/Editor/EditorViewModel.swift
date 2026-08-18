@@ -554,6 +554,19 @@ class EditorViewModel {
     /// preview update.
     var activeFaceEffect: FaceEffect? {
         guard let filter = selectedFaceFilter else { return nil }
+
+        // ANIME is the one filter that consumes segmentation, and `FaceFilterType.effect` has no
+        // access to it — so it is rebuilt here with the mask rather than widening that factory's
+        // signature for the one case that needs it. A nil mask is not a failure: the effect falls
+        // back to its elliptical cutout, which is what it shipped with.
+        if filter == .animeBackground {
+            return AnimeBackgroundEffect(
+                intensity: value(EffectParameter.intensityID, for: filter),
+                lineDensity: value(EffectParameter.secondaryID, for: filter),
+                subjectMask: subjectMask
+            )
+        }
+
         return filter.effect(
             intensity: value(EffectParameter.intensityID, for: filter),
             secondValue: value(EffectParameter.secondaryID, for: filter),

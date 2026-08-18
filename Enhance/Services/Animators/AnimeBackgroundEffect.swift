@@ -2,12 +2,27 @@ import CoreImage
 import UIKit
 
 /// Manga/comic impact-burst effect: white background with dark triangular
-/// spikes radiating inward toward the face, with the face visible through
-/// a feathered elliptical cutout. Spikes rotate per frame for animation.
+/// spikes radiating inward toward the face, with the subject visible through
+/// a cutout. Spikes rotate per frame for animation.
 /// Intensity controls spike density and opacity.
+///
+/// **This is ROADMAP §2f's "animated background, stationary subject"** — the inverse of
+/// FACE CUTOUT, with the subject held while the background animates.
+///
+/// The cutout takes `subjectMask` when segmentation found one and falls back to a feathered
+/// ellipse around the face otherwise. The ellipse is what this effect shipped with, and the
+/// difference is the whole point of the upgrade: a burst punched through an oval reads as a
+/// vignette, while one punched through a real silhouette reads as the subject standing in
+/// front of it. The fallback is kept rather than the effect being disabled, because §1g found
+/// 1 in 8 photos has no subject and the editor's rule is to leave the card live.
+///
+/// Face effects run on the *un-zoomed source* (`GIFGenerator.faceEffectedSource`), so the mask
+/// arrives already in the right space and needs no `FrameGeometry` mapping — unlike the visual
+/// effect path, where getting that wrong shipped a broken export once already.
 struct AnimeBackgroundEffect: FaceEffect {
     private let intensityScale: CGFloat
     private let spikeCount: Int
+    private let subjectMask: CIImage?
     private let overlayCache = OverlayCache()
 
     private class OverlayCache {
@@ -16,9 +31,10 @@ struct AnimeBackgroundEffect: FaceEffect {
         var key: String?
     }
 
-    init(intensity: Double = 0.5, lineDensity: Double = 0.5) {
+    init(intensity: Double = 0.5, lineDensity: Double = 0.5, subjectMask: CIImage? = nil) {
         self.intensityScale = max(0.15, CGFloat(intensity))
         self.spikeCount = 12 + Int(lineDensity * 36)
+        self.subjectMask = subjectMask
     }
 
     func apply(to image: CIImage, face: DetectedFace, progress: CGFloat, frameIndex: Int) -> CIImage {
@@ -50,7 +66,11 @@ struct AnimeBackgroundEffect: FaceEffect {
                 originY: extent.origin.y
             ) else { return image }
 
-            guard let renderedMask = renderFaceMask(
+            // The real silhouette when there is one; the original ellipse when there is not.
+            let renderedMask: CIImage
+            if let subjectMask {
+                renderedMask = scaled(subjectMask, to: extent)
+            } else if let ellipse = renderFaceMask(
                 imageWidth: Int(extent.width),
                 imageHeight: Int(extent.height),
                 center: face.faceCenter,
@@ -59,7 +79,11 @@ struct AnimeBackgroundEffect: FaceEffect {
                 featherRadius: faceRadius * 0.15,
                 originX: extent.origin.x,
                 originY: extent.origin.y
-            ) else { return image }
+            ) {
+                renderedMask = ellipse
+            } else {
+                return image
+            }
 
             overlayCache.spikesOnWhite = renderedSpikes
             overlayCache.faceMask = renderedMask
@@ -85,6 +109,22 @@ struct AnimeBackgroundEffect: FaceEffect {
             kCIInputBackgroundImageKey: mixedBackground,
             kCIInputMaskImageKey: faceMask
         ]).cropped(to: extent)
+    }
+
+    /// Fit a source-space mask to the frame it is being composited against.
+    ///
+    /// Face effects already run in source space, so this is normally a no-op; it exists because
+    /// the pipeline can normalise a photo's orientation before drawing, which changes its pixel
+    /// dimensions without changing what the mask means.
+    private func scaled(_ mask: CIImage, to extent: CGRect) -> CIImage {
+        guard mask.extent.width > 0, mask.extent.height > 0,
+              mask.extent.size != extent.size else { return mask }
+        return mask
+            .transformed(by: CGAffineTransform(
+                scaleX: extent.width / mask.extent.width,
+                y: extent.height / mask.extent.height
+            ))
+            .transformed(by: CGAffineTransform(translationX: extent.origin.x, y: extent.origin.y))
     }
 
     // MARK: - Rendering

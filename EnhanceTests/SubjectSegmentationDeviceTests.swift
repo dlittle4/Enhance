@@ -134,6 +134,30 @@ struct SubjectSegmentationDeviceTests {
         #expect(data != nil)
     }
 
+    /// ANIME with the real silhouette against ANIME with its original elliptical cutout.
+    /// The pair is the point: the upgrade is only worth having if the difference is visible.
+    @Test func animeBackground_realMaskVersusEllipse() async throws {
+        guard let image = UIImage(named: "showcase-7"), let cg = image.cgImage else { return }
+        let service = SubjectSegmentationService()
+        let mask = try service.subjectMaskOrThrow(for: image)
+
+        // A face is required to centre the burst; the cat's head is what detection finds here.
+        let faces = await FaceDetectionService().detectFaces(in: image)
+        guard let face = faces.first else { return }
+
+        let source = CIImage(cgImage: cg)
+        for (label, effect) in [
+            ("ellipse", AnimeBackgroundEffect(intensity: 0.6, lineDensity: 0.5)),
+            ("silhouette", AnimeBackgroundEffect(intensity: 0.6, lineDensity: 0.5, subjectMask: mask))
+        ] {
+            let data = writeGIF(frameCount: 8) { i, p in
+                effect.apply(to: source, face: face, progress: p, frameIndex: i)
+                    .cropped(to: source.extent)
+            }
+            if let data { Attachment.record(data, named: "anime-\(label).gif") }
+        }
+    }
+
     // MARK: - Measurement
 
     private func coverage(of mask: CIImage) -> (subject: Double, background: Double, edge: Double, edgePx: Int) {

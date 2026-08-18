@@ -1358,6 +1358,11 @@ struct EditorView: View {
             if viewModel.selectedFaceFilter != filterType {
                 viewModel.pushUndo()
                 viewModel.selectedFaceFilter = filterType
+                // ANIME cuts the subject out of its burst, so it needs the mask. Segmenting on
+                // selection rather than on tab entry keeps the cost on the one card that uses it.
+                if filterType == .animeBackground {
+                    viewModel.segmentSubjectIfNeeded()
+                }
             }
             viewModel.beginEditing()
         }

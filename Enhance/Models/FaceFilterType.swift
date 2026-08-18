@@ -23,6 +23,10 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
     case chromaShift = "CHROMA SHIFT"
     case rainbow    = "RAINBOW"
     case lensDistortion = "LENS"
+    /// ROADMAP §2f — the subject held while a manga impact burst animates behind it. The
+    /// effect existed unreferenced since before the segmentation work; §1g's real mask is what
+    /// made it worth wiring, because an oval cutout read as a vignette rather than a cutout.
+    case animeBackground = "ANIME"
 
     var id: String { rawValue }
 
@@ -75,6 +79,9 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         case .rainbow:        return "SPEED"
         case .lensDistortion: return "REACH"
         case .thirdEye:       return "INTENSITY"
+        // The second slot drives spike count — "LINES" says what moves, where "DENSITY" would
+        // describe the maths.
+        case .animeBackground: return "LINES"
         default:              return nil
         }
     }
@@ -111,6 +118,11 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         case .chromaShift: return FaceVisualEffect(effect: ChromaticAberrationEffect(intensity: clamped), skipDelay: true)
         case .rainbow:    return RainbowFaceEffect(intensity: clamped, pulses: clampedSecond)
         case .lensDistortion: return FaceVisualEffect(effect: LensDistortionEffect(intensity: clamped, reach: clampedSecond), skipDelay: true)
+        // No mask here: this factory has no access to segmentation, so it yields the elliptical
+        // fallback. `EditorViewModel.activeFaceEffect` rebuilds it with the real mask for the
+        // live path — which also means the card thumbnail shows the fallback, and that is fine,
+        // since the burst rather than the cutout is what the thumbnail has to convey.
+        case .animeBackground: return AnimeBackgroundEffect(intensity: clamped, lineDensity: clampedSecond)
         }
     }
 }
