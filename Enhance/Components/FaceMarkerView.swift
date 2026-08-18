@@ -22,6 +22,14 @@ final class FaceMarkerView: UIView {
     private let scanLayer = CAGradientLayer()
     private var isScanning = false
 
+    /// Whether the entrance's scan delay has elapsed, i.e. a plain `redraw` is allowed to start
+    /// the sweep. `beginEntrance` clears it for staggered faces; the scheduled start sets it.
+    private var scanArmed = true
+
+    /// Whether a non-repeating scan has run its passes. Once true, a reconfigure — an effect
+    /// landing, a selection change — must not start the sweep again.
+    private var scanFinished = false
+
     private var onTap: ((Int) -> Void)?
     private var faceIndex = 0
 
@@ -158,18 +166,32 @@ final class FaceMarkerView: UIView {
             }
         }
 
-        // The scan's own start is handled by `updateScanline`, which reads `scanStartTime`; this
-        // only has to nudge it once the delay has elapsed.
+        // The scan's own start is handled by `updateScanline`; this only has to nudge it once the
+        // delay has elapsed.
+        scanFinished = false
         if timeline.scanStart > 0 {
-            scanLayer.isHidden = true
+            // Stop, don't just hide: `configure` redraws before this runs, and that first redraw
+            // can have started the sweep already. Hiding the layer leaves the animation attached
+            // and `isScanning` true, so the delayed start below would unhide a band mid-sweep
+            // instead of adding a fresh one from the top.
+            stopScanning()
+            scanArmed = false
             schedule(after: timeline.scanStart) { [weak self] in
                 guard let self, let marker = self.marker else { return }
+                self.scanArmed = true
                 self.updateScanline(marker: marker, force: true)
             }
+        } else {
+            // No delay: start (or refresh) the sweep now rather than waiting for a redraw that
+            // may not come — after a replay's `resetEntrance` the configure's own redraw has
+            // already run, disarmed, and hidden the band.
+            scanArmed = true
+            updateScanline(marker: marker, force: true)
         }
 
         if let stop = timeline.scanStop {
             schedule(after: stop) { [weak self] in
+                self?.scanFinished = true
                 self?.stopScanning()
             }
         }
@@ -206,6 +228,8 @@ final class FaceMarkerView: UIView {
         cancelEntrance()
         hasLockedOn = false
         reticleRevealed = false
+        scanArmed = false
+        scanFinished = false
         stopScanning()
         bracketLayer.opacity = 0
         labelLayer.opacity = 0
@@ -399,10 +423,20 @@ final class FaceMarkerView: UIView {
     /// Only the *targets* scan. A face the user has deselected is not being examined, and sweeping
     /// every face at once turns a scanner into a disco.
     private func updateScanline(marker: FaceMarker, force: Bool = false) {
-        // A scan whose entrance delay has not elapsed stays hidden. `force` is how the scheduled
-        // work item says "the delay is over" without racing the next `redraw`.
-        if !force, !isScanning, tuning.entranceTimeline(faceIndex: marker.index).scanStart > 0,
-           !entranceWork.isEmpty {
+        // The scheduled start runs outside `redraw`'s transaction, and an implicit quarter-second
+        // action on the frame or the unhide reads as the band lurching into place.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+
+        // Two states in which a plain `redraw` must not start the sweep: the entrance delay has
+        // not elapsed (`force` is how the scheduled work item says it has), and a non-repeating
+        // scan has already run its passes — a reconfigure is not a reason to scan again.
+        //
+        // Both flags are only maintained by the entrance, which only runs under RETICLE, so the
+        // check is gated on it: without that, a replay under scanline-without-reticle would leave
+        // `scanArmed` false with nothing to ever set it back.
+        if !force, !isScanning, options.reticle, !scanArmed || scanFinished {
             scanLayer.isHidden = true
             return
         }
