@@ -639,6 +639,14 @@ that was written while three rows was still believed marginal.
       quantisation, or read as noise? The SCALE slider is the first lever if it needs help.
 - [ ] 🔍 **GRADIENT colour wells** — confirmed working, but never seen alongside the rest of the row
       on device.
+- [ ] **The BACKGROUND ONLY row sits on the panel's bottom edge and I could not scroll to it.**
+      *Seen in the Simulator 2026-08-18.* Adding the toggle takes CHROMA SHIFT to three rows, and
+      the card is then clipped mid-height by the panel's lower edge. The scroll nudge appears — so
+      `needsScroll` is true — but neither a swipe, a slow `touch_path`, nor tapping the nudge moved
+      the content. Unclear whether that is a real scroll failure or synthetic-touch flakiness
+      against this `ScrollView`; **a real finger on a device settles it in seconds**, which is why
+      it is filed rather than fixed. Directly adjacent to the RISO six-row check above, and RISO is
+      now seven rows, so the two should be looked at in one pass.
 
 ### 2f. Subject-mask effects — **blocked on §1g**
 
