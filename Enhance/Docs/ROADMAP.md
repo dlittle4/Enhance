@@ -355,13 +355,15 @@ notion of a silhouette.
 - [x] **The service — landed 2026-08-18** as `Services/SubjectSegmentationService.swift`, with 14
       tests green and the full suite at 565. Mirrors `FaceDetectionService`'s cache-per-image shape
       (`FaceDetectionService.swift:14-22`), and adds three things the build forced:
-      - **No subject is an ordinary answer, and it is cached.** `subjectMask(for:)` returns `nil`,
-        `hasSubject(in:)` is the editor's gate. **Decision, on the user's call: when a photo has no
-        subject the editor disables the effect** rather than offering one that silently does
-        nothing. Note this *differs from the face precedent* — `detectFacesIfNeeded`
-        (`EditorViewModel.swift:689-703`) shows a "NO FACES DETECTED" toast and leaves the cards
-        live. Worth aligning the two when the first subject effect ships; they are the same
-        situation and currently answer it two different ways.
+      - **No subject is an ordinary answer, and it is cached.** `subjectMask(for:)` returns `nil`;
+        `hasSubject(in:)` tells the editor whether to say so. **Decision, on the user's call
+        (2026-08-18): follow the face precedent — show a toast and leave the cards live.**
+        `detectFacesIfNeeded` (`EditorViewModel.swift:689-703`) already does exactly this with
+        "NO FACES DETECTED", and answering the same situation two different ways was the thing to
+        avoid. **This puts a requirement on the §2f effects rather than on the service: an effect
+        handed a `nil` mask must return the frame unchanged**, the way face effects degrade when no
+        face is selected — a card that stays tappable must not render a broken frame. Write that
+        into the first one and it is free for the rest.
       - **Failure is kept distinct from absence.** `subjectMaskOrThrow(for:)` throws where the
         convenience wrapper returns `nil`. This is not fastidiousness — see the LEARNINGS entry
         below; conflating them made a green test that proved nothing.

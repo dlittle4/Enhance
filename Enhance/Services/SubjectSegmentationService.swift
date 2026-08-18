@@ -11,9 +11,16 @@ import CoreImage
 ///
 /// - **Absence is a first-class result, not an error.** 1 of the app's own 8 showcase
 ///   photos returns no observation at all — a low-contrast, heavily occluded subject.
-///   So `subjectMask(for:)` returns `nil` for "this photo has no subject", and the editor
-///   disables the effect rather than offering one that would silently do nothing.
-///   `nil` is a normal answer here; only `Failure` means something went wrong.
+///   So `subjectMask(for:)` returns `nil` for "this photo has no subject". `nil` is a
+///   normal answer here; only `Failure` means something went wrong.
+///
+///   **The editor's response to `nil` follows the face precedent: a toast, with the cards
+///   left live** — `detectFacesIfNeeded` (`EditorViewModel.swift:689-703`) shows
+///   "NO FACES DETECTED" and disables nothing, and the subject effects match it rather than
+///   inventing a second answer to the same situation. The consequence for §2f is a
+///   requirement on the *effects*, not on this service: **a subject effect handed a `nil`
+///   mask must return the frame unchanged**, the way face effects degrade when no face is
+///   selected. A card that stays tappable must not render a broken frame.
 /// - **The first call is the expensive one.** Warm, the request is ~12–17 ms plus mask
 ///   generation; cold it is ~215 ms of one-time model load. `prewarm()` exists so that
 ///   cost can be paid at photo-pick rather than on the tap that turns the effect on.
@@ -125,8 +132,9 @@ final class SubjectSegmentationService {
         }
     }
 
-    /// Whether this photo has a subject to build on — the editor's gate for enabling the
-    /// subject effects.
+    /// Whether this photo has a subject to build on. The editor uses this to decide whether
+    /// to show the "no subject" toast — not whether to enable the cards, which stay live
+    /// either way. See the note on absence above.
     func hasSubject(in image: UIImage) async -> Bool {
         await subjectMask(for: image) != nil
     }

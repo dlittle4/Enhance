@@ -47,6 +47,8 @@ struct SubjectSegmentationTests {
         #expect(await serviceFindingNothing().subjectMask(for: makeImage()) == nil)
     }
 
+    /// The editor asks this to decide whether to raise the "no subject" toast; the cards
+    /// stay live regardless, matching how face effects handle a photo with no faces.
     @Test func noSubject_reportsFalseToTheEditor() async {
         #expect(await serviceFindingNothing().hasSubject(in: makeImage()) == false)
     }
@@ -112,8 +114,8 @@ struct SubjectSegmentationTests {
 
     // MARK: - Failure is not absence
 
-    /// A caller that cannot tell these apart would disable the effect on a transient Vision
-    /// error, so the distinction is part of the contract rather than a convenience.
+    /// A caller that cannot tell these apart would tell the user "no subject" on a transient
+    /// Vision error, so the distinction is part of the contract rather than a convenience.
     @Test func providerThrows_propagatesRatherThanReportingNoSubject() {
         struct Boom: Error {}
         let service = SubjectSegmentationService { _, _ in throw Boom() }
@@ -124,7 +126,7 @@ struct SubjectSegmentationTests {
     }
 
     /// A failure must not be cached as "no subject" — otherwise one transient error would
-    /// disable the effect for that photo for the rest of the session.
+    /// mislabel that photo as subjectless for the rest of the session.
     @Test func providerThrows_doesNotPoisonTheCache() async {
         struct Boom: Error {}
         final class Gate: @unchecked Sendable { var shouldThrow = true }
