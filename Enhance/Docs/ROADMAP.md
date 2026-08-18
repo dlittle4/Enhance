@@ -48,10 +48,13 @@ is no in-flight work anywhere, so nothing below is owned by another session.
 
 **Next up, in order:**
 
-1. **Subject-segmentation spike** (§1g). One afternoon that de-risks six of the new effects at
-   once — face cutout and the whole subject-mask family (§2f) all wait on this one capability, and
-   nothing about them is decidable until a real cutout has been rendered into a GIF and looked at.
-   It leads because it unblocks the most, not because it is urgent.
+1. **`SubjectSegmentationService`** (§1g, second box). **The spike ran on 2026-08-18 and passed** —
+   the mask is good enough at 600×600, and the findings moved the risk somewhere nobody was
+   looking: not hair edges, but *background banding* under the 256-colour global palette, which is
+   a constraint on which §2f pairings ship first. Read the four findings on §1g before building on
+   it. What is left is the service itself, plus the two decisions the spike forced: what happens on
+   a photo with **no subject** (1 in 8 of our own showcase assets), and where the ~215 ms cold model
+   load gets paid. Still the item that unblocks the most.
 2. 🔍 **Confirm RISO's six-row panel on a real device** (§2c). Everything else about the effect is
    done and verified; this is the one open question, and it decides whether the params cap stays
    at 6 or the panel needs a fix first. Queued, but no longer gating new effect work.
@@ -306,13 +309,40 @@ it and all of them are ordinary work after it.
 right for copying a feature, useless for a cutout that must read as a person, because it has no
 notion of a silhouette.
 
-- [ ] **The spike, and it is a render-and-look.** `VNGenerateForegroundInstanceMaskRequest` is
-      iOS 17+ and the deployment target is 18.2, so availability is not the question.
-      **The question is quality at our output size**: hair edges, and how much feather survives a
-      600×600 frame after the GIF's 256-colour palettisation. Run the request on a handful of real
-      photos — including one with fine hair and one with a low-contrast background — composite a
-      naive cutout, generate an actual GIF, and look at it. Per EFFECTS.md, structural tests cannot
-      see a wrong-looking effect, so a green test proves nothing here.
+- [x] **The spike — run 2026-08-18. The mask is good enough; the worry was aimed at the wrong
+      thing.** Ran `VNGenerateForegroundInstanceMaskRequest` over all eight `showcase-*` assets
+      (they are already 600×600, i.e. exactly the output size) and pushed naive cutouts through the
+      real export path — `CGImageDestination`, GIF, `HasGlobalColorMap: true`, matching
+      `GIFGenerator.swift:128-141` — then looked at frames read back out of the written GIF.
+      Four findings, each of which changes something downstream:
+      - **Hair and whiskers were the wrong thing to fear.** The mask is a *smooth silhouette* — it
+        resolves neither hair wisps nor whiskers, and the feathered edge is only 1.2–1.9% of the
+        frame (≈4.3k–6.7k px), i.e. 1–2px of antialiasing, not a soft matte. It does not matter:
+        fine strands are light against a treated background and still read, because the background
+        effect is applied to the *whole* frame and the mask only chooses between two versions of
+        the same pixel. Nothing is cut off; the strands just get the background's treatment.
+      - **The real palettisation damage is banding in the background, not fringing at the edge.**
+        Verified by comparing the pre-GIF PNG against a frame read back from the GIF: the edge is
+        identical, while a smooth desaturated background breaks into visible contour bands under
+        the 256-colour global map. **So the constraint lands on §2f's background effects, not on
+        the mask** — an effect that flattens the background into few colours (MONOTONE, DUOTONE,
+        RISO, DITHER) costs nothing, while one leaving a smooth gradient (blur, desaturate) bands.
+        Prefer the former when picking the first shipped pairing.
+      - **1 in 8 photos has no subject at all.** `showcase-1` (a cat under bedding, low contrast,
+        heavily occluded) returns *no observation* — reproducibly, not intermittently. So the
+        family needs a defined no-subject behaviour, and it is the same design question §2g raises
+        for FACE SWAP's one-face case. Decide it once, for both.
+      - **Cost is not the problem the item assumed, but the *first* call is.** Warm, the request is
+        12–17 ms plus 2–68 ms for `generateScaledMaskForImage` on a 600×600 input. **Cold it is
+        ~215 ms** — a one-time model load, paid by whichever photo is segmented first. So the cache
+        is worth having but is not the interesting part; the interesting part is that the first
+        subject effect a user taps will stall about a fifth of a second unless the model is warmed
+        earlier (photo pick is the obvious moment). Measured on macOS — see the caveat below.
+      **Caveat, and it is the reason this stays open until a device pass:** the spike ran Vision on
+      **macOS 26**, not iOS 18.2. The API and the pipeline are identical, but the segmentation model
+      may not be, so the *hit rate* and silhouette fidelity above are indicative, not measured for
+      our target. Re-run the same corpus on device before treating the 7/8 number as real.
+      Harness: `Tools/segmentation-spike.swift` (see §1g note below).
 - [ ] **Then the service.** Mirror `FaceDetectionService`'s shape — it caches per image on
       `cachedImageHash` / `cachedFaces` (`FaceDetectionService.swift:14-22`) so detection runs once
       per photo rather than once per frame. Segmentation is more expensive than detection, so the
