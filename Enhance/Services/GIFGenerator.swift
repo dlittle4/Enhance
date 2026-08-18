@@ -296,12 +296,18 @@ public class GIFGenerator: GIFGenerating {
     /// LEARNINGS 2026-03-10 for the bug this caused when it was missed before.
     private func frameGeometry(params: AnimationParameters, transform: CGAffineTransform, context: DrawingContext) -> FrameGeometry {
         let originInFrame = context.drawRect.origin.applying(transform)
+        // The aspect-fill factor applied before any zoom — see `FrameGeometry.contentScale`.
+        // Taken from the drawn width rather than recomputed so it cannot drift from
+        // `calculateDrawRect`.
+        let sourceWidth = context.normalizedImage.size.width * context.normalizedImage.scale
+        let contentScale = sourceWidth > 0 ? context.drawRect.width / sourceWidth : 1
         return FrameGeometry(
             scale: params.scale,
             contentOrigin: CGPoint(
                 x: originInFrame.x,
                 y: context.outputSize.height - originInFrame.y
-            )
+            ),
+            contentScale: contentScale
         )
     }
 

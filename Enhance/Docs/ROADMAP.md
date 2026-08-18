@@ -612,7 +612,22 @@ that was written while three rows was still believed marginal.
 ### 2f. Subject-mask effects — **blocked on §1g**
 
 *Filed 2026-08-18.* Five effects that all consume the same segmentation mask and differ only in
-what they do with the two halves. None is buildable until §1g's spike proves the mask is good
+what they do with the two halves.
+
+**The shared half is built** — `Services/Animators/SubjectMaskCompositor.swift` (2026-08-18, 11
+tests): `subject(of:over:mask:geometry:)` for the four "hold the subject, replace the background"
+variants, `applyingToBackground(_:of:mask:...)` for the face-cutout case, and `cutout(of:mask:)`
+for the ones that move or repeat the subject. Every entry point returns the frame untouched on a
+`nil` mask, which is the §1g no-subject requirement honoured once instead of five times.
+
+**It also forced a change to `FrameGeometry`, and the reason generalises.** Effects run *after*
+the zoom/pan transform while the mask is produced in the photo's own pixel space, and mapping one
+to the other needs the aspect-fill factor as well as the zoom — which `FrameGeometry` did not
+carry, since a dither cell only ever needed the zoom. It now has `contentScale` (defaulting to 1,
+so the preview path and all fifteen shipped effects are unaffected) and a `sourceToFrame`
+transform. Without it the cutout drifts off the subject as the frame pans, and it would read as a
+segmentation failure rather than a geometry one. Any future effect carrying *source-space* data
+has the same problem and the same fix. None is buildable until §1g's spike proves the mask is good
 enough at GIF resolution; all are ordinary compositing work after it. Specs are collected in
 [EFFECTS.md](EFFECTS.md#subject-mask-effects--one-mask-five-composites) rather than repeated per
 row, because the mask is the hard part and it is shared.

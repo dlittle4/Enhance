@@ -25,9 +25,34 @@ public struct FrameGeometry {
     /// absolute position.
     public var contentOrigin: CGPoint
 
-    public init(scale: CGFloat = 1.0, contentOrigin: CGPoint = .zero) {
+    /// How the source photo's *pixels* were scaled to fill the output frame, before any
+    /// zoom. The GIF pipeline aspect-fills a photo of arbitrary size into a 600×600 frame,
+    /// so this is that fill factor; `scale` is the zoom applied on top of it.
+    ///
+    /// Grid effects do not need this — a dither cell is defined in frame space and only has
+    /// to track the zoom. It exists for effects carrying data computed in *source* space,
+    /// where the full mapping matters: a subject mask from `SubjectSegmentationService` is
+    /// the size of the photo, and placing it on the frame needs `scale * contentScale` for
+    /// size and `contentOrigin` for position. Getting only the zoom right leaves the cutout
+    /// drifting off the subject as the frame pans — the same class of bug `contentOrigin`
+    /// was added to prevent for grids.
+    ///
+    /// Defaults to 1, which is correct for the preview: it applies effects to the un-zoomed
+    /// source, so source space and frame space are already the same.
+    public var contentScale: CGFloat
+
+    public init(scale: CGFloat = 1.0, contentOrigin: CGPoint = .zero, contentScale: CGFloat = 1.0) {
         self.scale = scale
         self.contentOrigin = contentOrigin
+        self.contentScale = contentScale
+    }
+
+    /// The full source-pixel → frame-pixel transform. Source is in CIImage coordinates
+    /// (bottom-left origin), matching `contentOrigin`.
+    public var sourceToFrame: CGAffineTransform {
+        let total = scale * contentScale
+        return CGAffineTransform(scaleX: total, y: total)
+            .concatenating(CGAffineTransform(translationX: contentOrigin.x, y: contentOrigin.y))
     }
 
     /// Un-zoomed, un-panned — what the preview path uses.
