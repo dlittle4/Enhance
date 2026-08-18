@@ -53,13 +53,13 @@ and `git log --oneline main..<branch>` take a second and are the only honest ans
 
 **Next up, in order:**
 
-1. 🔍 **Put subject segmentation on a device** (§1g, third box). The spike passed and
-   `SubjectSegmentationService` has landed, so §2f is mechanically unblocked — **but the capability
-   has never run on iOS.** It worked on macOS in the spike and it *throws* in the Simulator, which
-   is also why its tests inject a stub. One device pass over the showcase corpus converts the whole
-   thing from indicative to real, and it gates every effect below it. Cheap, and the last thing in
-   the way.
-2. **The first §2f effect — FACE CUTOUT + background effect.** Read §1g's four spike findings
+1. **The first §2f effect — FACE CUTOUT + background effect.** **§1g is fully closed as of
+   2026-08-18** — spike, service, shared compositor, and a device pass whose numbers match macOS
+   to within a few pixels. Nothing is in the way.
+   **Decided on the user's call: background-only application is a per-effect toggle**, styled
+   after the Figma panel row (`node-id=10346-8747`) — `Color.surfaceControl`, 16pt radius,
+   `Typography.silkscreenSubheadline` label, standard iOS switch. So §3d's question is answered
+   for this case: a toggle, not a modifier and not a second set of cards. Read §1g's four spike findings
    first; the one that changes the plan is that the palettisation cost lands on *background
    banding*, not the mask edge, so pair it with an effect that flattens the background to few
    colours (MONOTONE, DUOTONE, RISO, DITHER) rather than one that leaves a smooth gradient. It
@@ -380,7 +380,27 @@ notion of a silhouette.
       - **`prewarm()`**, to pay the ~215 ms cold model load at photo-pick instead of on the tap
         that enables the effect. **Not yet wired to a caller** — do that when the first subject
         effect lands and there is something to warm *for*.
-- [ ] 🔍 **Run it on a device — the one thing still unverified.** **`VNGenerateForegroundInstanceMaskRequest`
+- [x] **Device pass — run 2026-08-18 on an iPhone (iOS 26.6). §1g is closed; §2f is unblocked.**
+      Vision does **not** throw on iOS, and the numbers are a near-exact match for the macOS
+      spike — differences of a few pixels in ~360,000, i.e. the same model behaving the same way:
+
+      | image | subject % (macOS → iOS) | edge px (macOS → iOS) |
+      |---|---|---|
+      | showcase-2 | 32.5 → 32.6 | 6336 → 6337 |
+      | showcase-3 | 30.8 → 30.9 | 6517 → 6487 |
+      | showcase-4 | 16.8 → 16.8 | 4626 → 4633 |
+      | showcase-5 | 24.8 → 24.7 | 6060 → 6068 |
+      | showcase-6 | 55.7 → 55.7 | 5866 → 5863 |
+      | showcase-7 | 32.5 → 32.5 | 4333 → 4327 |
+      | showcase-8 | 49.2 → 49.2 | 6668 → 6667 |
+
+      **The two findings that were only indicative are now measured.** `showcase-1` returns no
+      subject on device as well, so **7/8 is real** and the no-subject path is a genuine product
+      case rather than a macOS artifact. And the cold model load reproduced almost exactly —
+      **214 ms** for the first request against 15–30 ms warm — so `prewarm()` is worth wiring when
+      the first effect lands, at photo-pick.
+      Re-run any time with the command below; it is cheap and takes about a second on device.
+- [x] ~~🔍 **Run it on a device — the one thing still unverified.**~~ *Done, above.* **`VNGenerateForegroundInstanceMaskRequest`
       throws on the iOS Simulator** (no model), so the real path cannot be exercised there at all;
       the tests inject a stub deliberately. Combined with the spike having run on macOS, the
       capability has been seen working on macOS, seen throwing in the Simulator, and **never once
