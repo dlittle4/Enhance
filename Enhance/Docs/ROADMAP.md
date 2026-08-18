@@ -663,8 +663,30 @@ enough at GIF resolution; all are ordinary compositing work after it. Specs are 
 [EFFECTS.md](EFFECTS.md#subject-mask-effects--one-mask-five-composites) rather than repeated per
 row, because the mask is the hard part and it is shared.
 
-- [ ] **FACE CUTOUT + background effects** — the subject is held flat while any of the 15 shipped
-      visual effects runs on the background alone. The highest-leverage idea on the list, because it
+- [x] **FACE CUTOUT + background effects — shipped 2026-08-18 as the BACKGROUND ONLY toggle.**
+      A `.toggle` `EffectParameter` on every selectable effect (last row, off by default),
+      wrapping the built effect in `BackgroundOnlyEffect` at `activeVisualEffectList` — the one
+      choke point the preview and the GIF both read. Segmentation is paid when the toggle is
+      switched on, not on photo load, and absence follows the face precedent: a
+      "NO SUBJECT DETECTED" toast with the card left live, gated to once per photo so it does
+      **not** repeat the face tab's re-toast bug (§4).
+
+      **The finding, from rendering it on device — and it is sharper than the banding note in
+      §1g.** What matters is not how an effect handles colour but **whether it samples its
+      neighbourhood**:
+      - *Pointwise* effects (MONOTONE, DUOTONE, INVERT, RISO, DITHER) are **clean**. Each output
+        pixel depends only on its own input, so the mask cuts exactly.
+      - *Neighbourhood-sampling* effects **bleed the subject into the background**, because the
+        effect runs on the whole frame — subject included — and the mask only chooses afterwards.
+        MOTION BLUR leaves a faint warm halo around the silhouette; SWIRL drags a clearly visible
+        brown smear of the cat out into the couch. The subject itself stays sharp, so it reads as
+        a ghost beside a clean subject rather than as softness.
+
+      **Open, and a taste call rather than a bug**: whether to keep the toggle on the
+      neighbourhood-sampling effects. Renders were shown to the user on 2026-08-18. The fix if
+      it is unwanted is not cheap — the background would have to be inpainted where the subject
+      was before the effect runs, which is the same problem PARALLAX is blocked on — so the
+      realistic options are *accept the ghost* or *withhold the toggle on those effects*. The highest-leverage idea on the list, because it
       is a *multiplier* on effects that already exist rather than a new effect. **It needs a design
       call before code**, and it is the same call §3d raises: is background-only application a
       per-effect toggle, a modifier like SHAKE, or a new set of cards? Decide it against §3d

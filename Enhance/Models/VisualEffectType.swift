@@ -171,6 +171,21 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             break
         }
 
+        // Last, and on every selectable effect — it is a *modifier* on whatever is above it
+        // rather than one of the effect's own qualities, so it reads wrong interleaved with
+        // them. Off by default (ROADMAP §2f).
+        //
+        // Deliberately not restricted to a subset. §1g found the palettisation cost lands on
+        // background *banding*, so effects that flatten to few colours (MONOTONE, DUOTONE,
+        // RISO, DITHER) pair best and effects leaving a smooth gradient band worst — but that
+        // is guidance on what to reach for first, not a reason to withhold the control. The
+        // geometry-distorting effects are the ones to look at hardest: the subject is sampled
+        // from the *undistorted* frame, so a strong warp can pull background detail up to a
+        // silhouette that did not move.
+        if Self.selectable.contains(self) {
+            params.append(.backgroundOnly)
+        }
+
         return params
     }
 

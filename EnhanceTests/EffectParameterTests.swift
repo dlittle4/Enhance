@@ -221,7 +221,12 @@ struct EffectParameterTests {
         for type in VisualEffectType.allCases {
             let params = type.parameters
             #expect(!params.isEmpty, "\(type.rawValue) declares no parameters")
-            #expect(params.count <= 6, "\(type.rawValue) declares \(params.count) parameters")
+            // 7 since 2026-08-18: BACKGROUND ONLY is appended to every selectable effect, which
+            // takes RISO — already the widest panel — from six rows to seven. The scroll is
+            // accepted (§1a, user's call 2026-08-12); what this cap guards is an effect quietly
+            // growing *controls*, and the toggle is a modifier rather than a quality of the
+            // effect, so it is the one row that is not evidence of that.
+            #expect(params.count <= 7, "\(type.rawValue) declares \(params.count) parameters")
             // COLOR leads when the effect has one, and the first slider is always intensity.
             //
             // Specifically a *colour* picker. PIXELATE's `.pixelShape` is a picker row that is
@@ -236,8 +241,19 @@ struct EffectParameterTests {
             let ids = params.map(\.id)
             #expect(Set(ids).count == ids.count, "\(type.rawValue) has duplicate parameter ids")
 
-            let pickers = params.filter { $0.kind != .slider }
+            // A toggle is not a picker. The rule being enforced is that at most one row opens a
+            // *choice* of value — swatches, stops, a shape — because those are the tall rows.
+            // A switch is a single fixed-size control and does not compete for that budget.
+            let pickers = params.filter { $0.kind != .slider && $0.kind != .toggle }
             #expect(pickers.count <= 1, "\(type.rawValue) declares more than one picker")
+
+            // BACKGROUND ONLY modifies everything above it, so it reads wrong interleaved with
+            // the effect's own controls — it must come last, and there is only ever one.
+            if params.contains(where: { $0.kind == .toggle }) {
+                #expect(params.last?.kind == .toggle, "\(type.rawValue) must end with its toggle")
+                #expect(params.filter { $0.kind == .toggle }.count == 1,
+                        "\(type.rawValue) declares more than one toggle")
+            }
 
             // `supportsColorPicker` is specifically about *colour*, so only the colour kinds
             // may agree with it. PIXELATE's `.pixelShape` is a picker row that is not a

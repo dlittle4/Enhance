@@ -76,6 +76,39 @@ struct SubjectSegmentationDeviceTests {
         #expect(attempted > 0, "No showcase assets were loadable from the test host bundle.")
     }
 
+    /// Renders BACKGROUND ONLY through the real feature path — the shipped effect, the shipped
+    /// `BackgroundOnlyEffect` wrapper, the shipped GIF settings — so the look can be judged
+    /// rather than argued about. §1g found the palettisation cost lands on background *banding*,
+    /// so this deliberately pairs a colour-flattening effect (MONOTONE) against one that leaves
+    /// a smooth gradient (MOTION BLUR) and one that distorts geometry (SWIRL), which is the case
+    /// where the subject is sampled from an undistorted frame and could show a seam.
+    @Test func backgroundOnly_rendersThroughTheRealEffectPath() async throws {
+        let candidates: [(String, VisualEffectType)] = [
+            ("monotone", .monotone),      // flattens — expected to survive palettisation best
+            ("motionBlur", .motionBlur),  // smooth gradient — expected to band
+            ("swirl", .swirl)             // geometric — the seam risk
+        ]
+
+        for imageName in ["showcase-7", "showcase-3"] {
+            guard let image = UIImage(named: imageName) else { continue }
+            let service = SubjectSegmentationService()
+            guard let mask = try service.subjectMaskOrThrow(for: image) else { continue }
+
+            for (label, type) in candidates {
+                let base = type.effect(intensity: 0.7, options: EffectOptions())
+                let wrapped = BackgroundOnlyEffect(wrapped: base, mask: mask)
+                if let gif = effectGIF(image: image, effect: wrapped) {
+                    Attachment.record(gif, named: "\(imageName)-\(label)-bgonly.gif")
+                }
+                // The same effect with no mask, as the control — this is what the card looks
+                // like with the toggle off, and the pair is the only honest comparison.
+                if let plain = effectGIF(image: image, effect: base) {
+                    Attachment.record(plain, named: "\(imageName)-\(label)-plain.gif")
+                }
+            }
+        }
+    }
+
     // MARK: - Measurement
 
     private func coverage(of mask: CIImage) -> (subject: Double, background: Double, edge: Double, edgePx: Int) {
@@ -98,6 +131,42 @@ struct SubjectSegmentationDeviceTests {
                 Double(partial) / total * 100, partial)
     }
 
+    /// Runs a `VisualEffect` over a zooming frame sequence and writes the app's GIF format,
+    /// so what comes out is what the feature actually produces.
+    ///
+    /// **The geometry has to describe the zoom this method applies.** An earlier version passed
+    /// `.identity` while zooming the content itself, and the render showed the mask staying put
+    /// while the subject grew past it — the cat's ears and paws taking the background treatment.
+    /// That was this harness lying to the effect, not the effect being wrong, but it is a
+    /// faithful picture of what a wrong `FrameGeometry` produces, which is why
+    /// `SubjectMaskCompositor` documents it as the failure to watch for.
+    ///
+    /// The transform below maps a source point `p` to `p * zoom + c * (1 - zoom)`, so `scale`
+    /// is the zoom and `contentOrigin` is that offset. `contentScale` stays 1 because these
+    /// frames are built in the source's own space rather than aspect-filled into a 600×600
+    /// output — the case that default exists for.
+    private func effectGIF(image: UIImage, effect: VisualEffect) -> Data? {
+        guard let cg = image.cgImage else { return nil }
+        let source = CIImage(cgImage: cg)
+        let c = CGPoint(x: source.extent.midX, y: source.extent.midY)
+
+        return writeGIF(frameCount: 8) { i, p in
+            let zoom = 1.0 + 0.35 * p
+            let t = CGAffineTransform(translationX: c.x, y: c.y)
+                .scaledBy(x: zoom, y: zoom)
+                .translatedBy(x: -c.x, y: -c.y)
+            let frame = source.transformed(by: t).cropped(to: source.extent)
+            let geometry = FrameGeometry(
+                scale: zoom,
+                contentOrigin: CGPoint(x: c.x * (1 - zoom), y: c.y * (1 - zoom)),
+                contentScale: 1
+            )
+            return effect.apply(to: frame, progress: p, frameIndex: i,
+                                viewportCenter: nil, geometry: geometry)
+                .cropped(to: source.extent)
+        }
+    }
+
     /// The naive cutout the spike used — subject held, background desaturated and blurred —
     /// pushed through the app's real GIF settings so palettisation is included.
     private func cutoutGIF(image: UIImage, mask: CIImage) -> Data? {
@@ -112,9 +181,23 @@ struct SubjectSegmentationDeviceTests {
             kCIInputMaskImageKey: mask
         ])
 
+        return writeGIF(frameCount: 8) { _, p in
+            let zoom = 1.0 + 0.35 * p
+            let c = CGPoint(x: source.extent.midX, y: source.extent.midY)
+            let t = CGAffineTransform(translationX: c.x, y: c.y)
+                .scaledBy(x: zoom, y: zoom)
+                .translatedBy(x: -c.x, y: -c.y)
+            return composite.transformed(by: t).cropped(to: source.extent)
+        }
+    }
+
+    /// The app's GIF settings — `CGImageDestination` with one global colour map, matching
+    /// `GIFGenerator.swift:128-141`. Shared so every attachment in this file is palettised the
+    /// same way the export is; an approximation here would hide the banding §1g found.
+    private func writeGIF(frameCount: Int, frame: (Int, CGFloat) -> CIImage) -> Data? {
         let data = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(
-            data, UTType.gif.identifier as CFString, 8, nil
+            data, UTType.gif.identifier as CFString, frameCount, nil
         ) else { return nil }
         CGImageDestinationSetProperties(dest, [
             kCGImagePropertyGIFDictionary as String: [
@@ -123,15 +206,10 @@ struct SubjectSegmentationDeviceTests {
             ]
         ] as CFDictionary)
 
-        for i in 0..<8 {
-            let p = CGFloat(i) / 7.0
-            let zoom = 1.0 + 0.35 * p
-            let c = CGPoint(x: source.extent.midX, y: source.extent.midY)
-            let t = CGAffineTransform(translationX: c.x, y: c.y)
-                .scaledBy(x: zoom, y: zoom)
-                .translatedBy(x: -c.x, y: -c.y)
-            let frame = composite.transformed(by: t).cropped(to: source.extent)
-            guard let out = ctx.createCGImage(frame, from: frame.extent) else { continue }
+        for i in 0..<frameCount {
+            let p = CGFloat(i) / CGFloat(max(1, frameCount - 1))
+            let image = frame(i, p)
+            guard let out = ctx.createCGImage(image, from: image.extent) else { continue }
             CGImageDestinationAddImage(dest, out, [
                 kCGImagePropertyGIFDictionary as String: [
                     kCGImagePropertyGIFDelayTime as String: 0.06,

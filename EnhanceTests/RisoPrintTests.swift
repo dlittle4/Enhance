@@ -140,12 +140,15 @@ struct RisoPrintTests {
     @Test("RISO declares four sliders and a single colour picker")
     func riso_parameterShape() {
         let params = VisualEffectType.risoPrint.parameters
-        #expect(params.count == 6)
+        // Seven since 2026-08-18: the six original rows plus BACKGROUND ONLY. This is the
+        // widest panel in the app and the one to check on device — see ROADMAP §1a/§2c.
+        #expect(params.count == 7)
         // COLORS leads as of 2026-08-13; intensity is the first slider behind it.
         #expect(params.first?.kind == .gradientStops)
         #expect(params.first { $0.kind == .slider }?.id == EffectParameter.intensityID)
         #expect(params.filter { $0.kind == .slider }.count == 5)
-        #expect(params.filter { $0.kind != .slider }.count == 1)
+        #expect(params.filter { $0.kind != .slider && $0.kind != .toggle }.count == 1)
+        #expect(params.last?.id == EffectParameter.backgroundOnlyID)
         #expect(VisualEffectType.risoPrint.colorPickerKind == .gradientStops)
     }
 }

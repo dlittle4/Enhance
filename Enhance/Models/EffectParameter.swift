@@ -19,6 +19,9 @@ struct EffectParameter: Identifiable, Hashable {
         /// PIXELATE's cell shape. A picker rather than a slider because the value is a
         /// `PixelShape`, not a scalar — see that type for why it is not a case index.
         case pixelShape
+        /// An on/off switch. Stored in the same `Double` well as a slider — `> 0.5` is on —
+        /// so it needs no new persistence path, and `defaultValue` sets the initial state.
+        case toggle
     }
 
     /// Stable key for value storage. Must not change once shipped — values are keyed
@@ -87,9 +90,30 @@ struct EffectParameter: Identifiable, Hashable {
     /// and avoids a lie in the storage key.
     static let secondaryID = "secondary"
 
+    /// Applies the effect to the background only, holding the segmented subject flat
+    /// (ROADMAP §2f). A per-effect toggle rather than a modifier or a separate set of
+    /// cards — the user's call on 2026-08-18 — which is what makes it a *multiplier* on the
+    /// fifteen shipped visual effects instead of a sixteenth effect.
+    ///
+    /// Off by default, deliberately: it costs a segmentation pass, it is meaningless on a
+    /// photo with no subject, and an effect's card thumbnail shows the un-toggled look.
+    static let backgroundOnlyID = "backgroundOnly"
+
+    /// The row every effect that supports background-only application declares. Defined once
+    /// so the label cannot drift between effects.
+    static let backgroundOnly = EffectParameter(
+        id: backgroundOnlyID,
+        label: "BACKGROUND ONLY",
+        kind: .toggle,
+        defaultValue: 0
+    )
+
     /// Number of dots on a slider track. The knob displays the value on this scale, so
     /// a 0…1 value of 0.5 reads as "10".
     static let sliderSteps = 20
+
+    /// Whether a stored `Double` reads as on.
+    static func isOn(_ value: Double) -> Bool { value > 0.5 }
 
     /// The integer shown in the knob for a 0…1 value.
     static func displayValue(_ value: Double) -> Int {

@@ -1228,6 +1228,23 @@ struct EditorView: View {
                 ParameterPickerRow(label: param.label) {
                     pixelShapeContent
                 }
+            case .toggle:
+                ParameterToggleRow(
+                    label: param.label,
+                    isOn: Binding(
+                        get: { EffectParameter.isOn(parameterBinding(param, for: effect).wrappedValue) },
+                        set: { parameterBinding(param, for: effect).wrappedValue = $0 ? 1 : 0 }
+                    ),
+                    onCommit: {
+                        // Turning BACKGROUND ONLY on is the first thing that needs a mask, so
+                        // this is where segmentation is paid for — not on photo load, where it
+                        // would cost every user for a feature most will not reach.
+                        if param.id == EffectParameter.backgroundOnlyID {
+                            viewModel.segmentSubjectIfNeeded()
+                        }
+                        viewModel.onParameterDragEnded()
+                    }
+                )
             }
         }
     }

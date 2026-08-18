@@ -158,9 +158,11 @@ struct StretchTests {
     @Test("STRETCH declares four sliders and no picker")
     func stretch_parameterShape() {
         let params = VisualEffectType.stretch.parameters
-        #expect(params.count == 4)
+        // Four sliders plus the shared BACKGROUND ONLY toggle (2026-08-18).
+        #expect(params.count == 5)
         #expect(params.first?.id == EffectParameter.intensityID)
-        #expect(params.allSatisfy { $0.kind == .slider })
+        #expect(params.dropLast().allSatisfy { $0.kind == .slider })
+        #expect(params.last?.id == EffectParameter.backgroundOnlyID)
         #expect(VisualEffectType.stretch.colorPickerKind == nil)
     }
 }

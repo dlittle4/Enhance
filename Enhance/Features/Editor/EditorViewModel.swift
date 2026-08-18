@@ -151,6 +151,21 @@ class EditorViewModel {
     var isDetectingFaces: Bool = false
     private let faceDetectionService = FaceDetectionService()
 
+    // MARK: - Subject segmentation (ROADMAP §2f)
+
+    /// The subject/background mask for the current photo, in its pixel space. `nil` means
+    /// either "not segmented yet" or "this photo has no subject" — `hasSegmentedSubject`
+    /// separates the two, because only the second should raise the toast.
+    var subjectMask: CIImage? = nil
+    var isSegmentingSubject: Bool = false
+
+    /// Whether segmentation has *run* for the current photo. Needed because `subjectMask`
+    /// is `nil` in both the not-yet-run and the no-subject case, and the face tab's
+    /// equivalent bug — re-toasting on every return, ROADMAP §4 — comes from exactly that
+    /// conflation. This flag is what keeps the toast to once per photo.
+    private var hasSegmentedSubject = false
+    private let subjectSegmentationService = SubjectSegmentationService()
+
     /// Called after a successful save to signal the editor should close.
     var onSaveComplete: (() -> Void)?
 
@@ -558,7 +573,15 @@ class EditorViewModel {
             gradientStops: gradientStops,
             pixelShape: pixelShape
         )
-        return [effect.effect(intensity: value(EffectParameter.intensityID, for: effect), options: options)]
+        let built = effect.effect(intensity: value(EffectParameter.intensityID, for: effect), options: options)
+
+        // The one choke point both the preview and the GIF read, so wrapping here covers
+        // both paths — there is no second place to keep in sync.
+        guard effect.parameters.contains(where: { $0.id == EffectParameter.backgroundOnlyID }),
+              EffectParameter.isOn(value(EffectParameter.backgroundOnlyID, for: effect))
+        else { return [built] }
+
+        return [BackgroundOnlyEffect(wrapped: built, mask: subjectMask)]
     }
 
     /// The zoom, with the motion modifier layered over it.
@@ -655,6 +678,7 @@ class EditorViewModel {
         textOverlay = nil
         detectedFaces = []
         faceDetectionService.clearCache()
+        clearSubjectMask()
 
         if case .newImage = content {
             generatedGIF = nil
@@ -702,6 +726,42 @@ class EditorViewModel {
                 }
             }
         }
+    }
+
+    /// Segment the current photo, once. Called when BACKGROUND ONLY is switched on — the
+    /// first moment a mask is actually needed — rather than on photo load, which would
+    /// charge every user a segmentation pass for a control most will never touch.
+    ///
+    /// Follows the face precedent on absence (ROADMAP §1g, user's call): a toast, with the
+    /// cards left live. It does **not** repeat that feature's bug of re-toasting on every
+    /// visit; `hasSegmentedSubject` gates it to once per photo.
+    func segmentSubjectIfNeeded() {
+        guard !isSegmentingSubject, !hasSegmentedSubject else { return }
+        guard let source = image ?? sourceImage else { return }
+
+        isSegmentingSubject = true
+        Task {
+            let mask = await subjectSegmentationService.subjectMask(for: source)
+            await MainActor.run {
+                self.subjectMask = mask
+                self.hasSegmentedSubject = true
+                self.isSegmentingSubject = false
+                if mask == nil {
+                    self.showToast("NO SUBJECT DETECTED")
+                }
+                // The mask changes what the selected effect renders, so the preview built
+                // before it arrived is now stale.
+                self.updateCombinedPreview()
+            }
+        }
+    }
+
+    /// Drop the mask when the photo changes. Without this a new photo would composite
+    /// against the previous one's silhouette, which reads as a segmentation failure.
+    func clearSubjectMask() {
+        subjectMask = nil
+        hasSegmentedSubject = false
+        subjectSegmentationService.clearCache()
     }
 
     func redetectFaces() {
