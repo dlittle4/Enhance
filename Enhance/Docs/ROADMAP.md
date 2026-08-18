@@ -53,22 +53,24 @@ and `git log --oneline main..<branch>` take a second and are the only honest ans
 
 **Next up, in order:**
 
-1. **The first §2f effect — FACE CUTOUT + background effect.** **§1g is fully closed as of
-   2026-08-18** — spike, service, shared compositor, and a device pass whose numbers match macOS
-   to within a few pixels. Nothing is in the way.
-   **Decided on the user's call: background-only application is a per-effect toggle**, styled
-   after the Figma panel row (`node-id=10346-8747`) — `Color.surfaceControl`, 16pt radius,
-   `Typography.silkscreenSubheadline` label, standard iOS switch. So §3d's question is answered
-   for this case: a toggle, not a modifier and not a second set of cards. Read §1g's four spike findings
-   first; the one that changes the plan is that the palettisation cost lands on *background
-   banding*, not the mask edge, so pair it with an effect that flattens the background to few
-   colours (MONOTONE, DUOTONE, RISO, DITHER) rather than one that leaves a smooth gradient. It
-   still needs the §3d design call — toggle vs modifier vs new cards — decided *with* stacking.
-3. 🔍 **Confirm RISO's six-row panel on a real device** (§2c). Everything else about the effect is
-   done and verified; this is the one open question, and it decides whether the params cap stays
-   at 6 or the panel needs a fix first. Queued, but no longer gating new effect work.
+1. 🔍 **One device pass over the effect panel** — it now answers three open questions at once, and
+   one of them may be blocking. RISO is **seven** rows since BACKGROUND ONLY landed (§2b), the
+   long-standing six-row check was never done, and on a three-row effect the toggle card sits on
+   the panel's bottom edge where **nothing I tried would scroll it** (§2e). If that scroll really
+   is stuck rather than my synthetic touches failing, the toggle is unreachable on some effects
+   and this jumps to the top of everything.
+2. **The rest of §2f**, all unblocked now that the mask, the compositor and the toggle exist:
+   SUBJECT REPEATED INTO A PATTERN and ANIMATED BACKGROUND are ordinary work — the second is an
+   upgrade to `AnimeBackgroundEffect`'s elliptical mask rather than a new card. **TEXT BEHIND
+   SUBJECT is owned by another session (§3a) — coordinate before touching the rasteriser.**
+   Carry the finding from FACE CUTOUT: pointwise effects cut cleanly, neighbourhood samplers
+   bleed the subject outward.
+3. **Whether BACKGROUND ONLY stays on the neighbourhood-sampling effects** (§2f) — a taste call
+   with renders already shown to the user on 2026-08-18. MOTION BLUR haloes; SWIRL smears. The
+   only real fix is inpainting, which is what PARALLAX is blocked on, so the options are accept
+   or withhold.
 4. **Pattern Refraction** (§2c) is the last of the *old* effect list, with the displacement spike
-   (§2b) worth running first for that one. BIG HEAD (§2a) and BITMAP (§2b) are the ready-to-cheap
+   (§2b) worth running first for that one. BIG HEAD (§2a) and BITMAP (§2b) are the ready-and-cheap
    new arrivals if an effect is wanted before the displacement spike lands.
    **Ask before starting another effect outright**: three have been declined on the user's call
    (HATCHING, BOKEH, Water Caustic), so the constraint is taste, not capability — the kernel path

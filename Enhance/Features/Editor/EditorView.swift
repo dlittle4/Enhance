@@ -229,6 +229,9 @@ struct EditorView: View {
             }
             if newValue == .visualEffects {
                 viewModel.generateEffectThumbnails()
+                // One tap earlier than BACKGROUND ONLY can be reached, which is where the
+                // ~214 ms cold model load would otherwise land — see `prewarmSegmentation`.
+                viewModel.prewarmSegmentation()
             }
         }
         .onChange(of: viewModel.selectedFaceFilter) { _, _ in

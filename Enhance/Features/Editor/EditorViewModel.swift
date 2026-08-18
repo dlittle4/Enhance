@@ -756,6 +756,18 @@ class EditorViewModel {
         }
     }
 
+    /// Pay the segmentation model's one-time load before the user can ask for it.
+    ///
+    /// Measured on device (ROADMAP §1g): the first request costs ~214 ms against 15–30 ms warm.
+    /// Called when the VISUAL tab opens rather than on photo load — that is one tap earlier than
+    /// BACKGROUND ONLY can possibly be reached, and it keeps the cost off users who never open
+    /// the tab at all. Cheap to call repeatedly; it does not touch the cache, so the photo the
+    /// user actually picked still gets its own segmentation pass.
+    func prewarmSegmentation() {
+        guard !hasSegmentedSubject else { return }
+        subjectSegmentationService.prewarm()
+    }
+
     /// Drop the mask when the photo changes. Without this a new photo would composite
     /// against the previous one's silhouette, which reads as a segmentation failure.
     func clearSubjectMask() {
