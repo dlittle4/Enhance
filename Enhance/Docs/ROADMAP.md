@@ -497,6 +497,15 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       the head ellipse up to 3.8× the face, so it enclosed the whole animal and the effect scaled
       the entire subject — reported as "only making the head larger" not happening. `HandsomeEffect`
       halves them for exactly this reason; anything reading these fields should check which it wants.
+      **The chin cut follows the traced jaw, not a horizontal line (2026-08-18).** The first
+      hybrid cut flat at the contour's lowest point — the chin — and a jaw *rises* toward the
+      ears, so that line sat below the jaw on both sides and scooped up neck *(user-reported:
+      "still including the neck and not outlining around the chin")*. The region is now the
+      contour polygon extended upward: bounded below by the real jaw curve, open above, with the
+      subject mask supplying crown and hair. Rendered once and cached on the face and frame size,
+      as `AnimeBackgroundEffect` does, so it costs no render per frame. **A curve through
+      arbitrary points is not a product of linear ramps** — that is why the gradient approach
+      could not be tuned into this and had to be replaced.
       **Head region is a hybrid as of 2026-08-18.** Vision's traced `faceContourPoints` where a
       real contour exists, the ellipse otherwise. Note the contour is *not* a head outline — it
       runs ear-to-ear round the jaw with nothing above the brow, so filling it would cut the head

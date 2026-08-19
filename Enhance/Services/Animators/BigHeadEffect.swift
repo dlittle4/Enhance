@@ -1,4 +1,5 @@
 import CoreImage
+import UIKit
 
 /// Enlarges the subject's **head** — cutting its outline out and growing it on the body, rather
 /// than distorting the pixels in place. ROADMAP §2a.
@@ -33,6 +34,14 @@ struct BigHeadEffect: FaceEffect {
     private let growth: CGFloat
     private let coverage: CGFloat
     private let mask: CIImage?
+    private let cache = RegionCache()
+
+    /// The region depends only on the face and the frame size, neither of which changes across
+    /// a GIF's frames, so it is rendered once. A class so it survives the struct being copied.
+    private final class RegionCache {
+        var region: CIImage?
+        var key: String?
+    }
 
     /// - Parameters:
     ///   - intensity: how much the head grows — up to +55% at full, a ceiling set by what keeps
@@ -126,72 +135,82 @@ struct BigHeadEffect: FaceEffect {
 
     /// A head region built from Vision's traced face contour, or `nil` when there is none.
     ///
-    /// **The contour alone is not a head outline** — it runs ear-to-ear around the jaw and has no
-    /// points above the brow, because there are no facial landmarks up there. Filling it would
-    /// cut the head off at the eyebrows, which is worse than the ellipse it replaces.
+    /// **The contour is not a head outline** — it runs ear-to-ear round the jaw with nothing
+    /// above the brow, so filling it alone would cut the head off at the eyebrows. What it gives
+    /// is the one thing segmentation cannot: **where the head stops and the neck starts.** So the
+    /// region is the contour *extended upward* — bounded below by the real jaw, open above — and
+    /// the subject mask supplies crown and hair inside it.
     ///
-    /// What it *is* good for is the one thing the segmentation mask cannot tell you: **where the
-    /// head stops and the neck starts.** So this does not trace a head at all. It builds an open
-    /// region — unbounded above, cut at the chin, walled either side of the face — and lets the
-    /// subject mask supply the actual outline. Crown and hair come from the mask; the jawline
-    /// comes from the contour.
+    /// **Following the curve is the whole point.** An earlier version cut horizontally at the
+    /// contour's lowest point, which is the chin. A jaw rises toward the ears, so a flat cut at
+    /// chin height sits *below* the jaw on both sides and scooped up neck — reported as "still
+    /// including the neck and not outlining around the chin". Only the traced path bounds it
+    /// correctly, and no amount of moving a straight line fixes a curve.
     ///
-    /// Three linear gradients multiplied together, all lazy: no render, no context.
+    /// Rendered rather than composed from gradients, because a curve through arbitrary points is
+    /// not a product of linear ramps. Cached on the face and frame size, neither of which changes
+    /// across a GIF's frames — the same trick `AnimeBackgroundEffect` uses, and the reason this
+    /// does not cost a render per frame.
     private func contourRegion(for face: DetectedFace, extent: CGRect) -> CIImage? {
         let points = face.faceContourPoints
-        // **12, not 5.** Vision's real `faceContour` returns dozens of points along the jaw;
-        // a handful means the detection fell back and the "contour" is a few landmarks that do
-        // not describe a jawline at all. The corpus caught this: the person in `showcase-3` is
-        // facing away, so Vision returned 5 points with `.estimated` quality, and a 5-point
-        // guard let that through to place a chin cut from noise. Requiring a real contour sends
-        // weak detections to the ellipse, which is the honest answer for a head Vision cannot see.
+        // **12, not 5.** Vision's real `faceContour` returns dozens of points along the jaw; a
+        // handful means detection fell back and the "contour" is a few landmarks that do not
+        // describe a jawline. The corpus caught this: the person in `showcase-3` faces away, so
+        // Vision returned 5 points at `.estimated` quality and a 5-point guard let that through
+        // to place a chin cut from noise.
         guard points.count >= 12, face.landmarkQuality != .estimated else { return nil }
 
-        let xs = points.map(\.x), ys = points.map(\.y)
-        guard let minX = xs.min(), let maxX = xs.max(), let chinY = ys.min(),
-              minX.isFinite, maxX.isFinite, chinY.isFinite, maxX > minX else { return nil }
+        let w = Int(extent.width), h = Int(extent.height)
+        guard w > 1, h > 1 else { return nil }
 
-        // Ears and hair sit outside the contour, which only traces skin.
-        let pad = (maxX - minX) * 0.35
-        let left = minX - pad
-        let right = maxX + pad
-        // Feather the chin cut over a fraction of the face's own width, so it scales with the
-        // subject instead of being a fixed pixel count that is invisible on a large face and a
-        // hard line on a small one.
-        let feather = max(2, (maxX - minX) * 0.12)
+        let key = "\(w)x\(h)|\(Int(face.faceCenter.x)),\(Int(face.faceCenter.y))|\(points.count)|\(Int(face.faceWidth))"
+        if cache.key == key, let cached = cache.region { return cached }
 
-        // White above the chin, fading below it.
-        guard let above = linearGradient(
-            from: CGPoint(x: extent.midX, y: chinY - feather), fromWhite: false,
-            to: CGPoint(x: extent.midX, y: chinY + feather), toWhite: true
-        ),
-        // White right of the left wall, and left of the right wall.
-        let insideLeft = linearGradient(
-            from: CGPoint(x: left - feather, y: extent.midY), fromWhite: false,
-            to: CGPoint(x: left + feather, y: extent.midY), toWhite: true
-        ),
-        let insideRight = linearGradient(
-            from: CGPoint(x: right - feather, y: extent.midY), fromWhite: true,
-            to: CGPoint(x: right + feather, y: extent.midY), toWhite: false
-        ) else { return nil }
+        UIGraphicsBeginImageContextWithOptions(CGSize(width: w, height: h), true, 1)
+        defer { UIGraphicsEndImageContext() }
+        guard let ctx = UIGraphicsGetCurrentContext() else { return nil }
 
-        return above
-            .applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: insideLeft])
-            .applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: insideRight])
+        ctx.setFillColor(UIColor.black.cgColor)
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+
+        // Image coordinates are y-up; the drawing context is y-down.
+        func draw(_ p: CGPoint) -> CGPoint {
+            CGPoint(x: p.x - extent.origin.x, y: CGFloat(h) - (p.y - extent.origin.y))
+        }
+
+        // Sorted left-to-right so the closing edge over the top of the head cannot cross back
+        // through the face. Vision returns the contour in order, but sorting makes the polygon
+        // well-formed regardless of which ear it starts from.
+        let jaw = points.sorted { $0.x < $1.x }.map(draw)
+        guard let first = jaw.first, let last = jaw.last else { return nil }
+
+        let path = UIBezierPath()
+        path.move(to: first)
+        for p in jaw.dropFirst() { path.addLine(to: p) }
+        // Up and over, well above the frame: the region is open above, and the subject mask
+        // decides how much hair is actually included.
+        path.addLine(to: CGPoint(x: last.x, y: -CGFloat(h)))
+        path.addLine(to: CGPoint(x: first.x, y: -CGFloat(h)))
+        path.close()
+
+        ctx.setFillColor(UIColor.white.cgColor)
+        ctx.addPath(path.cgPath)
+        ctx.fillPath()
+
+        guard let cg = UIGraphicsGetImageFromCurrentImageContext()?.cgImage else { return nil }
+
+        // Ears and hair sit outside the contour, which traces skin only — grow the region to
+        // take them in, then soften so the jaw reads as a fade rather than a cut line.
+        let grow = max(2, face.faceWidth * 0.10)
+        let region = CIImage(cgImage: cg)
+            .transformed(by: CGAffineTransform(translationX: extent.origin.x, y: extent.origin.y))
+            .applyingFilter("CIMorphologyMaximum", parameters: ["inputRadius": grow])
+            .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: grow * 0.5])
             .cropped(to: extent)
-    }
 
-    private func linearGradient(
-        from p0: CGPoint, fromWhite: Bool, to p1: CGPoint, toWhite: Bool
-    ) -> CIImage? {
-        let black = CIColor(red: 0, green: 0, blue: 0, alpha: 1)
-        let white = CIColor(red: 1, green: 1, blue: 1, alpha: 1)
-        return CIFilter(name: "CILinearGradient", parameters: [
-            "inputPoint0": CIVector(x: p0.x, y: p0.y),
-            "inputPoint1": CIVector(x: p1.x, y: p1.y),
-            "inputColor0": fromWhite ? white : black,
-            "inputColor1": toWhite ? white : black
-        ])?.outputImage
+        cache.key = key
+        cache.region = region
+        return region
     }
 
     /// Face effects run in source space, so this is normally a no-op — it exists because the
