@@ -164,6 +164,44 @@ struct SubjectSegmentationDeviceTests {
         }
     }
 
+    /// BIG HEAD over every photo in `EnhanceTests/Fixtures`, with the face data Vision found.
+    ///
+    /// The showcase corpus cannot reach the contour branch — see that folder's README — so this
+    /// is the only test that exercises it. It renders rather than asserts, and reports the
+    /// contour point count and landmark quality per face, because when a head region comes out
+    /// wrong the first question is always whether the contour path ran at all or the ellipse
+    /// fallback did.
+    @Test func bigHead_onFixturePhotos() async throws {
+        let fixtures = Bundle(for: BundleToken.self).urls(forResourcesWithExtension: nil, subdirectory: nil) ?? []
+        let photos = fixtures.filter { ["jpg", "jpeg", "png", "heic"].contains($0.pathExtension.lowercased()) }
+            .filter { !$0.lastPathComponent.hasPrefix("showcase") }
+        guard !photos.isEmpty else { return }
+
+        var report = ["photo,faces,contourPoints,quality,subjectFound"]
+
+        for url in photos.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
+            guard let data = try? Data(contentsOf: url),
+                  let image = UIImage(data: data), let cg = image.cgImage else { continue }
+            let name = url.deletingPathExtension().lastPathComponent
+
+            let mask = try? SubjectSegmentationService().subjectMaskOrThrow(for: image)
+            let faces = await FaceDetectionService().detectFaces(in: image)
+            let f = faces.first
+            report.append("\(name),\(faces.count),\(f?.faceContourPoints.count ?? 0),\(f.map { "\($0.landmarkQuality)" } ?? "none"),\((mask ?? nil) != nil)")
+
+            guard let face = f, let mask = mask ?? nil else { continue }
+            let source = CIImage(cgImage: cg)
+            let effect = BigHeadEffect(intensity: 0.8, size: 0.5, mask: mask)
+            let gif = writeGIF(frameCount: 8) { i, p in
+                effect.apply(to: source, face: face, progress: p, frameIndex: i)
+                    .cropped(to: source.extent)
+            }
+            if let gif { Attachment.record(gif, named: "fixture-\(name)-bighead.gif") }
+        }
+
+        Attachment.record(Data(report.joined(separator: "\n").utf8), named: "fixture-faces.csv")
+    }
+
     /// BIG HEAD on a **human** face, where Vision returns a real contour and the hybrid head
     /// region is actually exercised. The cat above goes through the animal path, whose contour
     /// comes from body-pose joints, so it still falls back to the ellipse — which is exactly the
@@ -352,5 +390,8 @@ struct SubjectSegmentationDeviceTests {
         return data as Data
     }
 }
+
+/// Locates the test bundle so fixture photos can be read at runtime.
+private final class BundleToken {}
 
 #endif

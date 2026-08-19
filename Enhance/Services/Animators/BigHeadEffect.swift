@@ -184,13 +184,31 @@ struct BigHeadEffect: FaceEffect {
         let jaw = points.sorted { $0.x < $1.x }.map(draw)
         guard let first = jaw.first, let last = jaw.last else { return nil }
 
+        // **The sides flare outward going up, rather than rising straight from the jaw.**
+        // A jaw is the narrowest part of a head: hair, ears and anything worn are all wider,
+        // and vertical walls at jaw width sliced them off — reported as not capturing the top
+        // of the head, on a photo where the subject is wearing a cap much wider than his chin.
+        //
+        // The flare is centred on the **face centre**, not on the jaw's own extremes, which is
+        // what makes it survive a profile. In profile the contour traces only the visible side,
+        // so its extremes are lopsided and the skull sits behind the far edge; widening about
+        // the face centre reaches back over it, where widening about the contour would lean the
+        // region further off the head.
+        let centreX = draw(face.faceCenter).x
+        let jawHalf = max((last.x - first.x) * 0.5, face.faceWidth * 0.35)
+        let topHalf = max(jawHalf * 1.9, face.faceWidth * 0.85)
+        let top = -CGFloat(h)
+
         let path = UIBezierPath()
         path.move(to: first)
         for p in jaw.dropFirst() { path.addLine(to: p) }
-        // Up and over, well above the frame: the region is open above, and the subject mask
-        // decides how much hair is actually included.
-        path.addLine(to: CGPoint(x: last.x, y: -CGFloat(h)))
-        path.addLine(to: CGPoint(x: first.x, y: -CGFloat(h)))
+        // Out and up on the right, across the top, then back down to the jaw on the left. The
+        // region stays open above so the subject mask still decides how much hair is included —
+        // the flare only stops the walls from clipping it.
+        path.addLine(to: CGPoint(x: centreX + topHalf, y: last.y - jawHalf * 0.6))
+        path.addLine(to: CGPoint(x: centreX + topHalf, y: top))
+        path.addLine(to: CGPoint(x: centreX - topHalf, y: top))
+        path.addLine(to: CGPoint(x: centreX - topHalf, y: first.y - jawHalf * 0.6))
         path.close()
 
         ctx.setFillColor(UIColor.white.cgColor)
