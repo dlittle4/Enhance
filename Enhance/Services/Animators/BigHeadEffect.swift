@@ -219,10 +219,21 @@ struct BigHeadEffect: FaceEffect {
 
         // Ears and hair sit outside the contour, which traces skin only — grow the region to
         // take them in, then soften so the jaw reads as a fade rather than a cut line.
+        // **Clamped before each filter, and that is not a detail.** Both the dilation and the
+        // blur sample outside the region image, where there is nothing — so without clamping
+        // they fade the region toward zero along the *frame's* edges. The head is open above by
+        // design, so on any photo where the head sits near the top of the frame that falloff
+        // lands right on the crown: the mask drops to a partial value, `CIBlendWithMask`
+        // cross-fades the enlarged head against the original underneath, and the hair ghosts
+        // into a doubled halo *(user-reported: "details at the top of the head are being blended
+        // into the face")*. It reads as a blending bug in the compositing and is really an edge
+        // condition in the mask's own construction.
         let grow = max(2, face.faceWidth * 0.10)
         let region = CIImage(cgImage: cg)
             .transformed(by: CGAffineTransform(translationX: extent.origin.x, y: extent.origin.y))
+            .clampedToExtent()
             .applyingFilter("CIMorphologyMaximum", parameters: ["inputRadius": grow])
+            .clampedToExtent()
             .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: grow * 0.5])
             .cropped(to: extent)
 
