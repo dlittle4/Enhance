@@ -27,8 +27,9 @@ struct BitmapEffect: VisualEffect {
     private let shadow: CIColor
     private let highlight: CIColor
 
-    /// Beyond this the dots read as blocks rather than a screen.
-    private static let maxCell: CGFloat = 14
+    /// Beyond this the dots read as blocks rather than a screen. A multiple of 8, since the cell
+    /// is rounded to whole matrix widths.
+    private static let maxCell: CGFloat = 32
 
     init(intensity: Double = 0.5, size: Double = 0.5, contrast: Double = 0.5,
          stops: GradientStops = .default) {
@@ -37,9 +38,9 @@ struct BitmapEffect: VisualEffect {
         // lever that fixes that is how hard the tones are pushed apart *before* the screen
         // compares them — not the screen itself, which was already right.
         self.toneContrast = CGFloat(max(0, min(1, contrast)))
-        // 2…10pt. Below 2 the matrix is finer than the GIF's own pixel grid and the hatch is
-        // invisible; the cap is `maxCell` once the zoom multiplies it.
-        self.baseCell = 2 + CGFloat(max(0, min(1, size))) * 8
+        // 8…24pt, rounded to whole matrix widths at use. Below one matrix width the screen has
+        // no room to form a dot at all; the cap is `maxCell` once the zoom multiplies it.
+        self.baseCell = 8 + CGFloat(max(0, min(1, size))) * 16
         // Two stops, not three: this is a 1-bit screen, so the MID colour has nowhere to go.
         // The picker still shows three wells because it is the shared `.gradientStops` row —
         // worth knowing before someone "fixes" the middle one being inert.
@@ -69,16 +70,26 @@ struct BitmapEffect: VisualEffect {
         let amount = min(1, progress * 1.4)
         guard amount > 0.01, let tile = Self.matrixTile else { return image }
 
-        let cell = min(Self.maxCell, max(1, baseCell * max(1, geometry.scale)))
+        // Rounded to a whole multiple of 8 so `cell / 8` is an integer and every matrix entry
+        // lands on a whole pixel. A fractional cell is the other half of the seam problem above.
+        let rawCell = min(Self.maxCell, max(1, baseCell * max(1, geometry.scale)))
+        let cell = max(8, (rawCell / 8).rounded() * 8)
 
         // Same phase trick as DITHER: offsetting by the content origin modulo the cell pins the
         // screen to the same image features as the frame pans.
         let phaseX = geometry.contentOrigin.x.truncatingRemainder(dividingBy: cell)
         let phaseY = geometry.contentOrigin.y.truncatingRemainder(dividingBy: cell)
 
-        // One matrix cell spans `cell` points, so the 8px tile scales by cell/8.
+        // `CIAffineTile` transforms the image *and then* tiles it, so the scale belongs only in
+        // its transform. An earlier version also pre-scaled the tile, which put tile edges on
+        // fractional pixels — invisible at low contrast and, once the threshold was steep,
+        // amplified into a visible grid of seams across the image *(user-reported)*.
+        //
+        // `samplingNearest` for the same reason: the matrix is a threshold lookup, not a
+        // picture, and interpolating between neighbouring entries smears the boundary between
+        // two dot sizes into a value that thresholds inconsistently along cell edges.
         let screen = tile
-            .transformed(by: CGAffineTransform(scaleX: cell / 8, y: cell / 8))
+            .samplingNearest()
             .applyingFilter("CIAffineTile", parameters: [
                 kCIInputTransformKey: CGAffineTransform(scaleX: cell / 8, y: cell / 8)
             ])

@@ -490,9 +490,17 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       The head silhouette is the subject mask **intersected** with an ellipse round the face —
       the mask alone is the whole body, the ellipse alone is the oval that made ANIME read as a
       vignette. **So BIG HEAD depends on §1g**, which the original bump version did not.
-      Two constants were set by render rather than guess: growth caps at 1.55× (1.85× overflowed
-      the frame, and the joke needs the body visible underneath) and the pivot sits 30% up the
-      head, not at its base (anchoring lower sent all the growth upward and clipped the ears).
+      Constants set by render rather than guess: growth caps at 1.55× (1.85× overflowed the
+      frame, and the joke needs the body visible underneath) and the pivot sits 30% up the head,
+      not at its base (anchoring lower sent all the growth upward and clipped the ears).
+      **`faceWidth`/`faceHeight` are full extents, not radii.** Using them as half-extents made
+      the head ellipse up to 3.8× the face, so it enclosed the whole animal and the effect scaled
+      the entire subject — reported as "only making the head larger" not happening. `HandsomeEffect`
+      halves them for exactly this reason; anything reading these fields should check which it wants.
+      **Known artifact, not yet addressed:** where the original head extends past the ellipse, its
+      edge stays visible beside the enlarged one as a faint ghost. Covering it means filling the
+      original head region first — `FaceRegionCompositor.fillRegion` is the existing tool — which
+      needs something to fill *with*, so it is the same hole problem PARALLAX is blocked on.
 - [ ] ~~**BIG HEAD** *(original note)*~~ — the cheapest item on the intake list, and a face effect
       rather than a visual one. `HandsomeEffect` (`HandsomeEffect.swift:19-27`) already scales
       `CIBumpDistortion` off `face.faceWidth` centred on face landmarks to elongate a jaw; big head
@@ -529,6 +537,13 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       render read muddy, and pushing the tones apart *before* the screen compares them separates
       the subject cleanly. It also lifts brightness slightly with contrast, since pushing tones
       apart alone drags the whole image dark — which is how the first render failed.
+      **A grid of seams appeared across the image at maximum contrast** *(user-reported)*, from
+      two compounding causes, both fixed: the tile was transformed twice — once directly and
+      again inside `CIAffineTile`, which transforms *then* tiles — and the cell size was
+      fractional, so matrix entries fell between pixels. The cell is now rounded to whole matrix
+      widths and the tile is sampled nearest. **A threshold screen must land on whole pixels**;
+      interpolating a lookup table produces values that threshold inconsistently, and a steep
+      threshold turns that into visible structure.
       **Note the MID gradient stop is inert**: a 1-bit screen has two states, and the picker shows
       three wells because it is the shared `.gradientStops` row.
 - [ ] ~~**BITMAP** *(original note)*~~ — a 1-bit **clustered-dot** ordered dither in **two arbitrary

@@ -36,13 +36,13 @@ struct BigHeadEffect: FaceEffect {
     ///     ears; too large starts taking shoulder with it.
     init(intensity: Double = 0.5, size: Double = 0.5, mask: CIImage? = nil) {
         self.growth = CGFloat(max(0, min(1, intensity)))
-        self.coverage = 1.15 + CGFloat(max(0, min(1, size))) * 0.75
+        self.coverage = 1.05 + CGFloat(max(0, min(1, size))) * 0.6
         self.mask = mask
     }
 
     /// Same effect with the segmentation mask attached — the view model has it, the factory does not.
     func withMask(_ mask: CIImage?) -> BigHeadEffect {
-        BigHeadEffect(intensity: Double(growth), size: Double((coverage - 1.15) / 0.75), mask: mask)
+        BigHeadEffect(intensity: Double(growth), size: Double((coverage - 1.05) / 0.6), mask: mask)
     }
 
     func apply(to image: CIImage, face: DetectedFace, progress: CGFloat, frameIndex: Int) -> CIImage {
@@ -54,11 +54,20 @@ struct BigHeadEffect: FaceEffect {
         let amount = growth * (progress * progress)
         guard amount > 0.01 else { return image }
 
+        // `faceWidth`/`faceHeight` are full extents, not radii — `HandsomeEffect` halves them
+        // for exactly this reason. An earlier version used them as half-extents, which made the
+        // ellipse up to 3.8× the face: it enclosed the whole animal, so the effect scaled the
+        // entire subject instead of its head *(user-reported: "only making the head larger")*.
+        let halfW = face.faceWidth * 0.5 * coverage
+        let halfH = face.faceHeight * 0.5 * coverage
         let headBounds = CGRect(
-            x: face.faceCenter.x - face.faceWidth * coverage,
-            y: face.faceCenter.y - face.faceHeight * coverage,
-            width: face.faceWidth * coverage * 2,
-            height: face.faceHeight * coverage * 2
+            x: face.faceCenter.x - halfW,
+            // Biased upward: a face box is centred on the face, while a head runs from the chin
+            // to above the crown, so an ellipse centred on the face clips hair and ears while
+            // reaching down into the chest.
+            y: face.faceCenter.y - halfH * 0.85,
+            width: halfW * 2,
+            height: halfH * 2.2
         )
         guard headBounds.hasFiniteComponents, headBounds.width >= 2, headBounds.height >= 2,
               // A soft ellipse edge, so the head silhouette fades out at the neck instead of
