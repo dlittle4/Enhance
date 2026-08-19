@@ -134,6 +134,33 @@ struct SubjectSegmentationDeviceTests {
         #expect(data != nil)
     }
 
+    /// BITMAP at three cell sizes, and BIG HEAD at two strengths.
+    ///
+    /// BITMAP's whole claim is that the midtones resolve into a *crosshatch* rather than noise,
+    /// which is a property of the matrix and only visible at the right cell size — hence three.
+    @Test func bigHeadAndBitmap_render() async throws {
+        guard let image = UIImage(named: "showcase-7"), let cg = image.cgImage else { return }
+        let source = CIImage(cgImage: cg)
+
+        for (label, size) in [("fine", 0.15), ("mid", 0.45), ("coarse", 0.8)] {
+            let effect = BitmapEffect(intensity: 0.6, size: size, stops: .default)
+            if let data = effectGIF(image: image, effect: effect) {
+                Attachment.record(data, named: "bitmap-\(label).gif")
+            }
+        }
+
+        let faces = await FaceDetectionService().detectFaces(in: image)
+        guard let face = faces.first else { return }
+        for (label, intensity) in [("gentle", 0.4), ("strong", 0.9)] {
+            let effect = BigHeadEffect(intensity: intensity, size: 0.5)
+            let data = writeGIF(frameCount: 8) { i, p in
+                effect.apply(to: source, face: face, progress: p, frameIndex: i)
+                    .cropped(to: source.extent)
+            }
+            if let data { Attachment.record(data, named: "bighead-\(label).gif") }
+        }
+    }
+
     /// ECHO — outlines of the subject radiating outward. Rendered at three spreads because the
     /// whole question is whether the rings read as emanation or as a registration error, and
     /// that depends almost entirely on how far apart they sit.

@@ -23,6 +23,8 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
     case chromaShift = "CHROMA SHIFT"
     case rainbow    = "RAINBOW"
     case lensDistortion = "LENS"
+    /// ROADMAP §2a — one `CIBumpDistortion` with a head-sized radius and a positive scale.
+    case bigHead        = "BIG HEAD"
 
     var id: String { rawValue }
 
@@ -75,6 +77,9 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         case .rainbow:        return "SPEED"
         case .lensDistortion: return "REACH"
         case .thirdEye:       return "INTENSITY"
+        // The second slot is how much of the head the bump covers — "SIZE" reads as the head's
+        // size, which is what INTENSITY does, so this says what it actually controls.
+        case .bigHead:        return "REACH"
         default:              return nil
         }
     }
@@ -111,6 +116,10 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         case .chromaShift: return FaceVisualEffect(effect: ChromaticAberrationEffect(intensity: clamped), skipDelay: true)
         case .rainbow:    return RainbowFaceEffect(intensity: clamped, pulses: clampedSecond)
         case .lensDistortion: return FaceVisualEffect(effect: LensDistortionEffect(intensity: clamped, reach: clampedSecond), skipDelay: true)
+        // Not wrapped in `FaceVisualEffect`: that adapter masks its wrapped effect to a radius
+        // around the face, which would clip the head exactly where it is meant to swell past
+        // its outline. `CIBumpDistortion` already falls off to nothing on its own.
+        case .bigHead:        return BigHeadEffect(intensity: clamped, size: clampedSecond)
         }
     }
 }

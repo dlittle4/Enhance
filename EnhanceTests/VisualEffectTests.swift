@@ -277,7 +277,7 @@ struct VisualEffectTests {
         // ECHO joined on 2026-08-18, and needed no new branch either: `.tintColor` already
         // renders through `colorSwatchContent`, the same path EDGES uses. Checked before
         // widening this set, which is the whole point of it failing.
-        #expect(visible == [.gradientMap, .coloredEdges, .risoPrint, .subjectEcho])
+        #expect(visible == [.gradientMap, .coloredEdges, .risoPrint, .subjectEcho, .bitmap])
     }
 
     // MARK: - Required filter names

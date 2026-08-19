@@ -62,6 +62,8 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     case stretch       = "STRETCH"
     /// ROADMAP §2f — outlines of the segmented subject radiating outward from it.
     case subjectEcho   = "ECHO"
+    /// ROADMAP §2b — 1-bit clustered-dot halftone in two spot colours.
+    case bitmap        = "BITMAP"
 
     // MARK: - Retired
     // Hidden from the picker but kept compiled and tested — see `retired` below.
@@ -167,6 +169,8 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "SHARPNESS"))
         case .subjectEcho:
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "SPREAD"))
+        case .bitmap:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "SCALE"))
         case .stretch:
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "ANGLE"))
             params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "POSITION"))
@@ -199,7 +203,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     var colorPickerKind: EffectPickerKind? {
         switch self {
         case .duotone, .coloredEdges, .caustic, .subjectEcho: return .tintColor
-        case .gradientMap, .risoPrint: return .gradientStops
+        case .gradientMap, .risoPrint, .bitmap: return .gradientStops
         default:                      return nil
         }
     }
@@ -248,6 +252,12 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
                                                    misregistration: max(0, min(1, options.tertiary)),
                                                    grain: max(0, min(1, options.quaternary)),
                                                    contrast: max(0, min(1, options.quinary)))
+        case .bitmap:
+            return BitmapEffect(
+                intensity: clamped,
+                size: max(0, min(1, options.size)),
+                stops: options.gradientStops
+            )
         case .subjectEcho:
             // The mask is injected by `EditorViewModel.activeVisualEffectList`, which is the only
             // place that has one. Built here without it, the effect is a no-op — which is exactly
