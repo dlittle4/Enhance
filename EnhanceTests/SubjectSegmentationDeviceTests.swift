@@ -164,6 +164,32 @@ struct SubjectSegmentationDeviceTests {
         }
     }
 
+    /// BIG HEAD on a **human** face, where Vision returns a real contour and the hybrid head
+    /// region is actually exercised. The cat above goes through the animal path, whose contour
+    /// comes from body-pose joints, so it still falls back to the ellipse — which is exactly the
+    /// split worth seeing side by side.
+    @Test func bigHead_onAHumanFace() async throws {
+        guard let image = UIImage(named: "showcase-3"), let cg = image.cgImage else { return }
+        let source = CIImage(cgImage: cg)
+
+        let mask = try SubjectSegmentationService().subjectMaskOrThrow(for: image)
+        let faces = await FaceDetectionService().detectFaces(in: image)
+
+        var report = ["face,contourPoints,quality"]
+        for (i, f) in faces.enumerated() {
+            report.append("\(i),\(f.faceContourPoints.count),\(f.landmarkQuality)")
+        }
+        Attachment.record(Data(report.joined(separator: "\n").utf8), named: "bighead-faces.csv")
+
+        guard let face = faces.first else { return }
+        let effect = BigHeadEffect(intensity: 0.8, size: 0.5, mask: mask)
+        let data = writeGIF(frameCount: 8) { i, p in
+            effect.apply(to: source, face: face, progress: p, frameIndex: i)
+                .cropped(to: source.extent)
+        }
+        if let data { Attachment.record(data, named: "bighead-human.gif") }
+    }
+
     /// ECHO — outlines of the subject radiating outward. Rendered at three spreads because the
     /// whole question is whether the rings read as emanation or as a registration error, and
     /// that depends almost entirely on how far apart they sit.

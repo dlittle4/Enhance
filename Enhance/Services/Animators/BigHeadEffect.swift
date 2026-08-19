@@ -11,10 +11,15 @@ import CoreImage
 /// is what "grown on the individual's body" actually means. The distortion approach is not
 /// tunable into this one; it is the wrong mechanism, not the wrong constants.
 ///
-/// The head silhouette is the subject mask **intersected with an ellipse around the face**: the
-/// mask alone is the whole body, and the ellipse alone is the oval that made ANIME read as a
-/// vignette. Multiplied together they give the head's real outline — hair, ears and all — bounded
-/// to the head.
+/// The head silhouette is the subject mask **intersected with a head region**. The mask alone is
+/// the whole body; the region decides where the head stops. Two sources for that region, in
+/// order of preference:
+///
+/// 1. **Vision's traced face contour**, where landmarks are available. Note the contour is *not*
+///    a head outline — it runs ear-to-ear around the jaw with nothing above the brow — so it is
+///    used only to place the chin cut and the side walls, and the mask supplies crown and hair.
+/// 2. **An ellipse**, where no contour exists. That is the CIDetector fallback path and every
+///    animal, whose contour comes from body-pose joints rather than a face.
 ///
 /// **It scales about a point low in the head, not its centre.** Growing about the centre lifts
 /// the head off the neck; anchoring low keeps it sitting on the body while the crown rises.
@@ -69,17 +74,21 @@ struct BigHeadEffect: FaceEffect {
             width: halfW * 2,
             height: halfH * 2.2
         )
-        guard headBounds.hasFiniteComponents, headBounds.width >= 2, headBounds.height >= 2,
-              // A soft ellipse edge, so the head silhouette fades out at the neck instead of
-              // ending on a cut line across the throat.
-              let ellipse = FaceRegionMaskBuilder.ellipticalMask(bounds: headBounds, feather: 0.35)
+        guard headBounds.hasFiniteComponents, headBounds.width >= 2, headBounds.height >= 2
         else { return image }
 
         let subjectInFrame = scaled(mask, to: extent)
 
+        // The region that says "this part of the subject is head". Prefer the traced contour;
+        // fall back to the ellipse where Vision gave none.
+        let region = contourRegion(for: face, extent: extent)
+            ?? FaceRegionMaskBuilder.ellipticalMask(bounds: headBounds, feather: 0.35)
+        guard let region else { return image }
+
         // Intersect: subject AND head-region. Multiply blend on two masks is the intersection,
-        // and it keeps the ellipse's feather at the neck while the silhouette stays crisp.
-        let headMask = ellipse
+        // so the silhouette stays crisp — hair, ears and all — while the region decides where
+        // the head stops.
+        let headMask = region
             .applyingFilter("CIMultiplyCompositing", parameters: [
                 kCIInputBackgroundImageKey: subjectInFrame
             ])
@@ -113,6 +122,76 @@ struct BigHeadEffect: FaceEffect {
                 kCIInputMaskImageKey: grownMask
             ])
             .cropped(to: extent)
+    }
+
+    /// A head region built from Vision's traced face contour, or `nil` when there is none.
+    ///
+    /// **The contour alone is not a head outline** — it runs ear-to-ear around the jaw and has no
+    /// points above the brow, because there are no facial landmarks up there. Filling it would
+    /// cut the head off at the eyebrows, which is worse than the ellipse it replaces.
+    ///
+    /// What it *is* good for is the one thing the segmentation mask cannot tell you: **where the
+    /// head stops and the neck starts.** So this does not trace a head at all. It builds an open
+    /// region — unbounded above, cut at the chin, walled either side of the face — and lets the
+    /// subject mask supply the actual outline. Crown and hair come from the mask; the jawline
+    /// comes from the contour.
+    ///
+    /// Three linear gradients multiplied together, all lazy: no render, no context.
+    private func contourRegion(for face: DetectedFace, extent: CGRect) -> CIImage? {
+        let points = face.faceContourPoints
+        // **12, not 5.** Vision's real `faceContour` returns dozens of points along the jaw;
+        // a handful means the detection fell back and the "contour" is a few landmarks that do
+        // not describe a jawline at all. The corpus caught this: the person in `showcase-3` is
+        // facing away, so Vision returned 5 points with `.estimated` quality, and a 5-point
+        // guard let that through to place a chin cut from noise. Requiring a real contour sends
+        // weak detections to the ellipse, which is the honest answer for a head Vision cannot see.
+        guard points.count >= 12, face.landmarkQuality != .estimated else { return nil }
+
+        let xs = points.map(\.x), ys = points.map(\.y)
+        guard let minX = xs.min(), let maxX = xs.max(), let chinY = ys.min(),
+              minX.isFinite, maxX.isFinite, chinY.isFinite, maxX > minX else { return nil }
+
+        // Ears and hair sit outside the contour, which only traces skin.
+        let pad = (maxX - minX) * 0.35
+        let left = minX - pad
+        let right = maxX + pad
+        // Feather the chin cut over a fraction of the face's own width, so it scales with the
+        // subject instead of being a fixed pixel count that is invisible on a large face and a
+        // hard line on a small one.
+        let feather = max(2, (maxX - minX) * 0.12)
+
+        // White above the chin, fading below it.
+        guard let above = linearGradient(
+            from: CGPoint(x: extent.midX, y: chinY - feather), fromWhite: false,
+            to: CGPoint(x: extent.midX, y: chinY + feather), toWhite: true
+        ),
+        // White right of the left wall, and left of the right wall.
+        let insideLeft = linearGradient(
+            from: CGPoint(x: left - feather, y: extent.midY), fromWhite: false,
+            to: CGPoint(x: left + feather, y: extent.midY), toWhite: true
+        ),
+        let insideRight = linearGradient(
+            from: CGPoint(x: right - feather, y: extent.midY), fromWhite: true,
+            to: CGPoint(x: right + feather, y: extent.midY), toWhite: false
+        ) else { return nil }
+
+        return above
+            .applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: insideLeft])
+            .applyingFilter("CIMultiplyCompositing", parameters: [kCIInputBackgroundImageKey: insideRight])
+            .cropped(to: extent)
+    }
+
+    private func linearGradient(
+        from p0: CGPoint, fromWhite: Bool, to p1: CGPoint, toWhite: Bool
+    ) -> CIImage? {
+        let black = CIColor(red: 0, green: 0, blue: 0, alpha: 1)
+        let white = CIColor(red: 1, green: 1, blue: 1, alpha: 1)
+        return CIFilter(name: "CILinearGradient", parameters: [
+            "inputPoint0": CIVector(x: p0.x, y: p0.y),
+            "inputPoint1": CIVector(x: p1.x, y: p1.y),
+            "inputColor0": fromWhite ? white : black,
+            "inputColor1": toWhite ? white : black
+        ])?.outputImage
     }
 
     /// Face effects run in source space, so this is normally a no-op — it exists because the
