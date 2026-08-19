@@ -16,3 +16,9 @@ xcuserdata/
 # CocoaPods / SPM
 Pods/
 .build/
+
+# Test fixture photos. Personal images of identifiable people, kept local on purpose —
+# `SubjectSegmentationDeviceTests.bigHead_onFixturePhotos` picks up whatever is in the folder and
+# skips cleanly when it is empty, so CI and fresh clones are unaffected by their absence.
+EnhanceTests/Fixtures/*
+!EnhanceTests/Fixtures/README.md
