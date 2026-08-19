@@ -22,14 +22,17 @@ struct SubjectEchoEffect: VisualEffect {
 
     private let compositor = SubjectMaskCompositor()
 
-    /// Ring count is fixed rather than exposed. Below three the effect reads as a mistake — a
-    /// single offset outline looks like a registration error — and above six the rings collapse
-    /// into a band at any spread the panel can reach.
-    private static let ringCount = 5
+    /// How many rings. Exposed on the user's call (2026-08-18) — five was too few, and the
+    /// ceiling was set from a guess about them merging that the render did not bear out: with
+    /// SPREAD open, a dozen rings stay separate. The floor stays at three, where a lone offset
+    /// outline still reads as a registration error rather than an effect.
+    private let ringCount: Int
 
-    init(intensity: Double = 0.5, spread: Double = 0.5, color: LaserColor = .red, mask: CIImage? = nil) {
+    init(intensity: Double = 0.5, spread: Double = 0.5, count: Double = 0.5,
+         color: LaserColor = .red, mask: CIImage? = nil) {
         self.strength = max(0, min(1, CGFloat(intensity)))
         self.spread = max(0, min(1, CGFloat(spread)))
+        self.ringCount = 3 + Int((max(0, min(1, count)) * 11).rounded())   // 3…14
         let (r, g, b) = color.rgb
         self.tint = CIColor(red: r, green: g, blue: b)
         self.mask = mask
@@ -37,12 +40,14 @@ struct SubjectEchoEffect: VisualEffect {
 
     /// Same effect with a mask attached — the view model has the mask, the factory does not.
     func withMask(_ mask: CIImage?) -> SubjectEchoEffect {
-        SubjectEchoEffect(intensity: Double(strength), spread: Double(spread), tintColor: tint, mask: mask)
+        SubjectEchoEffect(intensity: Double(strength), spread: Double(spread),
+                          ringCount: ringCount, tintColor: tint, mask: mask)
     }
 
-    private init(intensity: Double, spread: Double, tintColor: CIColor, mask: CIImage?) {
+    private init(intensity: Double, spread: Double, ringCount: Int, tintColor: CIColor, mask: CIImage?) {
         self.strength = max(0, min(1, CGFloat(intensity)))
         self.spread = max(0, min(1, CGFloat(spread)))
+        self.ringCount = ringCount
         self.tint = tintColor
         self.mask = mask
     }
@@ -86,8 +91,8 @@ struct SubjectEchoEffect: VisualEffect {
         let maxStep = 0.06 + spread * 0.34
 
         var result = image
-        for ring in 1...Self.ringCount {
-            let t = CGFloat(ring) / CGFloat(Self.ringCount)
+        for ring in 1...max(1, ringCount) {
+            let t = CGFloat(ring) / CGFloat(max(1, ringCount))
             // Travel outward with progress, so the rings emanate rather than sit still.
             let scale = 1 + maxStep * t * fade
             let alpha = strength * (1 - t) * fade * 0.9

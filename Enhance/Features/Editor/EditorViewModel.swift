@@ -555,11 +555,19 @@ class EditorViewModel {
     var activeFaceEffect: FaceEffect? {
         guard let filter = selectedFaceFilter else { return nil }
 
-        return filter.effect(
+        let built = filter.effect(
             intensity: value(EffectParameter.intensityID, for: filter),
             secondValue: value(EffectParameter.secondaryID, for: filter),
             laserColor: laserColor
         )
+
+        // BIG HEAD enlarges the head's real outline, so it needs segmentation — and like ECHO,
+        // the factory has none. Without a mask it returns the frame untouched rather than
+        // falling back to the bump-distortion version, which was rejected on look.
+        if let bigHead = built as? BigHeadEffect {
+            return bigHead.withMask(subjectMask)
+        }
+        return built
     }
 
     /// Same hot-path rule as `activeFaceEffect`: direct dict reads, never `.parameters`.

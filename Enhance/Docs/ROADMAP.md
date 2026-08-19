@@ -481,16 +481,18 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       **It is the first effect that composites rather than filters**, which is why it surfaced a
       class of interaction eleven filter-style effects never had; worth remembering before adding
       another compositing effect.
-- [x] **BIG HEAD — shipped 2026-08-18** as a `FaceEffect` card. One `CIBumpDistortion` centred
-      just above the face centre, animating with `progress` so the head inflates as the zoom
-      lands. Deliberately **not** wrapped in `FaceVisualEffect`: that adapter masks to a radius
-      around the face, which would clip the head exactly where it is meant to swell past its own
-      outline; the bump falls off to nothing on its own.
-      **The first render was invisible, and the reason generalises.** "Distort less on estimated
-      landmarks" compounded with a conservative output scale, so 0.9 intensity reached the filter
-      as 0.32 — an animal face always detects as `.estimated`, so the card did almost nothing on
-      exactly the photos this app is full of. Both constants were re-cut against a render. Any
-      effect with two independent damping factors should be checked the same way.
+- [x] **BIG HEAD — shipped 2026-08-18, rebuilt as a composite.** Cuts the head's outline out of
+      the subject mask and scales it on the body. **The first version was a `CIBumpDistortion`
+      and was rejected: "just seems like a slightly different fisheye"** — correctly, and the
+      reason is worth keeping. A bump warps a disc of the image, so the head grows *and*
+      everything near it smears; it is a lens artefact, not a bigger head, and no constant fixes
+      that. Scaling a cutout keeps the head's own shape and lets it occlude the body.
+      The head silhouette is the subject mask **intersected** with an ellipse round the face —
+      the mask alone is the whole body, the ellipse alone is the oval that made ANIME read as a
+      vignette. **So BIG HEAD depends on §1g**, which the original bump version did not.
+      Two constants were set by render rather than guess: growth caps at 1.55× (1.85× overflowed
+      the frame, and the joke needs the body visible underneath) and the pivot sits 30% up the
+      head, not at its base (anchoring lower sent all the growth upward and clipped the ears).
 - [ ] ~~**BIG HEAD** *(original note)*~~ — the cheapest item on the intake list, and a face effect
       rather than a visual one. `HandsomeEffect` (`HandsomeEffect.swift:19-27`) already scales
       `CIBumpDistortion` off `face.faceWidth` centred on face landmarks to elongate a jaw; big head
@@ -523,10 +525,10 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       two states to the outer gradient stops. Stock filters throughout — the §1c gate would have
       made a kernel ordinary, but it buys nothing here.
       Grid-aligned as DITHER is: cell scales with `geometry.scale`, phase follows `contentOrigin`.
-      **Open, from the render:** the tone sits dark — the subject is legible but muddy, where the
-      reference has more separation. The screen and the crosshatch are right; it is the tone
-      mapping into the threshold that wants a pass. Filed rather than fiddled with, because it is
-      a looking question and the user reviews these together.
+      **CONTRAST row added 2026-08-18 on the user's call**, and it was the right lever: the first
+      render read muddy, and pushing the tones apart *before* the screen compares them separates
+      the subject cleanly. It also lifts brightness slightly with contrast, since pushing tones
+      apart alone drags the whole image dark — which is how the first render failed.
       **Note the MID gradient stop is inert**: a 1-bit screen has two states, and the picker shows
       three wells because it is the shared `.gradientStops` row.
 - [ ] ~~**BITMAP** *(original note)*~~ — a 1-bit **clustered-dot** ordered dither in **two arbitrary
@@ -739,8 +741,10 @@ row, because the mask is the hard part and it is shared.
       read as a sticker border.
       **Rendered on device before shipping** (`subjectEcho_rendersRadiatingOutlines`), at two
       spreads and two colours.
-      Two things left deliberately simple, to revisit only if a render demands it: the ring count
-      is fixed at five (below three reads as a registration error, above six the rings merge), and
+      **ECHOES row added 2026-08-18 on the user's call** — five was too few, and the ceiling of
+      six came from a guess about the rings merging that the render did not bear out; with SPREAD
+      open a dozen stay separate. Range is 3…14, the floor being where a lone offset outline
+      still reads as a registration error. One thing left deliberately simple: 
       the rings expand about the mask's *extent centre* rather than a true centroid, because a
       real centroid needs a render and these graphs must stay lazy. A subject well off to one side
       will see the rings lean toward frame centre — the fix would be to carry a centroid on the

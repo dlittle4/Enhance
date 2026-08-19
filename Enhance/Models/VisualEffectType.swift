@@ -169,8 +169,10 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "SHARPNESS"))
         case .subjectEcho:
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "SPREAD"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "ECHOES"))
         case .bitmap:
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "SCALE"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "CONTRAST"))
         case .stretch:
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "ANGLE"))
             params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "POSITION"))
@@ -256,6 +258,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             return BitmapEffect(
                 intensity: clamped,
                 size: max(0, min(1, options.size)),
+                contrast: max(0, min(1, options.tertiary)),
                 stops: options.gradientStops
             )
         case .subjectEcho:
@@ -265,6 +268,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             return SubjectEchoEffect(
                 intensity: clamped,
                 spread: max(0, min(1, options.size)),
+                count: max(0, min(1, options.tertiary)),
                 color: options.tintColor
             )
         case .stretch:      return StretchEffect(intensity: clamped,

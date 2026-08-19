@@ -22,6 +22,7 @@ import CoreGraphics
 /// as the animation pans — a static overlay the photo slides beneath.
 struct BitmapEffect: VisualEffect {
     private let hardness: CGFloat
+    private let toneContrast: CGFloat
     private let baseCell: CGFloat
     private let shadow: CIColor
     private let highlight: CIColor
@@ -29,8 +30,13 @@ struct BitmapEffect: VisualEffect {
     /// Beyond this the dots read as blocks rather than a screen.
     private static let maxCell: CGFloat = 14
 
-    init(intensity: Double = 0.5, size: Double = 0.5, stops: GradientStops = .default) {
+    init(intensity: Double = 0.5, size: Double = 0.5, contrast: Double = 0.5,
+         stops: GradientStops = .default) {
         self.hardness = CGFloat(max(0, min(1, intensity)))
+        // Its own row on the user's call (2026-08-18): the first render read muddy, and the
+        // lever that fixes that is how hard the tones are pushed apart *before* the screen
+        // compares them — not the screen itself, which was already right.
+        self.toneContrast = CGFloat(max(0, min(1, contrast)))
         // 2…10pt. Below 2 the matrix is finer than the GIF's own pixel grid and the hatch is
         // invisible; the cap is `maxCell` once the zoom multiplies it.
         self.baseCell = 2 + CGFloat(max(0, min(1, size))) * 8
@@ -83,7 +89,12 @@ struct BitmapEffect: VisualEffect {
             kCIInputSaturationKey: 0.0,
             // Contrast before the screen, or a flat photo collapses into one tone and prints as
             // a single colour — the same failure RISO's CONTRAST row exists to prevent.
-            kCIInputContrastKey: 1.0 + hardness * 0.6
+            // 0.8…2.6. The top of that range is what separates a flat photo into distinct
+            // dot densities instead of one muddy midtone.
+            kCIInputContrastKey: 0.8 + toneContrast * 1.8,
+            // Lift slightly with contrast, or pushing the tones apart drags the whole image
+            // dark — which is exactly how the first render failed.
+            kCIInputBrightnessKey: toneContrast * 0.12
         ])
 
         // luma - screen + 0.5 puts the comparison at mid grey, then a large contrast turns the
