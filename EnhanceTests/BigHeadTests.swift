@@ -19,7 +19,10 @@ struct BigHeadTests {
     private let context = CIContext(options: [.useSoftwareRenderer: true])
 
     /// A face measured against an image of `measuredAgainst` points square.
-    private func makeFace(measuredAgainst: CGFloat, centre: CGPoint, width: CGFloat) -> DetectedFace {
+    private func makeFace(
+        measuredAgainst: CGFloat, centre: CGPoint, width: CGFloat,
+        quality: LandmarkQuality = .precise, contourPoints: Int = 16
+    ) -> DetectedFace {
         let norm = CGRect(
             x: (centre.x - width / 2) / measuredAgainst,
             y: (centre.y - width / 2) / measuredAgainst,
@@ -28,8 +31,8 @@ struct BigHeadTests {
         )
         // A ring of points around the chin. This version bounds the head with an ellipse and
         // reads no contour, so these only make the fixture realistic.
-        let contour = (0..<16).map { i -> CGPoint in
-            let t = CGFloat(i) / 16 * .pi
+        let contour = (0..<contourPoints).map { i -> CGPoint in
+            let t = CGFloat(i) / CGFloat(max(1, contourPoints)) * .pi
             return CGPoint(x: centre.x - cos(t) * width / 2, y: centre.y - sin(t) * width / 3)
         }
         return DetectedFace(
@@ -42,7 +45,7 @@ struct BigHeadTests {
             leftEyebrowPoints: [], rightEyebrowPoints: [],
             faceContourPoints: contour,
             normalizedBoundingBox: norm,
-            landmarkQuality: .precise
+            landmarkQuality: quality
         )
     }
 
@@ -50,15 +53,19 @@ struct BigHeadTests {
         CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: side, height: side))
     }
 
-    /// Mean absolute difference between two images, 0 when identical.
-    private func difference(_ a: CIImage, _ b: CIImage, side: Int) -> Double {
+    /// Mean absolute difference between two images over `bounds`, 0 when identical.
+    private func difference(
+        _ a: CIImage, _ b: CIImage, side: Int, bounds: CGRect? = nil
+    ) -> Double {
+        let rect = bounds ?? CGRect(x: 0, y: 0, width: side, height: side)
+        let w = Int(rect.width), h = Int(rect.height)
         func bytes(_ image: CIImage) -> [UInt8] {
-            var buf = [UInt8](repeating: 0, count: side * side * 4)
+            var buf = [UInt8](repeating: 0, count: w * h * 4)
             context.render(
                 image,
                 toBitmap: &buf,
-                rowBytes: side * 4,
-                bounds: CGRect(x: 0, y: 0, width: side, height: side),
+                rowBytes: w * 4,
+                bounds: rect,
                 format: .RGBA8,
                 colorSpace: CGColorSpaceCreateDeviceRGB()
             )
@@ -91,6 +98,88 @@ struct BigHeadTests {
         let out = effect.apply(to: source, face: face, progress: 1.0, frameIndex: 7)
 
         #expect(difference(out, source, side: Int(side)) == 0)
+    }
+
+    // MARK: - Stage 1: sizing, gating, range, raster cap, cache
+
+    /// The half-extent regression. With the corrected sizing, a point 1.5 face-widths from the
+    /// face centre lies outside any plausible head region, so the effect must leave it alone —
+    /// the buggy version's ellipse was ~2× too large and moved it.
+    @Test func contentFarFromTheFace_isUntouched() {
+        let side: CGFloat = 1000
+        let source = CIImage(image: UIImage.checkerboard(side: side))!
+        // .estimated → ellipse path, which is where the sizing bug lived.
+        let face = makeFace(measuredAgainst: side, centre: CGPoint(x: 500, y: 500), width: 200,
+                            quality: .estimated)
+        // Moderate intensity, deliberately: at full 3× the *enlarged* head legitimately
+        // reaches the probe. At 1.6× the corrected region's content stops ~60px short of it,
+        // while the buggy double-size region would carry checkerboard across it — which is the
+        // discrimination this test exists for.
+        let effect = BigHeadEffect(intensity: 0.3, size: 1.0, mask: makeMask(side: side))
+        let out = effect.apply(to: source, face: face, progress: 1.0, frameIndex: 7)
+
+        // Probe a 40px strip at x=800+ (1.5 face-widths from centre): identical to the source.
+        let region = CGRect(x: 820, y: 480, width: 40, height: 40)
+        #expect(difference(out.cropped(to: region), source.cropped(to: region),
+                           side: Int(side), bounds: region) == 0)
+    }
+
+    /// Gating: an `.estimated` face with a rich contour must render identically to one with a
+    /// sparse contour — the contour path is precise-only, and animals carry synthetic contours
+    /// that describe nothing.
+    @Test func estimatedQuality_neverTakesTheContourPath() {
+        let side: CGFloat = 600
+        let source = CIImage(image: UIImage.checkerboard(side: side))!
+        let rich = makeFace(measuredAgainst: side, centre: CGPoint(x: 300, y: 300), width: 150,
+                            quality: .estimated)
+        let sparse = makeFace(measuredAgainst: side, centre: CGPoint(x: 300, y: 300), width: 150,
+                              quality: .estimated, contourPoints: 5)
+        let mask = makeMask(side: side)
+
+        let a = BigHeadEffect(intensity: 0.8, size: 0.5, mask: mask)
+            .apply(to: source, face: rich, progress: 1.0, frameIndex: 3)
+        let b = BigHeadEffect(intensity: 0.8, size: 0.5, mask: mask)
+            .apply(to: source, face: sparse, progress: 1.0, frameIndex: 3)
+
+        #expect(difference(a, b, side: Int(side)) == 0)
+    }
+
+    /// The 3× range: at full intensity, head content reaches a probe point that 1.55× (the old
+    /// ceiling) could not have moved anything into.
+    @Test func fullIntensity_reachesBeyondTheOldCeiling() {
+        let side: CGFloat = 1000
+        let source = CIImage(image: UIImage.checkerboard(side: side))!
+        let face = makeFace(measuredAgainst: side, centre: CGPoint(x: 500, y: 500), width: 200,
+                            quality: .precise)
+        let effect = BigHeadEffect(intensity: 1.0, size: 0.5, mask: makeMask(side: side))
+        let out = effect.apply(to: source, face: face, progress: 1.0, frameIndex: 7)
+
+        // The pivot sits ~474 in image space. At 3×, content originally ~155px above the pivot
+        // lands ~465 above it; at 1.55× nothing above ~300 moves past 465. Probe a strip around
+        // y=940 (in image space, near the top): it must differ from the source.
+        let region = CGRect(x: 430, y: 900, width: 140, height: 60)
+        #expect(difference(out.cropped(to: region), source.cropped(to: region),
+                           side: Int(side), bounds: region) > 0.5)
+    }
+
+    /// The raster cap is a pure function — pin it without rendering.
+    @Test func rasterScale_capsTheLongEdge() {
+        #expect(HeadRegionBuilder.rasterScale(for: CGRect(x: 0, y: 0, width: 600, height: 600)) == 1)
+        let big = HeadRegionBuilder.rasterScale(for: CGRect(x: 0, y: 0, width: 6000, height: 4500))
+        #expect(abs(big - 1400.0 / 6000.0) < 0.0001)
+        #expect(6000 * big <= HeadRegionBuilder.maxRasterSide + 0.5)
+    }
+
+    /// One raster per face per builder, across simulated GIF frames.
+    @Test func regionIsCached_acrossFrames() {
+        let builder = HeadRegionBuilder()
+        let extent = CGRect(x: 0, y: 0, width: 800, height: 800)
+        let face = makeFace(measuredAgainst: 800, centre: CGPoint(x: 400, y: 400), width: 160,
+                            quality: .precise)
+        for _ in 0..<8 {
+            _ = builder.region(for: face, coverage: 1.3, extent: extent)
+        }
+        #expect(builder.rasterCount == 1)
     }
 
     /// Progress 0 is the untouched frame, so the card can be previewed part-way.
