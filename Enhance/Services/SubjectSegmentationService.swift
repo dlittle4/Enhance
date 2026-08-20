@@ -55,17 +55,16 @@ final class SubjectSegmentationService {
 
     private let maskProvider: MaskProvider
 
-    init(maskProvider: @escaping MaskProvider = SubjectSegmentationService.visionMaskProvider) {
+    init(
+        maskProvider: @escaping MaskProvider = SubjectSegmentationService.visionMaskProvider,
+        personProvider: @escaping PersonSegmentationProvider = SubjectSegmentationService.visionPersonProvider
+    ) {
         self.maskProvider = maskProvider
+        self.personProvider = personProvider
     }
 
     private var cachedImageHash: Int?
     private var cachedMask: CIImage??
-
-    /// Per-instance masks, keyed by image and by the point that selected the instance. A group
-    /// photo asks for one of these per face, so they cannot share the single-mask slot.
-    private struct InstanceKey: Hashable { let hash: Int; let x: Int; let y: Int }
-    private var cachedInstanceMasks: [InstanceKey: CIImage?] = [:]
 
     /// How many real segmentation passes have run. The cache's whole job is to keep this
     /// near one per photo, and counting is the only way to assert that without timing —
@@ -137,60 +136,67 @@ final class SubjectSegmentationService {
         }
     }
 
-    /// The silhouette of the **one** foreground instance under `point`, in the image's pixel
-    /// space — or `nil` if nothing is segmented there.
+    // MARK: - Per-person masks
+
+    /// Everything one person-segmentation pass produced, in the provider's raw (un-oriented)
+    /// pixel space: one mask per instance, and a label lookup over the instance buffer.
     ///
-    /// `subjectMask(for:)` unions every instance, which is right for effects that treat
-    /// "subject vs background" as the whole question. It is wrong for anything that has to act
-    /// on *one person in a group*: BIG HEAD grew a head bounded by geometric walls, and the walls
-    /// cut a straight line through the subject's own hair rather than following him
-    /// *(user-reported: the head read as a cardboard cutout)*. The boundary should follow the
-    /// silhouette, and only a per-instance mask can do that.
+    /// A struct of closures rather than Vision types so the whole path stubs — Vision throws on
+    /// the Simulator, and `instanceMask(for:containing:)` bypassing the injectable provider is
+    /// exactly what made it untestable (it is deleted in this rebuild).
+    struct PersonSegmentation {
+        /// Masks keyed by instance label (1-based, Vision's numbering).
+        let masks: [Int: CIImage]
+        /// The instance label at a point given in **normalized oriented space**, x right,
+        /// y **down** (buffer convention), both 0…1. Returns 0 for background.
+        let labelAt: (CGPoint) -> Int
+    }
+
+    typealias PersonSegmentationProvider =
+        (CGImage, CGImagePropertyOrientation) throws -> PersonSegmentation?
+
+    private let personProvider: PersonSegmentationProvider
+    private var cachedPersonHash: Int?
+    private var cachedPersonSegmentation: PersonSegmentation??
+
+    /// Instances the most recent person pass found — the device diagnostics CSV reads this.
+    private(set) var lastPersonInstanceCount: Int = 0
+
+    /// One mask per point, **positionally aligned** with `points` — the silhouette of the
+    /// person under each point, or `nil` where the lookup lands on background (label 0). The
+    /// *caller* decides the fallback for nil (the union mask), which keeps this API honest
+    /// about what person segmentation actually found.
     ///
-    /// **How the instance is chosen is the part worth keeping.** `instanceMask` is a per-pixel
-    /// buffer of instance *indices*, so the instance owning a face is a single buffer read at
-    /// that face's location — no rendering, no per-instance mask generation and comparison. That
-    /// keeps this to one segmentation pass regardless of how many people are in the shot.
+    /// One segmentation pass per photo regardless of how many points are asked for; the pass
+    /// is cached like the union mask.
     ///
-    /// The instance index chosen by the most recent `instanceMask(for:containing:)`. 0 means the
-    /// lookup landed on background and fell back to the union — which is worth being able to see,
-    /// because that fallback plus a loose head region enlarges *everyone* in a group photo.
-    private(set) var lastInstanceIndex: Int = 0
+    /// **The lookup samples a small patch, not one pixel.** Measured on the fixture corpus: a
+    /// single read at a face's centre can land on a neighbour's label — a tilted head puts the
+    /// face centre near the collar, where instance attribution is ambiguous — even when the
+    /// head itself is cleanly one instance. The patch is weighted upward (toward the forehead,
+    /// which is reliably the person's own pixels) and the modal non-zero label wins.
+    ///
+    /// - Parameter points: locations in the image's pixel space, y-up (Core Image convention),
+    ///   e.g. `DetectedFace.faceCenter`.
+    func personMasks(for image: UIImage, at points: [CGPoint]) async -> [CIImage?] {
+        guard let cgImage = image.cgImage else { return points.map { _ in nil } }
 
-    /// How many foreground instances the most recent lookup saw. A group photo segmenting as one
-    /// blob rather than one instance per person is the other way the per-person mask can fail,
-    /// and it looks identical in the output — so it is worth reporting separately.
-    private(set) var lastInstanceCount: Int = 0
-
-    /// - Parameter point: a location in the image's pixel space, y-up (Core Image convention),
-    ///   such as `DetectedFace.faceCenter`.
-    func instanceMask(for image: UIImage, containing point: CGPoint) throws -> CIImage? {
-        guard let cgImage = image.cgImage else { throw Failure.noCGImage }
-
-        let key = InstanceKey(hash: image.hashValue, x: Int(point.x), y: Int(point.y))
-        if let cached = cachedInstanceMasks[key] { return cached }
-
-        segmentationCount += 1
-
-        let request = VNGenerateForegroundInstanceMaskRequest()
-        let handler = VNImageRequestHandler(
-            cgImage: cgImage,
-            orientation: visionOrientation(from: image),
-            options: [:]
-        )
-        do { try handler.perform([request]) } catch { throw Failure.visionFailed(error) }
-
-
-        guard let observation = request.results?.first, !observation.allInstances.isEmpty else {
-            cachedInstanceMasks[key] = .some(nil)
-            return nil
+        let segmentation: PersonSegmentation?
+        if image.hashValue == cachedPersonHash, let cached = cachedPersonSegmentation {
+            segmentation = cached
+        } else {
+            segmentationCount += 1
+            segmentation = (try? personProvider(cgImage, visionOrientation(from: image))) ?? nil
+            cachedPersonHash = image.hashValue
+            cachedPersonSegmentation = .some(segmentation)
         }
 
-        // **Oriented dimensions, not the raw buffer's.** Vision reports coordinates in the
-        // *oriented* image space and `FaceDetectionService.detectFaces` converts against oriented
-        // width/height for exactly this reason — so `faceCenter` is in oriented space too. Using
-        // the raw `cgImage` dimensions here silently mismatched on any rotated photo, put the
-        // lookup somewhere else entirely, and returned 0.
+        guard let segmentation else {
+            lastPersonInstanceCount = 0
+            return points.map { _ in nil }
+        }
+        lastPersonInstanceCount = segmentation.masks.count
+
         let orientation = visionOrientation(from: image)
         let orientedSize: CGSize
         switch orientation {
@@ -199,53 +205,81 @@ final class SubjectSegmentationService {
         default:
             orientedSize = CGSize(width: cgImage.width, height: cgImage.height)
         }
+        guard orientedSize.width > 0, orientedSize.height > 0 else {
+            return points.map { _ in nil }
+        }
 
-        let instance = Self.instanceIndex(
-            at: point,
-            in: observation.instanceMask,
-            imageSize: orientedSize
-        )
-        lastInstanceIndex = instance
-        lastInstanceCount = observation.allInstances.count
-
-        // 0 is background in Vision's indexing. Falling back to the union rather than to nothing
-        // matters: a face just outside its own silhouette — hair sampled at the edge, or a
-        // detection box slightly off — should still get a usable mask instead of the effect
-        // silently doing nothing.
-        let instances: IndexSet = (instance > 0) ? IndexSet(integer: instance) : observation.allInstances
-
-        do {
-            let buffer = try observation.generateScaledMaskForImage(forInstances: instances, from: handler)
-            let mask = scaled(CIImage(cvPixelBuffer: buffer), toMatch: image)
-            cachedInstanceMasks[key] = .some(mask)
-            return mask
-        } catch {
-            throw Failure.maskGenerationFailed(error)
+        return points.map { point in
+            let label = Self.modalLabel(
+                at: point, in: segmentation, orientedSize: orientedSize
+            )
+            guard label > 0, let mask = segmentation.masks[label] else { return nil }
+            return scaled(mask, toMatch: image)
         }
     }
 
-    /// Reads the instance index at a point straight out of Vision's label buffer.
-    ///
-    /// The buffer is one byte per pixel, top-left origin, at Vision's own working resolution —
-    /// so the point is converted from Core Image's y-up image space and rescaled to the buffer.
-    private static func instanceIndex(at point: CGPoint, in buffer: CVPixelBuffer, imageSize: CGSize) -> Int {
-        CVPixelBufferLockBaseAddress(buffer, .readOnly)
-        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+    /// The modal non-zero label over a 7-sample patch around `point`, weighted upward.
+    private static func modalLabel(
+        at point: CGPoint, in segmentation: PersonSegmentation, orientedSize: CGSize
+    ) -> Int {
+        // ~1.5% of the image dimension: small enough to stay on the face, large enough to
+        // escape a collar-adjacent centre pixel.
+        let dx = orientedSize.width * 0.015
+        let dy = orientedSize.height * 0.015
+        // y-up offsets; positive dy moves toward the forehead.
+        let offsets: [(CGFloat, CGFloat)] = [
+            (0, 0), (-dx, 0), (dx, 0), (0, dy), (0, 2 * dy), (-dx, dy), (dx, dy)
+        ]
+        var votes: [Int: Int] = [:]
+        for (ox, oy) in offsets {
+            let nx = (point.x + ox) / orientedSize.width
+            // Flip: pixel space is y-up, the label buffer is y-down.
+            let ny = 1 - ((point.y + oy) / orientedSize.height)
+            guard nx >= 0, nx < 1, ny >= 0, ny < 1 else { continue }
+            let label = segmentation.labelAt(CGPoint(x: nx, y: ny))
+            if label > 0 { votes[label, default: 0] += 1 }
+        }
+        return votes.max { $0.value < $1.value }?.key ?? 0
+    }
 
-        let w = CVPixelBufferGetWidth(buffer)
-        let h = CVPixelBufferGetHeight(buffer)
-        guard w > 0, h > 0, imageSize.width > 0, imageSize.height > 0,
-              let base = CVPixelBufferGetBaseAddress(buffer) else { return 0 }
+    /// The real Vision path for person segmentation. Returns `nil` when no people are found.
+    static func visionPersonProvider(
+        cgImage: CGImage,
+        orientation: CGImagePropertyOrientation
+    ) throws -> PersonSegmentation? {
+        let request = VNGeneratePersonInstanceMaskRequest()
+        let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
+        do {
+            try handler.perform([request])
+        } catch {
+            throw Failure.visionFailed(error)
+        }
+        guard let observation = request.results?.first, !observation.allInstances.isEmpty else {
+            return nil
+        }
 
-        let nx = point.x / imageSize.width
-        // Flip: image space is y-up, the buffer is y-down.
-        let ny = 1 - (point.y / imageSize.height)
-        guard nx >= 0, nx < 1, ny >= 0, ny < 1 else { return 0 }
+        var masks: [Int: CIImage] = [:]
+        for instance in observation.allInstances {
+            guard let buffer = try? observation.generateScaledMaskForImage(
+                forInstances: IndexSet(integer: instance), from: handler
+            ) else { continue }
+            masks[instance] = CIImage(cvPixelBuffer: buffer)
+        }
+        guard !masks.isEmpty else { return nil }
 
-        let x = min(w - 1, max(0, Int(nx * CGFloat(w))))
-        let y = min(h - 1, max(0, Int(ny * CGFloat(h))))
-        let stride = CVPixelBufferGetBytesPerRow(buffer)
-        return Int(base.assumingMemoryBound(to: UInt8.self)[y * stride + x])
+        let labelBuffer = observation.instanceMask
+        return PersonSegmentation(masks: masks) { normalized in
+            CVPixelBufferLockBaseAddress(labelBuffer, .readOnly)
+            defer { CVPixelBufferUnlockBaseAddress(labelBuffer, .readOnly) }
+            let w = CVPixelBufferGetWidth(labelBuffer)
+            let h = CVPixelBufferGetHeight(labelBuffer)
+            guard w > 0, h > 0,
+                  let base = CVPixelBufferGetBaseAddress(labelBuffer) else { return 0 }
+            let x = min(w - 1, max(0, Int(normalized.x * CGFloat(w))))
+            let y = min(h - 1, max(0, Int(normalized.y * CGFloat(h))))
+            let stride = CVPixelBufferGetBytesPerRow(labelBuffer)
+            return Int(base.assumingMemoryBound(to: UInt8.self)[y * stride + x])
+        }
     }
 
     /// Whether this photo has a subject to build on. The editor uses this to decide whether
@@ -271,6 +305,9 @@ final class SubjectSegmentationService {
             guard let cgImage = warmupImage?.cgImage else { return }
             let request = VNGenerateForegroundInstanceMaskRequest()
             try? VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+            // The person model is a separate load, and BIG HEAD's first tap pays it otherwise.
+            let personRequest = VNGeneratePersonInstanceMaskRequest()
+            try? VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([personRequest])
         }
     }
 
@@ -283,7 +320,8 @@ final class SubjectSegmentationService {
     func clearCache() {
         cachedImageHash = nil
         cachedMask = nil
-        cachedInstanceMasks = [:]
+        cachedPersonHash = nil
+        cachedPersonSegmentation = nil
     }
 
     // MARK: - Private

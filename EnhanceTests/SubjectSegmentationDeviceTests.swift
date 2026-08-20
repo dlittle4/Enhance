@@ -178,7 +178,7 @@ struct SubjectSegmentationDeviceTests {
             .filter { !$0.lastPathComponent.hasPrefix("showcase") }
         guard !photos.isEmpty else { return }
 
-        var report = ["photo,faces,contourPoints,quality,subjectFound,instanceIndex,instances"]
+        var report = ["photo,faces,contourPoints,quality,subjectFound,facesWithPersonMask,personInstances"]
 
         for url in photos.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             guard let data = try? Data(contentsOf: url),
@@ -192,24 +192,21 @@ struct SubjectSegmentationDeviceTests {
             var instanceCount = 0
             defer { report.append("\(name),\(faces.count),\(f?.faceContourPoints.count ?? 0),\(f.map { "\($0.landmarkQuality)" } ?? "none"),\((mask ?? nil) != nil),\(reportIndex),\(instanceCount)") }
 
-            guard let face = f else { continue }
-            // Per-person silhouette, which is what the editor now passes. Rendering the shared
-            // union here would exercise a path the app no longer takes.
-            let instanceService = SubjectSegmentationService()
-            let perFace = (try? instanceService.instanceMask(for: image, containing: face.faceCenter)) ?? nil
-            // 0 means the lookup hit background and fell back to the union of everyone — the
-            // thing that would enlarge every head in a group photo.
-            reportIndex = instanceService.lastInstanceIndex
-            instanceCount = instanceService.lastInstanceCount
-            guard let mask = perFace ?? (mask ?? nil) else { continue }
+            guard f != nil else { continue }
+            // The real ladder the editor uses: person mask per face, union where person
+            // segmentation found nothing at that face, and the batch pass over every face so
+            // the render exercises stacking exactly as the app will.
+            let personService = SubjectSegmentationService()
+            let perFace = await personService.personMasks(for: image, at: faces.map(\.faceCenter))
+            instanceCount = personService.lastPersonInstanceCount
+            reportIndex = perFace.filter { $0 != nil }.count
+            let union = mask ?? nil
+            let ladder = perFace.map { $0 ?? union }
+            guard ladder.contains(where: { $0 != nil }) else { continue }
             let source = CIImage(cgImage: cg)
-            // `isCrowded` follows the real rule the editor uses, so the render exercises whichever
-            // region model this photo would actually get.
-            // All faces, so the render exercises the layered pass rather than a single head —
-            // the overlap ordering only exists when the effect can see everyone.
-            let effect = BigHeadEffect(intensity: 0.9, size: 0.5, mask: mask)
+            let effect = BigHeadEffect(intensity: 0.9, size: 0.5, masks: ladder)
             let gif = writeGIF(frameCount: 8) { i, p in
-                effect.apply(to: source, face: face, progress: p, frameIndex: i)
+                effect.apply(to: source, faces: faces, progress: p, frameIndex: i)
                     .cropped(to: source.extent)
             }
             if let gif { Attachment.record(gif, named: "fixture-\(name)-bighead.gif") }

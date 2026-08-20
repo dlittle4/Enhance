@@ -158,6 +158,12 @@ class EditorViewModel {
     /// separates the two, because only the second should raise the toast.
     var subjectMask: CIImage? = nil
     var isSegmentingSubject: Bool = false
+    /// One mask per `detectedFaces` entry, **positionally aligned** — nil where person
+    /// segmentation found nothing at that face (the ladder then falls to `subjectMask`).
+    /// A new face list invalidates this list, for the same positional reason.
+    var personMasks: [CIImage?] = []
+    private var hasSegmentedPersons = false
+    private var isSegmentingPersons = false
 
     /// Whether segmentation has *run* for the current photo. Needed because `subjectMask`
     /// is `nil` in both the not-yet-run and the no-subject case, and the face tab's
@@ -565,17 +571,10 @@ class EditorViewModel {
         // the factory has none. Without a mask it returns the frame untouched rather than
         // falling back to the bump-distortion version, which was rejected on look.
         if let bigHead = built as? BigHeadEffect {
-            // Per-person silhouette where one exists, else the shared mask. The effect itself
-            // takes only the face it is handed, so the caller owns the coordinate space —
-            // `updateCombinedPreview` scales the face for the downsampled preview and this stays
-            // correct without the effect carrying face lists of its own.
-            let perFace = selectedFace.flatMap { face in
-                (image ?? sourceImage).flatMap {
-                    try? subjectSegmentationService.instanceMask(for: $0, containing: face.faceCenter)
-                }
-            } ?? subjectMask
-            // Interim until Stage 4 wires per-person masks: one shared mask for every face.
-            return bigHead.withMasks([perFace])
+            // Positionally aligned with the faces the pipeline iterates; fetched async by
+            // `segmentPersonsIfNeeded` when the card was selected. No Vision call happens on
+            // this path — it is read on every preview rebuild.
+            return bigHead.withMasks(masksForActiveFaces)
         }
         return built
     }
@@ -788,6 +787,48 @@ class EditorViewModel {
     /// BACKGROUND ONLY can possibly be reached, and it keeps the cost off users who never open
     /// the tab at all. Cheap to call repeatedly; it does not touch the cache, so the photo the
     /// user actually picked still gets its own segmentation pass.
+    /// Fetch the per-person masks BIG HEAD builds on — plus the union, which is both the
+    /// ladder's fallback and the no-subject signal. Async and gated exactly like
+    /// `segmentSubjectIfNeeded`; triggered from the BIG HEAD card.
+    func segmentPersonsIfNeeded() {
+        guard !isSegmentingPersons, !hasSegmentedPersons else { return }
+        guard let source = image ?? sourceImage else { return }
+        let centres = detectedFaces.map(\.faceCenter)
+
+        isSegmentingPersons = true
+        Task {
+            let masks = await subjectSegmentationService.personMasks(for: source, at: centres)
+            let union = await subjectSegmentationService.subjectMask(for: source)
+            await MainActor.run {
+                self.personMasks = masks
+                self.subjectMask = union
+                self.hasSegmentedPersons = true
+                self.hasSegmentedSubject = true
+                self.isSegmentingPersons = false
+                // Same rule as the union path: absence is a toast and live cards, never a
+                // disabled control (§1g). Person masks all nil is not the signal — animals
+                // land there by design — the union being nil is.
+                if union == nil {
+                    self.showToast("NO SUBJECT DETECTED")
+                }
+                self.updateCombinedPreview()
+            }
+        }
+    }
+
+    /// The ladder, folded for the faces the pipeline will iterate: the person's own mask
+    /// where segmentation found one, the union where it did not, aligned with `activeFaces`.
+    var masksForActiveFaces: [CIImage?] {
+        let union = subjectMask
+        if let idx = selectedFaceIndex, idx < detectedFaces.count {
+            let personal = idx < personMasks.count ? personMasks[idx] : nil
+            return [personal ?? union]
+        }
+        return detectedFaces.indices.map { i in
+            (i < personMasks.count ? personMasks[i] : nil) ?? union
+        }
+    }
+
     func prewarmSegmentation() {
         guard !hasSegmentedSubject else { return }
         subjectSegmentationService.prewarm()
@@ -796,6 +837,8 @@ class EditorViewModel {
     /// Drop the mask when the photo changes. Without this a new photo would composite
     /// against the previous one's silhouette, which reads as a segmentation failure.
     func clearSubjectMask() {
+        personMasks = []
+        hasSegmentedPersons = false
         subjectMask = nil
         hasSegmentedSubject = false
         subjectSegmentationService.clearCache()
@@ -807,6 +850,9 @@ class EditorViewModel {
 
         detectedFaces = []
         selectedFaceIndex = nil
+        // Person masks are positional with detectedFaces — a new face list invalidates them.
+        personMasks = []
+        hasSegmentedPersons = false
         // Thumbnails are cropped to a specific face; a new detection invalidates them.
         faceFilterThumbnails = [:]
         originalFaceThumbnail = nil
