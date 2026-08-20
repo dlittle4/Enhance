@@ -481,7 +481,27 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       **It is the first effect that composites rather than filters**, which is why it surfaced a
       class of interaction eleven filter-style effects never had; worth remembering before adding
       another compositing effect.
-- [x] **BIG HEAD — shipped 2026-08-18, rebuilt as a composite.** Cuts the head's outline out of
+- [ ] ⚠️ **BIG HEAD is reset to its first composite version (`ea96ce3`) as of 2026-08-19, on the
+      user's call.** A day of fixes took it from 122 to 468 lines — a flare, a crowded/solo split,
+      neighbour-gap walls, a per-face raster cache, coordinate rescaling, a render-once guard —
+      and every one of them was geometry standing in for a person boundary that segmentation will
+      not supply. Each fix traded one artifact for another, so the file was reset rather than
+      patched further.
+      **What the reset gives back, and it is not nothing:** the two worst bugs of that day were
+      introduced by the additions, not present here. There are no stored face lists, so the
+      coordinate mismatch that made the effect draw nothing in the app cannot occur — the caller
+      owns the space, and it already scales the face. And the head region is a `CIRadialGradient`
+      ellipse rather than a rasterised path, so there is no full-frame bitmap per face and no
+      24MP crash.
+      **What it gives up:** the traced-jaw boundary, so the region is an oval that takes some neck
+      and does not follow the chin; head stacking, so enlarged heads in a group blend rather than
+      occlude; and the 3× range, which reverts to 1.55×. It also restores the known bug that the
+      ellipse is sized from `faceWidth` as a half-extent, which enlarges the whole subject on some
+      photos — fixed once in `9486c2b`, and the single cheapest thing to re-apply.
+      **Do not re-patch the geometry.** The root cause is filed below: Vision returns one
+      foreground instance for a whole group, and `VNGeneratePersonInstanceMaskRequest` is the fix
+      that makes the compensation unnecessary rather than better.
+- [x] ~~**BIG HEAD — shipped 2026-08-18, rebuilt as a composite.**~~ *(superseded by the reset above)* Cuts the head's outline out of
       the subject mask and scales it on the body. **The first version was a `CIBumpDistortion`
       and was rejected: "just seems like a slightly different fisheye"** — correctly, and the
       reason is worth keeping. A bump warps a disc of the image, so the head grows *and*

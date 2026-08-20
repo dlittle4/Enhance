@@ -565,18 +565,16 @@ class EditorViewModel {
         // the factory has none. Without a mask it returns the frame untouched rather than
         // falling back to the bump-distortion version, which was rejected on look.
         if let bigHead = built as? BigHeadEffect {
-            // Per-person silhouette where we can get one, so the head boundary follows the
-            // subject rather than a geometric wall. Falls back to the shared mask, which is
-            // also what `isCrowded` still guards against.
+            // Per-person silhouette where one exists, else the shared mask. The effect itself
+            // takes only the face it is handed, so the caller owns the coordinate space —
+            // `updateCombinedPreview` scales the face for the downsampled preview and this stays
+            // correct without the effect carrying face lists of its own.
             let perFace = selectedFace.flatMap { face in
                 (image ?? sourceImage).flatMap {
                     try? subjectSegmentationService.instanceMask(for: $0, containing: face.faceCenter)
                 }
             } ?? subjectMask
-            // `activeFaces` is which heads grow; `detectedFaces` is where everyone is. Passing
-            // the former as both is what let a selected face's wall open into its neighbour.
-            return bigHead.withMask(perFace, isCrowded: detectedFaces.count > 1,
-                                    facesToGrow: activeFaces, neighbourFaces: detectedFaces)
+            return bigHead.withMask(perFace)
         }
         return built
     }

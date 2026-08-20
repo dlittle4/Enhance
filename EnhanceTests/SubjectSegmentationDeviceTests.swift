@@ -206,9 +206,7 @@ struct SubjectSegmentationDeviceTests {
             // region model this photo would actually get.
             // All faces, so the render exercises the layered pass rather than a single head —
             // the overlap ordering only exists when the effect can see everyone.
-            let effect = BigHeadEffect(intensity: 0.9, size: 0.5, mask: mask,
-                                       isCrowded: faces.count > 1,
-                                       facesToGrow: faces, neighbourFaces: faces)
+            let effect = BigHeadEffect(intensity: 0.9, size: 0.5, mask: mask)
             let gif = writeGIF(frameCount: 8) { i, p in
                 effect.apply(to: source, face: face, progress: p, frameIndex: i)
                     .cropped(to: source.extent)

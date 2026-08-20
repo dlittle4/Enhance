@@ -3,24 +3,22 @@ import CoreImage
 import UIKit
 @testable import Enhance
 
-/// Tests for `BigHeadEffect`'s coordinate handling.
+/// Tests for `BigHeadEffect`'s contract.
 ///
-/// **These exist because the fixture renders could not catch this class of bug.** Those feed a
-/// full-resolution image together with full-resolution faces, which is the one combination where
-/// a coordinate-space mismatch cancels out. The app does not do that: the preview renders a
-/// downsampled copy and scales the face it passes in, while the effect's own face lists stay at
-/// full resolution. The effect then drew every head far outside the frame and rendered nothing —
-/// visible on device as the card simply not working, and invisible to every test we had.
+/// The assertions are deliberately coarse — *something changed*, or *nothing did*. Whether it
+/// looks right is not testable and is judged by rendering (ROADMAP §1g); whether it drew at all
+/// is exactly the kind of structural claim a test should pin, and is how the effect failed
+/// silently in the app once before.
 ///
-/// So the assertion here is deliberately coarse: *something changed*. Whether it looks right is
-/// not testable and is judged by rendering (ROADMAP §1g); whether it drew at all is exactly the
-/// kind of structural claim a test should pin.
+/// **This effect takes only the face it is handed**, so the caller owns the coordinate space.
+/// That is deliberate: a version that carried its own face lists drew every head at
+/// full-resolution coordinates on the downsampled preview and rendered nothing at all. Keeping
+/// the space with the caller — which already scales the face — removes the chance to disagree.
 struct BigHeadTests {
 
     private let context = CIContext(options: [.useSoftwareRenderer: true])
 
-    /// A face whose pixel geometry was measured against `measuredAgainst`, so its normalized box
-    /// disagrees with any frame of a different size — the situation the preview creates.
+    /// A face measured against an image of `measuredAgainst` points square.
     private func makeFace(measuredAgainst: CGFloat, centre: CGPoint, width: CGFloat) -> DetectedFace {
         let norm = CGRect(
             x: (centre.x - width / 2) / measuredAgainst,
@@ -28,8 +26,8 @@ struct BigHeadTests {
             width: width / measuredAgainst,
             height: width / measuredAgainst
         )
-        // A ring of contour points around the chin, enough to pass the 12-point gate so the
-        // contour path is what gets exercised rather than the ellipse fallback.
+        // A ring of points around the chin. This version bounds the head with an ellipse and
+        // reads no contour, so these only make the fixture realistic.
         let contour = (0..<16).map { i -> CGPoint in
             let t = CGFloat(i) / 16 * .pi
             return CGPoint(x: centre.x - cos(t) * width / 2, y: centre.y - sin(t) * width / 3)
@@ -71,35 +69,12 @@ struct BigHeadTests {
         return Double(total) / Double(x.count)
     }
 
-    // MARK: - Coordinate spaces
-
-    /// The regression. Faces measured against a 4000px image, applied to a 1000px frame — which
-    /// is what the preview does every time it renders.
-    @Test func facesFromALargerImage_stillGrowTheHead() {
-        let side: CGFloat = 1000
-        let source = CIImage(image: UIImage.checkerboard(side: side))!
-        let face = makeFace(measuredAgainst: 4000, centre: CGPoint(x: 2000, y: 2000), width: 800)
-
-        let effect = BigHeadEffect(
-            intensity: 1.0, size: 0.5, mask: makeMask(side: side),
-            facesToGrow: [face], neighbourFaces: [face]
-        )
-        let out = effect.apply(to: source, face: face, progress: 1.0, frameIndex: 7)
-
-        #expect(difference(out, source, side: Int(side)) > 0.5)
-    }
-
-    /// The case the fixture renders already covered, kept so a fix for the above cannot silently
-    /// break the path that was working.
-    @Test func facesFromTheSameImage_stillGrowTheHead() {
+    @Test func aFaceInTheFrame_growsTheHead() {
         let side: CGFloat = 1000
         let source = CIImage(image: UIImage.checkerboard(side: side))!
         let face = makeFace(measuredAgainst: side, centre: CGPoint(x: 500, y: 500), width: 200)
 
-        let effect = BigHeadEffect(
-            intensity: 1.0, size: 0.5, mask: makeMask(side: side),
-            facesToGrow: [face], neighbourFaces: [face]
-        )
+        let effect = BigHeadEffect(intensity: 1.0, size: 0.5, mask: makeMask(side: side))
         let out = effect.apply(to: source, face: face, progress: 1.0, frameIndex: 7)
 
         #expect(difference(out, source, side: Int(side)) > 0.5)
@@ -112,8 +87,7 @@ struct BigHeadTests {
         let source = CIImage(image: UIImage.checkerboard(side: side))!
         let face = makeFace(measuredAgainst: side, centre: CGPoint(x: 200, y: 200), width: 120)
 
-        let effect = BigHeadEffect(intensity: 1.0, size: 0.5, mask: nil,
-                                   facesToGrow: [face], neighbourFaces: [face])
+        let effect = BigHeadEffect(intensity: 1.0, size: 0.5, mask: nil)
         let out = effect.apply(to: source, face: face, progress: 1.0, frameIndex: 7)
 
         #expect(difference(out, source, side: Int(side)) == 0)
@@ -125,8 +99,7 @@ struct BigHeadTests {
         let source = CIImage(image: UIImage.checkerboard(side: side))!
         let face = makeFace(measuredAgainst: side, centre: CGPoint(x: 200, y: 200), width: 120)
 
-        let effect = BigHeadEffect(intensity: 1.0, size: 0.5, mask: makeMask(side: side),
-                                   facesToGrow: [face], neighbourFaces: [face])
+        let effect = BigHeadEffect(intensity: 1.0, size: 0.5, mask: makeMask(side: side))
         let out = effect.apply(to: source, face: face, progress: 0, frameIndex: 0)
 
         #expect(difference(out, source, side: Int(side)) == 0)
