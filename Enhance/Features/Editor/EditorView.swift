@@ -1363,11 +1363,10 @@ struct EditorView: View {
             if viewModel.selectedFaceFilter != filterType {
                 viewModel.pushUndo()
                 viewModel.selectedFaceFilter = filterType
-                // BIG HEAD cuts each head from that person's own silhouette, so selecting it
-                // is the moment person segmentation is first needed. The call also fetches the
-                // union, which is the ladder's fallback and the no-subject toast signal.
+                // BIG HEAD cuts the head's outline out of the subject mask, so selecting it
+                // is the moment segmentation is first needed.
                 if filterType == .bigHead {
-                    viewModel.segmentPersonsIfNeeded()
+                    viewModel.segmentSubjectIfNeeded()
                 }
             }
             viewModel.beginEditing()

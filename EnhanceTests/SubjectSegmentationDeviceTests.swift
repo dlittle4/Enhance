@@ -193,18 +193,23 @@ struct SubjectSegmentationDeviceTests {
             defer { report.append("\(name),\(faces.count),\(f?.faceContourPoints.count ?? 0),\(f.map { "\($0.landmarkQuality)" } ?? "none"),\((mask ?? nil) != nil),\(reportIndex),\(instanceCount)") }
 
             guard f != nil else { continue }
-            // The real ladder the editor uses: person mask per face, union where person
-            // segmentation found nothing at that face, and the batch pass over every face so
-            // the render exercises stacking exactly as the app will.
+            // The app's actual path: the shared union mask, applied per face by the pipeline's
+            // sequential pass. (The per-person ladder is parked — §2a.) The person diagnostics
+            // stay in the CSV so the parked path's corpus behaviour remains on record.
             let personService = SubjectSegmentationService()
-            let perFace = await personService.personMasks(for: image, at: faces.map(\.faceCenter))
+            let perFace = await personService.personMasks(
+                for: image, at: faces.map(\.faceCenter), radii: faces.map { $0.faceWidth * 0.3 }
+            )
             instanceCount = personService.lastPersonInstanceCount
             reportIndex = perFace.filter { $0 != nil }.count
-            let union = mask ?? nil
-            let ladder = perFace.map { $0 ?? union }
-            guard ladder.contains(where: { $0 != nil }) else { continue }
-            let source = CIImage(cgImage: cg)
-            let effect = BigHeadEffect(intensity: 0.9, size: 0.5, masks: ladder)
+            guard let union = mask ?? nil else { continue }
+            // **Oriented, exactly like the app.** Faces and masks live in oriented space; the
+            // raw CGImage does not. Rendering raw put every face in the wrong place on any
+            // rotated photo — the 24MP fixture rendered sideways and untouched, reported as
+            // "not working at all", and the harness was the only place that path existed.
+            let source = CIImage(cgImage: cg).oriented(Self.visionOrientation(from: image))
+                .transformed(by: .identity)
+            let effect = BigHeadEffect(intensity: 0.9, size: 0.5, mask: union)
             let gif = writeGIF(frameCount: 8) { i, p in
                 effect.apply(to: source, faces: faces, progress: p, frameIndex: i)
                     .cropped(to: source.extent)

@@ -178,7 +178,12 @@ final class SubjectSegmentationService {
     ///
     /// - Parameter points: locations in the image's pixel space, y-up (Core Image convention),
     ///   e.g. `DetectedFace.faceCenter`.
-    func personMasks(for image: UIImage, at points: [CGPoint]) async -> [CIImage?] {
+    /// - Parameter radii: per-point sampling radius — pass roughly a third of the face's
+    ///   width. The vote samples across this span of the *face*, which is what makes it robust:
+    ///   a tilted head's centre pixel can sit at the collar, where attribution is ambiguous,
+    ///   while the face box above it is unambiguously that person (measured: a centre-patch
+    ///   vote still assigned a tilted head its neighbour's mask; a face-spanning vote did not).
+    func personMasks(for image: UIImage, at points: [CGPoint], radii: [CGFloat] = []) async -> [CIImage?] {
         guard let cgImage = image.cgImage else { return points.map { _ in nil } }
 
         let segmentation: PersonSegmentation?
@@ -209,26 +214,38 @@ final class SubjectSegmentationService {
             return points.map { _ in nil }
         }
 
-        return points.map { point in
+        // One scaled instance per label, so two faces sharing a label receive the *identical*
+        // CIImage object — mask sharing is detectable by identity downstream, which is how the
+        // effect knows the mask cannot separate those faces and a midline bound must.
+        var scaledByLabel: [Int: CIImage] = [:]
+        return points.enumerated().map { index, point in
+            let radius = index < radii.count
+                ? radii[index]
+                : min(orientedSize.width, orientedSize.height) * 0.015
             let label = Self.modalLabel(
-                at: point, in: segmentation, orientedSize: orientedSize
+                at: point, radius: radius, in: segmentation, orientedSize: orientedSize
             )
             guard label > 0, let mask = segmentation.masks[label] else { return nil }
-            return scaled(mask, toMatch: image)
+            if let cached = scaledByLabel[label] { return cached }
+            let scaledMask = scaled(mask, toMatch: image)
+            scaledByLabel[label] = scaledMask
+            return scaledMask
         }
     }
 
-    /// The modal non-zero label over a 7-sample patch around `point`, weighted upward.
+    /// The modal non-zero label over a face-spanning patch around `point`, weighted upward.
     private static func modalLabel(
-        at point: CGPoint, in segmentation: PersonSegmentation, orientedSize: CGSize
+        at point: CGPoint, radius: CGFloat,
+        in segmentation: PersonSegmentation, orientedSize: CGSize
     ) -> Int {
-        // ~1.5% of the image dimension: small enough to stay on the face, large enough to
-        // escape a collar-adjacent centre pixel.
-        let dx = orientedSize.width * 0.015
-        let dy = orientedSize.height * 0.015
-        // y-up offsets; positive dy moves toward the forehead.
+        let dx = max(1, radius)
+        let dy = max(1, radius)
+        // y-up offsets; positive dy moves toward the forehead — a 3×3 grid over the face plus
+        // two extra rows up, where the pixels are most reliably the person's own.
         let offsets: [(CGFloat, CGFloat)] = [
-            (0, 0), (-dx, 0), (dx, 0), (0, dy), (0, 2 * dy), (-dx, dy), (dx, dy)
+            (0, 0), (-dx, 0), (dx, 0),
+            (0, dy), (-dx, dy), (dx, dy),
+            (0, 2 * dy), (-dx, 2 * dy), (dx, 2 * dy)
         ]
         var votes: [Int: Int] = [:]
         for (ox, oy) in offsets {

@@ -55,17 +55,36 @@ final class HeadRegionBuilder {
 
     /// The head region for `face`, in `extent`'s space — white where head is allowed, black
     /// where it is not, feathered only at the jaw/neck cut.
-    func region(for face: DetectedFace, coverage: CGFloat, extent: CGRect) -> CIImage? {
+    /// - Parameter xBounds: optional hard horizontal limits in frame space. Used only when two
+    ///   faces share one segmentation mask — the mask cannot separate them there, so the region
+    ///   is cut at the midline between them. Per-person-mask faces never pass this.
+    func region(
+        for face: DetectedFace, coverage: CGFloat, extent: CGRect,
+        xBounds: ClosedRange<CGFloat>? = nil
+    ) -> CIImage? {
         guard extent.width > 1, extent.height > 1 else { return nil }
 
-        let key = cacheKey(for: face, coverage: coverage, extent: extent)
+        let key = cacheKey(for: face, coverage: coverage, extent: extent, xBounds: xBounds)
         if let cached = cache[key] { return cached }
 
-        let built: CIImage?
+        var built: CIImage?
         if face.landmarkQuality == .precise, face.faceContourPoints.count >= Self.minContourPoints {
             built = jawCutRegion(for: face, extent: extent)
         } else {
             built = ellipseRegion(for: face, coverage: coverage, extent: extent)
+        }
+        if let bounds = xBounds, let unbounded = built {
+            // A hard vertical cut at the shared-mask midline. Hard on purpose: a feathered cut
+            // here would translucently blend two neighbours' grown heads — the cross-fade this
+            // pipeline just finished eliminating.
+            let clip = CGRect(
+                x: bounds.lowerBound, y: extent.origin.y - 1,
+                width: bounds.upperBound - bounds.lowerBound, height: extent.height + 2
+            )
+            let black = CIImage(color: CIColor(red: 0, green: 0, blue: 0))
+                .cropped(to: extent)
+            built = unbounded.cropped(to: clip).composited(over: black)
+                .cropped(to: extent)
         }
 
         if let built { cache[key] = built }
@@ -94,21 +113,43 @@ final class HeadRegionBuilder {
             )
         }
 
-        // Left-to-right so the closing run over the top cannot cross back through the face.
-        let jaw = face.faceContourPoints.sorted { $0.x < $1.x }.map(draw)
-        guard let first = jaw.first, let last = jaw.last, last.x > first.x else { return nil }
+        // **Vision's native order, not sorted.** The contour is traced ear-to-ear in order;
+        // sorting by x scrambles a tilted head's curve into a zigzag that slices through the
+        // face — rendered as hair and cheek refusing to grow on a profile. Only the direction
+        // is normalized, so the polygon closes consistently.
+        // **The contour is a reference line, not the boundary.** Vision traces the face oval —
+        // cheeks, not the anatomical jaw — so ears sit *outside* it, and a cut placed on the
+        // trace both clips them and draws a visible seam along the face (user-reported: ears
+        // cut off, an artificial line around the jaw). The cut is therefore pushed ~12% of a
+        // face-height *below* the trace: under the chin and ear lobes, where the seam hides in
+        // the neck, while ears and everything above stay inside the region.
+        let drop = face.faceHeight * scale * 0.12
+        var jaw = face.faceContourPoints.map(draw).map { CGPoint(x: $0.x, y: $0.y + drop) }
+        guard jaw.count >= 2 else { return nil }
+        if let f = jaw.first, let l = jaw.last, f.x > l.x { jaw.reverse() }
+        guard let first = jaw.first, let last = jaw.last else { return nil }
 
-        // Bottom boundary: frame edge at ear level, along the traced jaw, out to the other
-        // edge at ear level. Ear level (the jaw's endpoints) sits above the chin, so shoulders
-        // — which start below it — stay excluded at the sides without any wall doing it.
+        // **The region is local — bounded at ±2.2 face-widths — not frame-wide.** This is not a
+        // person-separating wall (2.2 face-widths clears any hat or hair; the person mask does
+        // the separating). It exists for the shared-mask case: past Vision's 4-instance cap a
+        // mask covers several people, and a frame-wide region grown once per face duplicated
+        // every face and torso in the shared silhouette across the photo.
+        let bound = face.faceWidth * scale * 2.2
+        let leftX = max(-1, min(first.x, last.x) - bound + (last.x - first.x) * 0.5)
+        let rightX = min(CGFloat(w) + 1, max(first.x, last.x) + bound - (last.x - first.x) * 0.5)
+
+        // From each jaw endpoint the cut continues *downward-outward* (~25°) to the bound,
+        // rather than flat at ear level: hair that hangs below the ears — a bun, a bob —
+        // otherwise gets a hard horizontal cut behind the head.
+        let slope: CGFloat = 0.47   // tan(25°)
         let path = UIBezierPath()
-        path.move(to: CGPoint(x: -1, y: first.y))
+        path.move(to: CGPoint(x: leftX, y: first.y + (first.x - leftX) * slope))
         path.addLine(to: first)
         for p in jaw.dropFirst() { path.addLine(to: p) }
-        path.addLine(to: CGPoint(x: CGFloat(w) + 1, y: last.y))
-        // Up the right edge, across the top, down the left — open above by construction.
-        path.addLine(to: CGPoint(x: CGFloat(w) + 1, y: -1))
-        path.addLine(to: CGPoint(x: -1, y: -1))
+        path.addLine(to: CGPoint(x: rightX, y: last.y + (rightX - last.x) * slope))
+        // Up the sides, across the top — open above within the bounds.
+        path.addLine(to: CGPoint(x: rightX, y: -1))
+        path.addLine(to: CGPoint(x: leftX, y: -1))
         path.close()
 
         ctx.setFillColor(UIColor.white.cgColor)
@@ -121,7 +162,7 @@ final class HeadRegionBuilder {
         // The jaw cut is the only seam, and it should read as a fade into the neck rather
         // than a knife line. Clamped first: an unclamped blur samples the void past the frame
         // edge and fades the region exactly where a tightly framed crown needs it solid.
-        let featherRadius = max(1.5, face.faceWidth * scale * 0.05)
+        let featherRadius = max(2, face.faceWidth * scale * 0.08)
         return CIImage(cgImage: cg)
             .clampedToExtent()
             .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: featherRadius])
@@ -165,7 +206,14 @@ final class HeadRegionBuilder {
             .settingAlphaOne(in: extent)
     }
 
-    private func cacheKey(for face: DetectedFace, coverage: CGFloat, extent: CGRect) -> String {
+    private func cacheKey(
+        for face: DetectedFace, coverage: CGFloat, extent: CGRect, xBounds: ClosedRange<CGFloat>?
+    ) -> String {
+        let bounds = xBounds.map { "\(Int($0.lowerBound))..\(Int($0.upperBound))" } ?? "open"
+        return baseCacheKey(for: face, coverage: coverage, extent: extent) + "|" + bounds
+    }
+
+    private func baseCacheKey(for face: DetectedFace, coverage: CGFloat, extent: CGRect) -> String {
         "\(Int(extent.width))x\(Int(extent.height))|\(Int(face.faceCenter.x)),\(Int(face.faceCenter.y))|" +
         "\(Int(face.faceWidth))x\(Int(face.faceHeight))|\(face.faceContourPoints.count)|" +
         "\(face.landmarkQuality == .precise ? "p" : "e")|\(Int(coverage * 100))"

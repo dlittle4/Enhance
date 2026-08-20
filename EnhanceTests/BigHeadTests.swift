@@ -124,10 +124,9 @@ struct BigHeadTests {
                            side: Int(side), bounds: region) == 0)
     }
 
-    /// Gating: an `.estimated` face with a rich contour must render identically to one with a
-    /// sparse contour — the contour path is precise-only, and animals carry synthetic contours
-    /// that describe nothing.
-    @Test func estimatedQuality_neverTakesTheContourPath() {
+    /// The effect must not read the contour at all — the traced-jaw path is parked (§2a), so a
+    /// rich contour and a sparse synthetic one must render identically at any quality.
+    @Test func contourIsNeverRead() {
         let side: CGFloat = 600
         let source = CIImage(image: UIImage.checkerboard(side: side))!
         let rich = makeFace(measuredAgainst: side, centre: CGPoint(x: 300, y: 300), width: 150,
@@ -162,7 +161,8 @@ struct BigHeadTests {
                            side: Int(side), bounds: region) > 0.5)
     }
 
-    /// The raster cap is a pure function — pin it without rendering.
+    /// HeadRegionBuilder is parked (§2a) but stays compiled per the retired-effects
+    /// convention; its raster cap is a pure function — pin it without rendering.
     @Test func rasterScale_capsTheLongEdge() {
         #expect(HeadRegionBuilder.rasterScale(for: CGRect(x: 0, y: 0, width: 600, height: 600)) == 1)
         let big = HeadRegionBuilder.rasterScale(for: CGRect(x: 0, y: 0, width: 6000, height: 4500))
@@ -184,16 +184,6 @@ struct BigHeadTests {
 
     // MARK: - Stage 2: batch seam and the layered pass
 
-    /// A two-tone source: left half solid red, right half solid blue, so a probe can tell
-    /// *whose* pixels won an overlap.
-    private func twoToneSource(side: CGFloat) -> CIImage {
-        let red = CIImage(color: CIColor(red: 1, green: 0, blue: 0))
-            .cropped(to: CGRect(x: 0, y: 0, width: side / 2, height: side))
-        let blue = CIImage(color: CIColor(red: 0, green: 0, blue: 1))
-            .cropped(to: CGRect(x: side / 2, y: 0, width: side / 2, height: side))
-        return blue.composited(over: red).cropped(to: CGRect(x: 0, y: 0, width: side, height: side))
-    }
-
     private func rgbAt(_ image: CIImage, x: Int, y: Int) -> (r: Double, g: Double, b: Double) {
         var buf = [UInt8](repeating: 0, count: 4)
         context.render(
@@ -202,43 +192,6 @@ struct BigHeadTests {
             format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB()
         )
         return (Double(buf[0]) / 255, Double(buf[1]) / 255, Double(buf[2]) / 255)
-    }
-
-    /// Overlapping enlarged heads must occlude — the wider (nearer) face's pixels win the
-    /// overlap — and the winning pixels must come from the *original* frame, not from a
-    /// re-scale of the other head's output (the recorded smear failed both).
-    @Test func overlappingHeads_occludeWidestOnTop() {
-        let side: CGFloat = 1000
-        let source = twoToneSource(side: side)
-        // Narrow face on the red (left) side, wide face on the blue (right) side; both masks
-        // are that face's half of the frame, so each head carries its own colour.
-        let narrow = makeFace(measuredAgainst: side, centre: CGPoint(x: 400, y: 500), width: 120,
-                              quality: .estimated)
-        let wide = makeFace(measuredAgainst: side, centre: CGPoint(x: 620, y: 500), width: 240,
-                            quality: .estimated)
-        // Masks must be full-frame extent — the effect's `scaled(_:to:)` re-expresses any
-        // mask whose extent size differs from the frame (that is how service masks survive the
-        // downsampled preview), so a half-frame crop would be stretched, not placed.
-        func halfMask(left: Bool) -> CIImage {
-            let white = CIImage(color: CIColor(red: 1, green: 1, blue: 1))
-                .cropped(to: CGRect(x: left ? 0 : side / 2, y: 0, width: side / 2, height: side))
-            let black = CIImage(color: CIColor(red: 0, green: 0, blue: 0))
-                .cropped(to: CGRect(x: 0, y: 0, width: side, height: side))
-            return white.composited(over: black).cropped(to: CGRect(x: 0, y: 0, width: side, height: side))
-        }
-        let redMask = halfMask(left: true)
-        let blueMask = halfMask(left: false)
-
-        let effect = BigHeadEffect(intensity: 1.0, size: 1.0, masks: [redMask, blueMask])
-        let out = effect.apply(to: source, faces: [narrow, wide], progress: 1.0, frameIndex: 4)
-            .cropped(to: source.extent)
-
-        // The wide face's head at 3× spans roughly x 475…980; the narrow one reaches into the
-        // same band around x 500. Probe inside the contested band, on the wide head's ground:
-        // blue must have won, and won *purely* — a smear would mix red into it.
-        let probe = rgbAt(out, x: 560, y: 500)
-        #expect(probe.b > 0.8)
-        #expect(probe.r < 0.2)
     }
 
     /// The batch method must dispatch dynamically through the `FaceEffect` existential — an

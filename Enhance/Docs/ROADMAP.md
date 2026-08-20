@@ -481,29 +481,27 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       **It is the first effect that composites rather than filters**, which is why it surfaced a
       class of interaction eleven filter-style effects never had; worth remembering before adding
       another compositing effect.
-- [ ] 🔍 **BIG HEAD rebuilt on person-instance masks (2026-08-20; plan executed, device pass
-      pending).** The full plan and its constraints ledger live in the session plan file; the
-      short version: `VNGeneratePersonInstanceMaskRequest` separates people (spike-measured on
-      the fixture corpus: 2/3/4-person groups → one instance each; past the API's cap of four,
-      neighbours merge into shared subsets — still strictly better than the foreground union),
-      so the effect now cuts each head from *that person's own silhouette* ∩ a traced-jaw region
-      with **no side walls**, composites every head in one batch pass (a new `FaceEffect`
-      protocol requirement with a sequential default — requirement, not extension, or existential
-      dispatch silently skips the override), widest face on top so overlaps occlude. Fallback
-      ladder per face: person mask → union → identity; animals land on union by design. Editor
-      fetches masks async on card selection (`segmentPersonsIfNeeded`) — no Vision on the
-      preview-rebuild path. `instanceMask(for:containing:)` is deleted: untestable (bypassed the
-      stub provider) and its ladder rung measured ≈ union.
-      **Stage 5 device render: run 2026-08-20, and looked at.** All 11 fixtures through the
-      real ladder and batch pass, no crash (24MP included). The trio occludes cleanly with each
-      head keeping its own silhouette and the cap intact; the profile keeps the back of the
-      head; the 10-person group grows every head without reaching into neighbours
-      (`facesWithPersonMask` = faces on every row). Two observations for taste, not defects:
-      the jaw region's ear-level run cuts a low-hanging bun behind a profile head with a hard
-      edge, and full intensity on a tightly framed subject (the cat) fills the whole frame —
-      the slider covers it, but the render is where both live if they ever matter.
-      **Remaining: in-app QA on device** — the 650px preview path, the card-selection fetch,
-      and how the groups read in the hand. Fixture renders structurally cannot cover those.
+- [ ] ⚠️ **BIG HEAD: the person-mask rebuild is PARKED on the user's call (2026-08-20) after
+      failing visual review twice.** The shipped effect is the simple version: ellipse ∩ the
+      shared subject mask, sequential per-face, keeping only three corrections from the rebuild
+      (halved ellipse extents, 3× growth, the `settingAlphaOne` mask flattening —
+      LEARNINGS 2026-08-20). **Read this before ever re-opening the ambitious path:**
+      - **What was proven and survives**: `VNGeneratePersonInstanceMaskRequest` separates ≤4
+        people cleanly (spike CSVs + tinted composites in the 2026-08-20 xcresults);
+        `SubjectSegmentationService.personMasks` is cached, stubbable, orientation-correct, with
+        a face-spanning label vote; the `FaceEffect` batch seam exists (protocol requirement,
+        sequential default — dispatch pinned by test); `HeadRegionBuilder` stays compiled,
+        unreferenced, per the retired-effects convention.
+      - **What failed review**: past the 4-instance cap, shared masks grown once per face
+        duplicated heads and torsos; the traced contour is Vision's *face oval*, so a cut on it
+        clips ears and draws a visible line (dropping the cut below the trace helped, but the
+        user's verdict on the full set was "not correct at all"); each fix re-grew the
+        complexity the 2026-08-19 reset existed to remove. Five renders and two failed reviews
+        in one day — the constraint is the look, not the mechanism.
+      - **The review lesson is a memory now**: judge animated output by early/mid/final frames
+        of *every* file, never the last frame of a sample — the last frame is the most occluded
+        and least diagnostic. Two of this rebuild's "successes" were artifacts of final-frame
+        review.
 - [x] ~~⚠️ **BIG HEAD reset to `ea96ce3` (2026-08-19)**~~ *(superseded by the rebuild above; the
       reset's warning — do not re-patch wall geometry — held: the rebuild has no walls.)* A day of fixes took it from 122 to 468 lines — a flare, a crowded/solo split,
       neighbour-gap walls, a per-face raster cache, coordinate rescaling, a render-once guard —
