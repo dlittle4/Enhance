@@ -29,7 +29,13 @@ import CoreImage
 struct BigHeadEffect: FaceEffect {
     private let growth: CGFloat
     private let coverage: CGFloat
-    private let mask: CIImage?
+    /// One mask per face, **positionally aligned** with the faces handed to the batch `apply`
+    /// — `DetectedFace.scaled()` assigns a fresh UUID, so position is the only correlation that
+    /// survives the callers' coordinate scaling. A single entry is the shared/union mask and
+    /// serves every face. Masks are safe to store where faces were not (§2a's coordinate trap):
+    /// `scaled(_:to:)` re-expresses them by extent ratio, so they survive the 650px preview and
+    /// the GIF downscale alike.
+    private let masks: [CIImage?]
     /// Reference type, so the per-face region cache survives this struct being copied — the
     /// effect is rebuilt per preview update but reused across a GIF's frames.
     private let regions = HeadRegionBuilder()
@@ -42,37 +48,98 @@ struct BigHeadEffect: FaceEffect {
     ///   - size: how much around the face the *ellipse fallback* covers. The traced-jaw path
     ///     bounds itself and ignores it.
     init(intensity: Double = 0.5, size: Double = 0.5, mask: CIImage? = nil) {
-        self.growth = CGFloat(max(0, min(1, intensity)))
-        self.coverage = 1.05 + CGFloat(max(0, min(1, size))) * 0.6
-        self.mask = mask
+        self.init(intensity: intensity, size: size, masks: mask.map { [$0] } ?? [])
     }
 
-    /// Same effect with the segmentation mask attached — the view model has it, the factory does not.
-    func withMask(_ mask: CIImage?) -> BigHeadEffect {
-        BigHeadEffect(intensity: Double(growth), size: Double((coverage - 1.05) / 0.6), mask: mask)
+    init(intensity: Double = 0.5, size: Double = 0.5, masks: [CIImage?]) {
+        self.growth = CGFloat(max(0, min(1, intensity)))
+        self.coverage = 1.05 + CGFloat(max(0, min(1, size))) * 0.6
+        self.masks = masks
+    }
+
+    /// Same effect with the segmentation masks attached — the view model has them, the factory
+    /// does not. Carries the stored values directly rather than reverse-mapping `coverage`
+    /// through the public init, which proved fragile when the coverage maths changed.
+    func withMasks(_ masks: [CIImage?]) -> BigHeadEffect {
+        BigHeadEffect(growth: growth, coverage: coverage, masks: masks)
+    }
+
+    private init(growth: CGFloat, coverage: CGFloat, masks: [CIImage?]) {
+        self.growth = growth
+        self.coverage = coverage
+        self.masks = masks
     }
 
     func apply(to image: CIImage, face: DetectedFace, progress: CGFloat, frameIndex: Int) -> CIImage {
-        let extent = image.extent
-        guard let mask, extent.width > 1, extent.height > 1 else { return image }
+        apply(to: image, faces: [face], progress: progress, frameIndex: frameIndex)
+    }
 
-        // Quadratic, like HANDSOME: most of the growth arrives late, so the head inflates as the
-        // zoom lands rather than being large for the whole loop.
+    /// **The layered pass.** Every head is cut from the *original* frame and composited onto
+    /// the accumulator back-to-front — widest face last, since a face is wider the nearer it is
+    /// to the camera, so the nearest head lands on top and overlapping heads occlude. The
+    /// sequential default was the recorded smear: its second pass re-scaled pixels that already
+    /// contained the first enlarged head.
+    func apply(to image: CIImage, faces: [DetectedFace], progress: CGFloat, frameIndex: Int) -> CIImage {
+        guard !faces.isEmpty, image.extent.width > 1, image.extent.height > 1 else { return image }
+
+        // Quadratic, like HANDSOME: most of the growth arrives late, so the head inflates as
+        // the zoom lands rather than being large for the whole loop.
         let amount = growth * (progress * progress)
         guard amount > 0.01 else { return image }
 
+        let ordered = faces.enumerated()
+            .map { (face: $0.element, mask: mask(at: $0.offset)) }
+            .sorted { $0.face.faceWidth < $1.face.faceWidth }
+
+        var result = image
+        for entry in ordered {
+            result = grow(head: entry.face, mask: entry.mask, from: image, over: result, amount: amount)
+        }
+        return result
+    }
+
+    /// The mask for the face at `index`: positional when the array is per-face, the single
+    /// entry when it is the shared/union mask, nil past the end (that face degrades to
+    /// identity, per §1g — never a broken frame).
+    private func mask(at index: Int) -> CIImage? {
+        if masks.count == 1 { return masks[0] }
+        guard index >= 0, index < masks.count else { return nil }
+        return masks[index]
+    }
+
+    /// One head, cut from `image`, composited over `canvas`.
+    private func grow(
+        head face: DetectedFace, mask: CIImage?, from image: CIImage, over canvas: CIImage,
+        amount: CGFloat
+    ) -> CIImage {
+        let extent = image.extent
+        guard let mask else { return canvas }
+
         guard let region = regions.region(for: face, coverage: coverage, extent: extent)
-        else { return image }
+        else { return canvas }
 
         let subjectInFrame = scaled(mask, to: extent)
 
         // Intersect: subject AND head-region. Multiply blend on two masks is the intersection;
         // the region supplies the only feather (the jaw/neck seam) while the silhouette edge
         // stays crisp — a crisp edge is what lets stacked heads occlude instead of cross-fade.
+        // **Steep contrast after the intersect, and it is required, not cosmetic.** Mid-values
+        // in the mask render as translucency, and translucent heads cross-fade where they
+        // overlap instead of occluding — measured as a constant partial show-through of the
+        // under-head. The steep curve collapses the region's feather to a narrow seam band
+        // (the jaw/neck fade survives, ~thinner) while the working range becomes effectively
+        // binary, which is what makes stacked heads occlude. Note this only works because the
+        // region masks are opaque grayscale — see the `settingAlphaOne` note in
+        // `HeadRegionBuilder`: on an alpha-carried mask, colour filters silently do nothing.
         let headMask = region
             .applyingFilter("CIMultiplyCompositing", parameters: [
                 kCIInputBackgroundImageKey: subjectInFrame
             ])
+            .applyingFilter("CIColorControls", parameters: [
+                kCIInputContrastKey: 8.0,
+                kCIInputBrightnessKey: 0.0
+            ])
+            .applyingFilter("CIColorClamp")
             .cropped(to: extent)
 
         // Pin low in the head so it grows upward and outward off the neck — but not at the very
@@ -83,26 +150,36 @@ struct BigHeadEffect: FaceEffect {
             x: face.faceCenter.x,
             y: face.faceCenter.y - face.faceHeight * 0.13
         )
-        // Up to 3×.
+        // Up to 3×. `amount` already carries the progress ramp from the batch entry point.
         let scale = 1 + amount * 2.0
         let transform = CGAffineTransform(translationX: -pivot.x, y: -pivot.y)
             .concatenating(CGAffineTransform(scaleX: scale, y: scale))
             .concatenating(CGAffineTransform(translationX: pivot.x, y: pivot.y))
 
-        // Clamped before transforming: a head near the frame edge should extend its border
-        // pixels rather than sample transparency and tear a hole as it grows.
-        let grownHead = image.clampedToExtent().transformed(by: transform)
-        let grownMask = headMask.transformed(by: transform)
-
-        guard grownHead.extent.hasFiniteComponents, grownMask.extent.hasFiniteComponents else {
-            return image
-        }
-
-        return grownHead
+        // **Cut first, then transform, then source-over.** The mask becomes the cutout's alpha
+        // *before* the transform, so the enlargement scales one premultiplied image and the
+        // composite is plain source-over — occlusion by alpha. The earlier shape (transform the
+        // head and the mask separately, `CIBlendWithMask` at the end) blended at a uniform ~0.86
+        // even where the mask image sampled 1.0 — measured with probes, cause unidentified, and
+        // sidestepped rather than fought: with the alpha baked in before the transform there is
+        // no mask to mis-sample at blend time.
+        //
+        // Clamped before cutting: a head near the frame edge extends its border pixels rather
+        // than sampling transparency and tearing a hole as it grows.
+        let cutout = image.clampedToExtent()
+            .cropped(to: extent)
             .applyingFilter("CIBlendWithMask", parameters: [
-                kCIInputBackgroundImageKey: image,
-                kCIInputMaskImageKey: grownMask
+                kCIInputBackgroundImageKey: CIImage.empty(),
+                kCIInputMaskImageKey: headMask
             ])
+        let grownHead = cutout.transformed(by: transform)
+
+        guard grownHead.extent.hasFiniteComponents else { return canvas }
+
+        // Source-over the accumulating canvas — but always cut from the original `image`,
+        // which is what stops overlapping heads smearing into each other.
+        return grownHead
+            .composited(over: canvas)
             .cropped(to: extent)
     }
 

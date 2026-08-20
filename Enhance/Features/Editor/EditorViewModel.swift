@@ -574,7 +574,8 @@ class EditorViewModel {
                     try? subjectSegmentationService.instanceMask(for: $0, containing: face.faceCenter)
                 }
             } ?? subjectMask
-            return bigHead.withMask(perFace)
+            // Interim until Stage 4 wires per-person masks: one shared mask for every face.
+            return bigHead.withMasks([perFace])
         }
         return built
     }
@@ -1148,10 +1149,13 @@ class EditorViewModel {
                     let scaleX = result.extent.width / orientedWidth
                     let scaleY = result.extent.height / orientedHeight
                     let previewProg = self.selectedFaceFilter?.previewProgress ?? 1.0
-                    for face in faces {
-                        let scaledFace = face.scaled(x: scaleX, y: scaleY)
-                        result = faceEffect.apply(to: result, face: scaledFace, progress: previewProg, frameIndex: 5)
-                    }
+                    // One batch call with every face already scaled into preview space — the
+                    // scaling stays here with the caller (it owns the coordinate space), and
+                    // effects whose faces interact get to see all of them at once.
+                    let scaledFaces = faces.map { $0.scaled(x: scaleX, y: scaleY) }
+                    result = faceEffect.apply(
+                        to: result, faces: scaledFaces, progress: previewProg, frameIndex: 5
+                    )
 
                     // Rasterise the face pass before any visual effect sees it — the same thing
                     // the GIF path does, for the same reason.

@@ -150,8 +150,19 @@ final class HeadRegionBuilder {
         guard bounds.hasFiniteComponents, bounds.width >= 2, bounds.height >= 2 else { return nil }
         rasterCount += 1
         // `ellipticalMask` is a lazy CIRadialGradient — no bitmap, so no cap needed here.
+        //
+        // **`settingAlphaOne` is load-bearing.** The gradient feathers via *falling alpha over
+        // white RGB*, and a mask that carries its value in alpha misbehaves downstream: colour
+        // filters (contrast hardening) adjust unpremultiplied RGB — solid white everywhere in
+        // that gradient — and never touch alpha, and the composite honoured neither the value
+        // probes showed nor the one intended. Days ago this surfaced as stacked heads
+        // cross-fading at a constant ~14% for no discernible reason. Flattening premultiplied
+        // RGB (white × alpha = the ramp) into an opaque grayscale mask makes it behave like
+        // every other mask in this pipeline — the segmentation masks are opaque one-component
+        // buffers, which is why they never hit this.
         return FaceRegionMaskBuilder.ellipticalMask(bounds: bounds, feather: 0.35)?
             .cropped(to: extent)
+            .settingAlphaOne(in: extent)
     }
 
     private func cacheKey(for face: DetectedFace, coverage: CGFloat, extent: CGRect) -> String {

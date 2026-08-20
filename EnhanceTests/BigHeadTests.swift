@@ -182,6 +182,111 @@ struct BigHeadTests {
         #expect(builder.rasterCount == 1)
     }
 
+    // MARK: - Stage 2: batch seam and the layered pass
+
+    /// A two-tone source: left half solid red, right half solid blue, so a probe can tell
+    /// *whose* pixels won an overlap.
+    private func twoToneSource(side: CGFloat) -> CIImage {
+        let red = CIImage(color: CIColor(red: 1, green: 0, blue: 0))
+            .cropped(to: CGRect(x: 0, y: 0, width: side / 2, height: side))
+        let blue = CIImage(color: CIColor(red: 0, green: 0, blue: 1))
+            .cropped(to: CGRect(x: side / 2, y: 0, width: side / 2, height: side))
+        return blue.composited(over: red).cropped(to: CGRect(x: 0, y: 0, width: side, height: side))
+    }
+
+    private func rgbAt(_ image: CIImage, x: Int, y: Int) -> (r: Double, g: Double, b: Double) {
+        var buf = [UInt8](repeating: 0, count: 4)
+        context.render(
+            image, toBitmap: &buf, rowBytes: 4,
+            bounds: CGRect(x: x, y: y, width: 1, height: 1),
+            format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB()
+        )
+        return (Double(buf[0]) / 255, Double(buf[1]) / 255, Double(buf[2]) / 255)
+    }
+
+    /// Overlapping enlarged heads must occlude — the wider (nearer) face's pixels win the
+    /// overlap — and the winning pixels must come from the *original* frame, not from a
+    /// re-scale of the other head's output (the recorded smear failed both).
+    @Test func overlappingHeads_occludeWidestOnTop() {
+        let side: CGFloat = 1000
+        let source = twoToneSource(side: side)
+        // Narrow face on the red (left) side, wide face on the blue (right) side; both masks
+        // are that face's half of the frame, so each head carries its own colour.
+        let narrow = makeFace(measuredAgainst: side, centre: CGPoint(x: 400, y: 500), width: 120,
+                              quality: .estimated)
+        let wide = makeFace(measuredAgainst: side, centre: CGPoint(x: 620, y: 500), width: 240,
+                            quality: .estimated)
+        // Masks must be full-frame extent — the effect's `scaled(_:to:)` re-expresses any
+        // mask whose extent size differs from the frame (that is how service masks survive the
+        // downsampled preview), so a half-frame crop would be stretched, not placed.
+        func halfMask(left: Bool) -> CIImage {
+            let white = CIImage(color: CIColor(red: 1, green: 1, blue: 1))
+                .cropped(to: CGRect(x: left ? 0 : side / 2, y: 0, width: side / 2, height: side))
+            let black = CIImage(color: CIColor(red: 0, green: 0, blue: 0))
+                .cropped(to: CGRect(x: 0, y: 0, width: side, height: side))
+            return white.composited(over: black).cropped(to: CGRect(x: 0, y: 0, width: side, height: side))
+        }
+        let redMask = halfMask(left: true)
+        let blueMask = halfMask(left: false)
+
+        let effect = BigHeadEffect(intensity: 1.0, size: 1.0, masks: [redMask, blueMask])
+        let out = effect.apply(to: source, faces: [narrow, wide], progress: 1.0, frameIndex: 4)
+            .cropped(to: source.extent)
+
+        // The wide face's head at 3× spans roughly x 475…980; the narrow one reaches into the
+        // same band around x 500. Probe inside the contested band, on the wide head's ground:
+        // blue must have won, and won *purely* — a smear would mix red into it.
+        let probe = rgbAt(out, x: 560, y: 500)
+        #expect(probe.b > 0.8)
+        #expect(probe.r < 0.2)
+    }
+
+    /// The batch method must dispatch dynamically through the `FaceEffect` existential — an
+    /// extension-only method binds statically and an override silently never runs, which is
+    /// how the layered pass could revert to the smear without any test noticing.
+    @Test func batchApply_dispatchesThroughTheExistential() {
+        struct Marker: FaceEffect {
+            func apply(to image: CIImage, face: DetectedFace, progress: CGFloat, frameIndex: Int) -> CIImage {
+                image
+            }
+            func apply(to image: CIImage, faces: [DetectedFace], progress: CGFloat, frameIndex: Int) -> CIImage {
+                image.applyingFilter("CIColorInvert")
+            }
+        }
+        let side: CGFloat = 64
+        let source = CIImage(color: CIColor(red: 1, green: 1, blue: 1))
+            .cropped(to: CGRect(x: 0, y: 0, width: side, height: side))
+        let face = makeFace(measuredAgainst: side, centre: CGPoint(x: 32, y: 32), width: 20)
+
+        let existential: FaceEffect = Marker()
+        let out = existential.apply(to: source, faces: [face], progress: 1, frameIndex: 0)
+
+        // The override inverts; the sequential default would return white untouched.
+        let probe = rgbAt(out.cropped(to: source.extent), x: 32, y: 32)
+        #expect(probe.r < 0.1)
+    }
+
+    /// A non-overriding effect through the batch call must equal the hand-written sequential
+    /// loop — the default implementation is a refactor, not a behaviour change.
+    @Test func defaultBatch_matchesTheSequentialLoop() {
+        let side: CGFloat = 400
+        let source = CIImage(image: UIImage.checkerboard(side: side))!
+        let faces = [
+            makeFace(measuredAgainst: side, centre: CGPoint(x: 120, y: 200), width: 90),
+            makeFace(measuredAgainst: side, centre: CGPoint(x: 300, y: 200), width: 90)
+        ]
+        let effect: FaceEffect = HandsomeEffect(intensity: 0.8)
+
+        let batch = effect.apply(to: source, faces: faces, progress: 1.0, frameIndex: 2)
+        var loop = source
+        for f in faces {
+            loop = effect.apply(to: loop, face: f, progress: 1.0, frameIndex: 2)
+        }
+
+        #expect(difference(batch.cropped(to: source.extent),
+                           loop.cropped(to: source.extent), side: Int(side)) == 0)
+    }
+
     /// Progress 0 is the untouched frame, so the card can be previewed part-way.
     @Test func atZeroProgress_returnsTheFrameUnchanged() {
         let side: CGFloat = 400
