@@ -228,19 +228,23 @@ struct BigHeadEffect: FaceEffect {
         //
         // The earlier single setting was a compromise that did neither job: too tight for a
         // profile, and it would have been too loose had the group photos been rendered.
-        // **Loose in both cases now that the mask is per-person.** `isCrowded` used to pick a
-        // *tight* wall for group photos, because the shared mask covered everyone and the wall
-        // was the only thing keeping the neighbour out. It kept them out by cutting a straight
-        // line through the subject's own hair — visible as a hard seam, and reported as the head
-        // reading like a cardboard cutout.
+        // **The wall is still the only thing separating people, and here is why.**
         //
-        // `SubjectSegmentationService.instanceMask(for:containing:)` now supplies *this person's*
-        // silhouette, so the neighbour is already excluded by the mask and the wall has nothing
-        // left to do but clip. It stays only as a far-out backstop for the case where the
-        // per-instance lookup fell back to the union, and a little tighter when someone else is
-        // in frame — but nowhere near tight enough to cut hair.
+        // These were briefly widened on the belief that a per-person mask made them redundant.
+        // Measured on the fixture corpus, that belief is false:
+        // `VNGenerateForegroundInstanceMaskRequest` returns **one** foreground instance for every
+        // photo tested, including a three-face and a ten-face one. It segments a group as a
+        // single blob, so there is no per-person instance to select and the mask cannot exclude
+        // a neighbour. Widening them enlarged everyone's head at once *(user-reported)*.
+        //
+        // So a crowded photo keeps a tight wall, and keeps the seam that comes with it — cutting
+        // through the subject's own hair is the price of not growing the person beside them.
+        // Solo photos stay loose, where there is nobody to reach into and the silhouette can do
+        // the bounding properly.
+        //
+        // **The real fix is a different Vision request**, not a better constant — see ROADMAP §2a.
         let topHalf: CGFloat = isCrowded
-            ? max(jawHalf * 3.0, face.faceWidth * 1.7)
+            ? max(jawHalf * 1.6, face.faceWidth * 0.75)
             : max(jawHalf * 3.4, face.faceWidth * 1.9)
 
         let path = UIBezierPath()

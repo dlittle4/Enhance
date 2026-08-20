@@ -152,6 +152,16 @@ final class SubjectSegmentationService {
     /// that face's location — no rendering, no per-instance mask generation and comparison. That
     /// keeps this to one segmentation pass regardless of how many people are in the shot.
     ///
+    /// The instance index chosen by the most recent `instanceMask(for:containing:)`. 0 means the
+    /// lookup landed on background and fell back to the union — which is worth being able to see,
+    /// because that fallback plus a loose head region enlarges *everyone* in a group photo.
+    private(set) var lastInstanceIndex: Int = 0
+
+    /// How many foreground instances the most recent lookup saw. A group photo segmenting as one
+    /// blob rather than one instance per person is the other way the per-person mask can fail,
+    /// and it looks identical in the output — so it is worth reporting separately.
+    private(set) var lastInstanceCount: Int = 0
+
     /// - Parameter point: a location in the image's pixel space, y-up (Core Image convention),
     ///   such as `DetectedFace.faceCenter`.
     func instanceMask(for image: UIImage, containing point: CGPoint) throws -> CIImage? {
@@ -170,16 +180,33 @@ final class SubjectSegmentationService {
         )
         do { try handler.perform([request]) } catch { throw Failure.visionFailed(error) }
 
+
         guard let observation = request.results?.first, !observation.allInstances.isEmpty else {
             cachedInstanceMasks[key] = .some(nil)
             return nil
         }
 
+        // **Oriented dimensions, not the raw buffer's.** Vision reports coordinates in the
+        // *oriented* image space and `FaceDetectionService.detectFaces` converts against oriented
+        // width/height for exactly this reason — so `faceCenter` is in oriented space too. Using
+        // the raw `cgImage` dimensions here silently mismatched on any rotated photo, put the
+        // lookup somewhere else entirely, and returned 0.
+        let orientation = visionOrientation(from: image)
+        let orientedSize: CGSize
+        switch orientation {
+        case .left, .right, .leftMirrored, .rightMirrored:
+            orientedSize = CGSize(width: cgImage.height, height: cgImage.width)
+        default:
+            orientedSize = CGSize(width: cgImage.width, height: cgImage.height)
+        }
+
         let instance = Self.instanceIndex(
             at: point,
             in: observation.instanceMask,
-            imageSize: CGSize(width: cgImage.width, height: cgImage.height)
+            imageSize: orientedSize
         )
+        lastInstanceIndex = instance
+        lastInstanceCount = observation.allInstances.count
 
         // 0 is background in Vision's indexing. Falling back to the union rather than to nothing
         // matters: a face just outside its own silhouette — hair sampled at the edge, or a

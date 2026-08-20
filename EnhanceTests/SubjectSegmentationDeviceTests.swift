@@ -177,7 +177,7 @@ struct SubjectSegmentationDeviceTests {
             .filter { !$0.lastPathComponent.hasPrefix("showcase") }
         guard !photos.isEmpty else { return }
 
-        var report = ["photo,faces,contourPoints,quality,subjectFound"]
+        var report = ["photo,faces,contourPoints,quality,subjectFound,instanceIndex,instances"]
 
         for url in photos.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
             guard let data = try? Data(contentsOf: url),
@@ -187,12 +187,19 @@ struct SubjectSegmentationDeviceTests {
             let mask = try? SubjectSegmentationService().subjectMaskOrThrow(for: image)
             let faces = await FaceDetectionService().detectFaces(in: image)
             let f = faces.first
-            report.append("\(name),\(faces.count),\(f?.faceContourPoints.count ?? 0),\(f.map { "\($0.landmarkQuality)" } ?? "none"),\((mask ?? nil) != nil)")
+            var reportIndex = -1
+            var instanceCount = 0
+            defer { report.append("\(name),\(faces.count),\(f?.faceContourPoints.count ?? 0),\(f.map { "\($0.landmarkQuality)" } ?? "none"),\((mask ?? nil) != nil),\(reportIndex),\(instanceCount)") }
 
             guard let face = f else { continue }
             // Per-person silhouette, which is what the editor now passes. Rendering the shared
             // union here would exercise a path the app no longer takes.
-            let perFace = (try? SubjectSegmentationService().instanceMask(for: image, containing: face.faceCenter)) ?? nil
+            let instanceService = SubjectSegmentationService()
+            let perFace = (try? instanceService.instanceMask(for: image, containing: face.faceCenter)) ?? nil
+            // 0 means the lookup hit background and fell back to the union of everyone — the
+            // thing that would enlarge every head in a group photo.
+            reportIndex = instanceService.lastInstanceIndex
+            instanceCount = instanceService.lastInstanceCount
             guard let mask = perFace ?? (mask ?? nil) else { continue }
             let source = CIImage(cgImage: cg)
             // `isCrowded` follows the real rule the editor uses, so the render exercises whichever

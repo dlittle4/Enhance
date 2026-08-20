@@ -530,6 +530,24 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       while building: whether it animates with `progress` (it should — a head that inflates as the
       zoom lands is the joke; a permanently big head is a still) and how it degrades on estimated
       landmarks, where it should distort *less* rather than vanish.
+- [ ] **BIG HEAD in a group photo needs `VNGeneratePersonInstanceMaskRequest`, not a better wall.**
+      *Measured 2026-08-19 on the fixture corpus.* `VNGenerateForegroundInstanceMaskRequest`
+      returns **one** foreground instance for every photo tested — including a three-face and a
+      ten-face one. It segments a group as a single blob, so `instanceMask(for:containing:)` has
+      no per-person instance to pick and the mask cannot exclude a neighbour. Confirmed by
+      reporting the index and count per photo, not inferred: `instances` is 1 across the board.
+      **The consequence is that geometric side walls are currently the only thing separating one
+      person's head from the next**, and they bound the head by geometry rather than anatomy —
+      cutting a straight line through the subject's own hair, which reads as a cardboard cutout.
+      Loosening them enlarges every head in the frame; that regression was shipped and reverted
+      the same day.
+      **`VNGeneratePersonInstanceMaskRequest` (iOS 17+) is the request that actually separates
+      people** — up to four, per person rather than per foreground blob. Swapping it in for the
+      face-driven effects would let the walls go and the boundary follow the silhouette, which is
+      what the user asked for. Two things to check when doing it: behaviour past four people (the
+      ten-face photo in the corpus is the test), and that it is *people*-only, so animals still
+      need the foreground request — meaning the service likely offers both rather than replacing
+      one with the other.
 - [ ] **HATCHING (straight lines)** — `CILineScreen` / `CIHatchedScreen` take angle and width
       directly, which is closer than the `CIEdgeWork` route EFFECTS.md suggests. Three screens at
       15°/45°/75°, each masked by a luminance band, composited with darken. Grid effect: needs
