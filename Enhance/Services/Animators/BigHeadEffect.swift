@@ -61,9 +61,13 @@ struct BigHeadEffect: FaceEffect {
     /// The region depends only on the face and the frame size, neither of which changes across
     /// a GIF's frames, so it is rendered once. A class so it survives the struct being copied.
     private final class RegionCache {
-        var region: CIImage?
-        var key: String?
+        /// Keyed per face. A single slot meant a group photo evicted and rebuilt the region on
+        /// every face, every frame — the opposite of what the cache is for.
+        var regions: [String: CIImage] = [:]
     }
+
+    /// Longest edge of the region raster. A mask is a shape, not detail — see `contourRegion`.
+    private static let maxRegionSide: CGFloat = 1400
 
     /// - Parameters:
     ///   - intensity: how much the head grows — up to 3× at full.
@@ -253,11 +257,24 @@ struct BigHeadEffect: FaceEffect {
         // to place a chin cut from noise.
         guard points.count >= 12, face.landmarkQuality != .estimated else { return nil }
 
-        let w = Int(extent.width), h = Int(extent.height)
-        guard w > 1, h > 1 else { return nil }
+        // **The raster is capped, and this is a crash fix, not an optimisation.**
+        // The region used to be drawn at the frame's full size. On a 24MP photo
+        // (`IMG_0914`, 5712×4284) that is a ~98MB bitmap *per face*, and the layered pass builds
+        // one for every face in the shot — which killed the process outright on device rather
+        // than merely running slowly *(user-reported as the effect not working on that photo;
+        // the test run crashed on it too)*.
+        //
+        // A mask does not need that resolution. §1g measured this silhouette at 1–2px of feather
+        // on a 600×600 frame — it is a smooth shape, not detail — so it is rasterised on a
+        // bounded grid and scaled into place, and nothing about the result changes.
+        let fullW = extent.width, fullH = extent.height
+        guard fullW > 1, fullH > 1 else { return nil }
+        let rasterScale = min(1, Self.maxRegionSide / max(fullW, fullH))
+        let w = max(2, Int((fullW * rasterScale).rounded()))
+        let h = max(2, Int((fullH * rasterScale).rounded()))
 
         let key = "\(w)x\(h)|\(Int(face.faceCenter.x)),\(Int(face.faceCenter.y))|\(points.count)|\(Int(face.faceWidth))"
-        if cache.key == key, let cached = cache.region { return cached }
+        if let cached = cache.regions[key] { return cached }
 
         UIGraphicsBeginImageContextWithOptions(CGSize(width: w, height: h), true, 1)
         defer { UIGraphicsEndImageContext() }
@@ -268,7 +285,10 @@ struct BigHeadEffect: FaceEffect {
 
         // Image coordinates are y-up; the drawing context is y-down.
         func draw(_ p: CGPoint) -> CGPoint {
-            CGPoint(x: p.x - extent.origin.x, y: CGFloat(h) - (p.y - extent.origin.y))
+            CGPoint(
+                x: (p.x - extent.origin.x) * rasterScale,
+                y: CGFloat(h) - (p.y - extent.origin.y) * rasterScale
+            )
         }
 
         // Sorted left-to-right so the closing edge over the top of the head cannot cross back
@@ -288,7 +308,7 @@ struct BigHeadEffect: FaceEffect {
         // the face centre reaches back over it, where widening about the contour would lean the
         // region further off the head.
         let centreX = draw(face.faceCenter).x
-        let jawHalf = max((last.x - first.x) * 0.5, face.faceWidth * 0.35)
+        let jawHalf = max((last.x - first.x) * 0.5, face.faceWidth * rasterScale * 0.35)
         let top = -CGFloat(h)
 
         // **Two models, chosen by whether anyone else is in the photo.** They fail in opposite
@@ -329,18 +349,18 @@ struct BigHeadEffect: FaceEffect {
         // constraint has to come from the *faces*, and the honest limit is halfway to whichever
         // face is nearest on that side. Nobody beside them means nothing to avoid, so it opens
         // up to the solo width.
-        let generous = max(jawHalf * 3.4, face.faceWidth * 1.9)
+        let generous = max(jawHalf * 3.4, face.faceWidth * rasterScale * 1.9)
         let neighbours = neighbourFaces.filter { $0.faceCenter != face.faceCenter }
         let gapLeft = neighbours
             .filter { $0.faceCenter.x < face.faceCenter.x }
-            .map { (face.faceCenter.x - $0.faceCenter.x) * 0.5 }
+            .map { (face.faceCenter.x - $0.faceCenter.x) * rasterScale * 0.5 }
             .min() ?? generous
         let gapRight = neighbours
             .filter { $0.faceCenter.x > face.faceCenter.x }
-            .map { ($0.faceCenter.x - face.faceCenter.x) * 0.5 }
+            .map { ($0.faceCenter.x - face.faceCenter.x) * rasterScale * 0.5 }
             .min() ?? generous
         // A floor, or two faces almost touching leave no head at all.
-        let topHalf = max(face.faceWidth * 0.7, min(generous, min(gapLeft, gapRight)))
+        let topHalf = max(face.faceWidth * rasterScale * 0.7, min(generous, min(gapLeft, gapRight)))
 
         let path = UIBezierPath()
         path.move(to: first)
@@ -371,8 +391,9 @@ struct BigHeadEffect: FaceEffect {
         // into a doubled halo *(user-reported: "details at the top of the head are being blended
         // into the face")*. It reads as a blending bug in the compositing and is really an edge
         // condition in the mask's own construction.
-        let grow = max(2, face.faceWidth * 0.10)
+        let grow = max(2, face.faceWidth * rasterScale * 0.10)
         let region = CIImage(cgImage: cg)
+            .transformed(by: CGAffineTransform(scaleX: 1 / rasterScale, y: 1 / rasterScale))
             .transformed(by: CGAffineTransform(translationX: extent.origin.x, y: extent.origin.y))
             .clampedToExtent()
             .applyingFilter("CIMorphologyMaximum", parameters: ["inputRadius": grow])
@@ -380,8 +401,7 @@ struct BigHeadEffect: FaceEffect {
             .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: grow * 0.5])
             .cropped(to: extent)
 
-        cache.key = key
-        cache.region = region
+        cache.regions[key] = region
         return region
     }
 
