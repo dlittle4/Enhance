@@ -13,7 +13,14 @@ import UIKit
 /// tunable into this one; it is the wrong mechanism, not the wrong constants.
 ///
 /// The head silhouette is the subject mask **intersected with a head region**. The mask alone is
-/// the whole body; the region decides where the head stops. Two sources for that region, in
+/// the whole body; the region decides where the head stops.
+///
+/// **The mask should be one person's silhouette, not the union of everyone** — see
+/// `SubjectSegmentationService.instanceMask(for:containing:)`. With a shared mask, a group photo
+/// forced the region's side walls in tight to keep the neighbour out, and they cut a straight
+/// line through the subject's own hair instead of following him. Handed a per-person mask the
+/// walls can stay far out, and the boundary follows the silhouette the way it always should
+/// have. Two sources for that region, in
 /// order of preference:
 ///
 /// 1. **Vision's traced face contour**, where landmarks are available. Note the contour is *not*
@@ -221,8 +228,19 @@ struct BigHeadEffect: FaceEffect {
         //
         // The earlier single setting was a compromise that did neither job: too tight for a
         // profile, and it would have been too loose had the group photos been rendered.
+        // **Loose in both cases now that the mask is per-person.** `isCrowded` used to pick a
+        // *tight* wall for group photos, because the shared mask covered everyone and the wall
+        // was the only thing keeping the neighbour out. It kept them out by cutting a straight
+        // line through the subject's own hair — visible as a hard seam, and reported as the head
+        // reading like a cardboard cutout.
+        //
+        // `SubjectSegmentationService.instanceMask(for:containing:)` now supplies *this person's*
+        // silhouette, so the neighbour is already excluded by the mask and the wall has nothing
+        // left to do but clip. It stays only as a far-out backstop for the case where the
+        // per-instance lookup fell back to the union, and a little tighter when someone else is
+        // in frame — but nowhere near tight enough to cut hair.
         let topHalf: CGFloat = isCrowded
-            ? max(jawHalf * 1.6, face.faceWidth * 0.75)
+            ? max(jawHalf * 3.0, face.faceWidth * 1.7)
             : max(jawHalf * 3.4, face.faceWidth * 1.9)
 
         let path = UIBezierPath()

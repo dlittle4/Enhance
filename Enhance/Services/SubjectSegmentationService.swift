@@ -62,6 +62,11 @@ final class SubjectSegmentationService {
     private var cachedImageHash: Int?
     private var cachedMask: CIImage??
 
+    /// Per-instance masks, keyed by image and by the point that selected the instance. A group
+    /// photo asks for one of these per face, so they cannot share the single-mask slot.
+    private struct InstanceKey: Hashable { let hash: Int; let x: Int; let y: Int }
+    private var cachedInstanceMasks: [InstanceKey: CIImage?] = [:]
+
     /// How many real segmentation passes have run. The cache's whole job is to keep this
     /// near one per photo, and counting is the only way to assert that without timing —
     /// a warm pass on a small image finishes faster than any threshold worth writing.
@@ -132,6 +137,90 @@ final class SubjectSegmentationService {
         }
     }
 
+    /// The silhouette of the **one** foreground instance under `point`, in the image's pixel
+    /// space — or `nil` if nothing is segmented there.
+    ///
+    /// `subjectMask(for:)` unions every instance, which is right for effects that treat
+    /// "subject vs background" as the whole question. It is wrong for anything that has to act
+    /// on *one person in a group*: BIG HEAD grew a head bounded by geometric walls, and the walls
+    /// cut a straight line through the subject's own hair rather than following him
+    /// *(user-reported: the head read as a cardboard cutout)*. The boundary should follow the
+    /// silhouette, and only a per-instance mask can do that.
+    ///
+    /// **How the instance is chosen is the part worth keeping.** `instanceMask` is a per-pixel
+    /// buffer of instance *indices*, so the instance owning a face is a single buffer read at
+    /// that face's location — no rendering, no per-instance mask generation and comparison. That
+    /// keeps this to one segmentation pass regardless of how many people are in the shot.
+    ///
+    /// - Parameter point: a location in the image's pixel space, y-up (Core Image convention),
+    ///   such as `DetectedFace.faceCenter`.
+    func instanceMask(for image: UIImage, containing point: CGPoint) throws -> CIImage? {
+        guard let cgImage = image.cgImage else { throw Failure.noCGImage }
+
+        let key = InstanceKey(hash: image.hashValue, x: Int(point.x), y: Int(point.y))
+        if let cached = cachedInstanceMasks[key] { return cached }
+
+        segmentationCount += 1
+
+        let request = VNGenerateForegroundInstanceMaskRequest()
+        let handler = VNImageRequestHandler(
+            cgImage: cgImage,
+            orientation: visionOrientation(from: image),
+            options: [:]
+        )
+        do { try handler.perform([request]) } catch { throw Failure.visionFailed(error) }
+
+        guard let observation = request.results?.first, !observation.allInstances.isEmpty else {
+            cachedInstanceMasks[key] = .some(nil)
+            return nil
+        }
+
+        let instance = Self.instanceIndex(
+            at: point,
+            in: observation.instanceMask,
+            imageSize: CGSize(width: cgImage.width, height: cgImage.height)
+        )
+
+        // 0 is background in Vision's indexing. Falling back to the union rather than to nothing
+        // matters: a face just outside its own silhouette — hair sampled at the edge, or a
+        // detection box slightly off — should still get a usable mask instead of the effect
+        // silently doing nothing.
+        let instances: IndexSet = (instance > 0) ? IndexSet(integer: instance) : observation.allInstances
+
+        do {
+            let buffer = try observation.generateScaledMaskForImage(forInstances: instances, from: handler)
+            let mask = scaled(CIImage(cvPixelBuffer: buffer), toMatch: image)
+            cachedInstanceMasks[key] = .some(mask)
+            return mask
+        } catch {
+            throw Failure.maskGenerationFailed(error)
+        }
+    }
+
+    /// Reads the instance index at a point straight out of Vision's label buffer.
+    ///
+    /// The buffer is one byte per pixel, top-left origin, at Vision's own working resolution —
+    /// so the point is converted from Core Image's y-up image space and rescaled to the buffer.
+    private static func instanceIndex(at point: CGPoint, in buffer: CVPixelBuffer, imageSize: CGSize) -> Int {
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+
+        let w = CVPixelBufferGetWidth(buffer)
+        let h = CVPixelBufferGetHeight(buffer)
+        guard w > 0, h > 0, imageSize.width > 0, imageSize.height > 0,
+              let base = CVPixelBufferGetBaseAddress(buffer) else { return 0 }
+
+        let nx = point.x / imageSize.width
+        // Flip: image space is y-up, the buffer is y-down.
+        let ny = 1 - (point.y / imageSize.height)
+        guard nx >= 0, nx < 1, ny >= 0, ny < 1 else { return 0 }
+
+        let x = min(w - 1, max(0, Int(nx * CGFloat(w))))
+        let y = min(h - 1, max(0, Int(ny * CGFloat(h))))
+        let stride = CVPixelBufferGetBytesPerRow(buffer)
+        return Int(base.assumingMemoryBound(to: UInt8.self)[y * stride + x])
+    }
+
     /// Whether this photo has a subject to build on. The editor uses this to decide whether
     /// to show the "no subject" toast — not whether to enable the cards, which stay live
     /// either way. See the note on absence above.
@@ -167,6 +256,7 @@ final class SubjectSegmentationService {
     func clearCache() {
         cachedImageHash = nil
         cachedMask = nil
+        cachedInstanceMasks = [:]
     }
 
     // MARK: - Private

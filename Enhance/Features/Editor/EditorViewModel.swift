@@ -565,9 +565,15 @@ class EditorViewModel {
         // the factory has none. Without a mask it returns the frame untouched rather than
         // falling back to the bump-distortion version, which was rejected on look.
         if let bigHead = built as? BigHeadEffect {
-            // More than one face means the head region has to stay walled in near the face, or
-            // it reaches into the next person. See `BigHeadEffect.contourRegion`.
-            return bigHead.withMask(subjectMask, isCrowded: detectedFaces.count > 1)
+            // Per-person silhouette where we can get one, so the head boundary follows the
+            // subject rather than a geometric wall. Falls back to the shared mask, which is
+            // also what `isCrowded` still guards against.
+            let perFace = selectedFace.flatMap { face in
+                (image ?? sourceImage).flatMap {
+                    try? subjectSegmentationService.instanceMask(for: $0, containing: face.faceCenter)
+                }
+            } ?? subjectMask
+            return bigHead.withMask(perFace, isCrowded: detectedFaces.count > 1)
         }
         return built
     }

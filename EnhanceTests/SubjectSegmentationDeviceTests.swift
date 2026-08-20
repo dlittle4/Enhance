@@ -189,7 +189,11 @@ struct SubjectSegmentationDeviceTests {
             let f = faces.first
             report.append("\(name),\(faces.count),\(f?.faceContourPoints.count ?? 0),\(f.map { "\($0.landmarkQuality)" } ?? "none"),\((mask ?? nil) != nil)")
 
-            guard let face = f, let mask = mask ?? nil else { continue }
+            guard let face = f else { continue }
+            // Per-person silhouette, which is what the editor now passes. Rendering the shared
+            // union here would exercise a path the app no longer takes.
+            let perFace = (try? SubjectSegmentationService().instanceMask(for: image, containing: face.faceCenter)) ?? nil
+            guard let mask = perFace ?? (mask ?? nil) else { continue }
             let source = CIImage(cgImage: cg)
             // `isCrowded` follows the real rule the editor uses, so the render exercises whichever
             // region model this photo would actually get.
