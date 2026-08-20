@@ -494,9 +494,16 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       fetches masks async on card selection (`segmentPersonsIfNeeded`) — no Vision on the
       preview-rebuild path. `instanceMask(for:containing:)` is deleted: untestable (bypassed the
       stub provider) and its ladder rung measured ≈ union.
-      **Still open: the Stage 5 device render** — the phone disconnected before the rewired
-      fixture pass ran. Everything Simulator-testable is green (594); the render-and-look over
-      the 11 fixtures plus in-app QA is what closes this item.
+      **Stage 5 device render: run 2026-08-20, and looked at.** All 11 fixtures through the
+      real ladder and batch pass, no crash (24MP included). The trio occludes cleanly with each
+      head keeping its own silhouette and the cap intact; the profile keeps the back of the
+      head; the 10-person group grows every head without reaching into neighbours
+      (`facesWithPersonMask` = faces on every row). Two observations for taste, not defects:
+      the jaw region's ear-level run cuts a low-hanging bun behind a profile head with a hard
+      edge, and full intensity on a tightly framed subject (the cat) fills the whole frame —
+      the slider covers it, but the render is where both live if they ever matter.
+      **Remaining: in-app QA on device** — the 650px preview path, the card-selection fetch,
+      and how the groups read in the hand. Fixture renders structurally cannot cover those.
 - [x] ~~⚠️ **BIG HEAD reset to `ea96ce3` (2026-08-19)**~~ *(superseded by the rebuild above; the
       reset's warning — do not re-patch wall geometry — held: the rebuild has no walls.)* A day of fixes took it from 122 to 468 lines — a flare, a crowded/solo split,
       neighbour-gap walls, a per-face raster cache, coordinate rescaling, a render-once guard —
