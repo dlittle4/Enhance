@@ -573,7 +573,10 @@ class EditorViewModel {
                     try? subjectSegmentationService.instanceMask(for: $0, containing: face.faceCenter)
                 }
             } ?? subjectMask
-            return bigHead.withMask(perFace, isCrowded: detectedFaces.count > 1)
+            // `activeFaces` is which heads grow; `detectedFaces` is where everyone is. Passing
+            // the former as both is what let a selected face's wall open into its neighbour.
+            return bigHead.withMask(perFace, isCrowded: detectedFaces.count > 1,
+                                    facesToGrow: activeFaces, neighbourFaces: detectedFaces)
         }
         return built
     }

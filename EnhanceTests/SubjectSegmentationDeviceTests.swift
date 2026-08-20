@@ -204,8 +204,11 @@ struct SubjectSegmentationDeviceTests {
             let source = CIImage(cgImage: cg)
             // `isCrowded` follows the real rule the editor uses, so the render exercises whichever
             // region model this photo would actually get.
-            let effect = BigHeadEffect(intensity: 0.8, size: 0.5, mask: mask,
-                                       isCrowded: faces.count > 1)
+            // All faces, so the render exercises the layered pass rather than a single head —
+            // the overlap ordering only exists when the effect can see everyone.
+            let effect = BigHeadEffect(intensity: 0.9, size: 0.5, mask: mask,
+                                       isCrowded: faces.count > 1,
+                                       facesToGrow: faces, neighbourFaces: faces)
             let gif = writeGIF(frameCount: 8) { i, p in
                 effect.apply(to: source, face: face, progress: p, frameIndex: i)
                     .cropped(to: source.extent)

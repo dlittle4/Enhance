@@ -44,6 +44,18 @@ struct BigHeadEffect: FaceEffect {
     /// Whether another face shares the photo. Decides how the head region is bounded — see
     /// `contourRegion`. Not a style choice: the two cases fail in opposite directions.
     private let isCrowded: Bool
+    /// The faces whose heads this effect should grow — what the pipeline iterates. When the user
+    /// isolates one face this is just that face.
+    private let facesToGrow: [DetectedFace]
+
+    /// **Every** face detected in the photo, selected or not. Kept separate from `facesToGrow`
+    /// for one reason, and it is the bug that made this distinction necessary: the walls are
+    /// placed relative to the *nearest other face*, and if the effect only knows about the
+    /// selected face it concludes there are no neighbours and opens to full width — straight
+    /// into the person beside them *(user-reported: adjacent faces still being enlarged even
+    /// with a single face selected)*. Which heads grow and where the neighbours are are two
+    /// different questions, and one list cannot answer both.
+    private let neighbourFaces: [DetectedFace]
     private let cache = RegionCache()
 
     /// The region depends only on the face and the frame size, neither of which changes across
@@ -59,27 +71,83 @@ struct BigHeadEffect: FaceEffect {
     ///     ears; too large starts taking shoulder with it. Only reaches the ellipse fallback —
     ///     the contour path bounds itself.
     ///   - isCrowded: whether another face shares the photo.
-    init(intensity: Double = 0.5, size: Double = 0.5, mask: CIImage? = nil, isCrowded: Bool = false) {
+    init(intensity: Double = 0.5, size: Double = 0.5, mask: CIImage? = nil,
+         isCrowded: Bool = false, facesToGrow: [DetectedFace] = [],
+         neighbourFaces: [DetectedFace] = []) {
         self.growth = CGFloat(max(0, min(1, intensity)))
         self.coverage = 1.05 + CGFloat(max(0, min(1, size))) * 0.6
         self.mask = mask
         self.isCrowded = isCrowded
+        self.facesToGrow = facesToGrow
+        // Falling back to the growing set keeps a caller that passes only one list correct rather
+        // than silently wall-less.
+        self.neighbourFaces = neighbourFaces.isEmpty ? facesToGrow : neighbourFaces
     }
 
     /// Same effect with the segmentation mask attached — the view model has it, the factory does not.
-    func withMask(_ mask: CIImage?, isCrowded: Bool) -> BigHeadEffect {
+    func withMask(
+        _ mask: CIImage?, isCrowded: Bool,
+        facesToGrow: [DetectedFace], neighbourFaces: [DetectedFace]
+    ) -> BigHeadEffect {
         BigHeadEffect(intensity: Double(growth), size: Double((coverage - 1.05) / 0.6),
-                      mask: mask, isCrowded: isCrowded)
+                      mask: mask, isCrowded: isCrowded,
+                      facesToGrow: facesToGrow, neighbourFaces: neighbourFaces)
     }
 
+    /// **Every head is composited in one pass, from the original frame, back to front.**
+    ///
+    /// `GIFGenerator.faceEffectedSource` calls a `FaceEffect` once per face, feeding each call the
+    /// *previous* call's output. For a distortion that is fine. For this effect it is not: once
+    /// two enlarged heads overlap, the second pass re-scales pixels that already contain the
+    /// first enlarged head, so the two smear into each other rather than one sitting in front of
+    /// the other *(user-reported: "they overlap and blur together")*.
+    ///
+    /// So the work happens once. The first face in `allFaces` renders every head; the remaining
+    /// calls return their input untouched. Each head is cut from the **original** frame, never
+    /// from a partly-composited one, and they are drawn in depth order — widest face last, since
+    /// a face is wider the closer it is to the camera — so the nearest head lands on top.
+    ///
+    /// The mask is thresholded to hard edges before compositing. A soft edge is what lets two
+    /// overlapping heads cross-fade into a translucent mush; a hard one makes the front head
+    /// occlude the one behind, which is what overlapping heads should do.
     func apply(to image: CIImage, face: DetectedFace, progress: CGFloat, frameIndex: Int) -> CIImage {
         let extent = image.extent
         guard let mask, extent.width > 1, extent.height > 1 else { return image }
 
+        // One pass does all of them; the rest are no-ops.
+        let faces = facesToGrow.isEmpty ? [face] : facesToGrow
+        // Only the pipeline's first call does the work. If `face` is not in the growing set at
+        // all, fall through and grow it anyway rather than rendering nothing — a mismatch between
+        // the list and what the pipeline iterates should degrade to the old per-face behaviour,
+        // not to a silently dead effect.
+        if let first = faces.first, faces.contains(where: { $0.faceCenter == face.faceCenter }),
+           first.faceCenter != face.faceCenter {
+            return image
+        }
+
+        // Farthest first, so the nearest head is composited last and occludes the others.
+        let ordered = faces.sorted { $0.faceWidth < $1.faceWidth }
+        var result = image
+        for f in ordered {
+            result = grow(head: f, from: image, over: result, mask: mask, progress: progress)
+        }
+        return result
+    }
+
+    /// One head, cut from `source` and composited over `canvas`.
+    private func grow(
+        head face: DetectedFace,
+        from image: CIImage,
+        over canvas: CIImage,
+        mask: CIImage,
+        progress: CGFloat
+    ) -> CIImage {
+        let extent = image.extent
+
         // Quadratic, like HANDSOME: most of the growth arrives late, so the head inflates as the
         // zoom lands rather than being large for the whole loop.
         let amount = growth * (progress * progress)
-        guard amount > 0.01 else { return image }
+        guard amount > 0.01 else { return canvas }
 
         // `faceWidth`/`faceHeight` are full extents, not radii — `HandsomeEffect` halves them
         // for exactly this reason. An earlier version used them as half-extents, which made the
@@ -97,7 +165,7 @@ struct BigHeadEffect: FaceEffect {
             height: halfH * 2.2
         )
         guard headBounds.hasFiniteComponents, headBounds.width >= 2, headBounds.height >= 2
-        else { return image }
+        else { return canvas }
 
         let subjectInFrame = scaled(mask, to: extent)
 
@@ -105,7 +173,7 @@ struct BigHeadEffect: FaceEffect {
         // fall back to the ellipse where Vision gave none.
         let region = contourRegion(for: face, extent: extent)
             ?? FaceRegionMaskBuilder.ellipticalMask(bounds: headBounds, feather: 0.35)
-        guard let region else { return image }
+        guard let region else { return canvas }
 
         // Intersect: subject AND head-region. Multiply blend on two masks is the intersection,
         // so the silhouette stays crisp — hair, ears and all — while the region decides where
@@ -138,13 +206,22 @@ struct BigHeadEffect: FaceEffect {
         let grownMask = headMask.transformed(by: transform)
 
         guard grownHead.extent.hasFiniteComponents, grownMask.extent.hasFiniteComponents else {
-            return image
+            return canvas
         }
+
+        // **Hard edge, deliberately.** A feathered mask cross-fades this head with whatever is
+        // already on the canvas, and where two enlarged heads overlap that is a translucent mush
+        // rather than one head in front of another. Clamping the mask to a step makes the
+        // compositing an occlusion.
+        let hardMask = grownMask.applyingFilter("CIColorControls", parameters: [
+            kCIInputContrastKey: 12.0,
+            kCIInputBrightnessKey: -0.15
+        ]).applyingFilter("CIColorClamp")
 
         return grownHead
             .applyingFilter("CIBlendWithMask", parameters: [
-                kCIInputBackgroundImageKey: image,
-                kCIInputMaskImageKey: grownMask
+                kCIInputBackgroundImageKey: canvas,
+                kCIInputMaskImageKey: hardMask
             ])
             .cropped(to: extent)
     }
@@ -243,9 +320,27 @@ struct BigHeadEffect: FaceEffect {
         // the bounding properly.
         //
         // **The real fix is a different Vision request**, not a better constant — see ROADMAP §2a.
-        let topHalf: CGFloat = isCrowded
-            ? max(jawHalf * 1.6, face.faceWidth * 0.75)
-            : max(jawHalf * 3.4, face.faceWidth * 1.9)
+        // **The wall goes as wide as it can without reaching the next person.**
+        //
+        // A fixed crowded wall was the compromise that clipped hair: narrow enough to miss the
+        // neighbour in the worst case, so needlessly narrow in every other case, and hair sits
+        // exactly where it cut *(user-reported: "struggling with hair along the sides of the
+        // face")*. Since segmentation cannot separate people here — see the note below — the
+        // constraint has to come from the *faces*, and the honest limit is halfway to whichever
+        // face is nearest on that side. Nobody beside them means nothing to avoid, so it opens
+        // up to the solo width.
+        let generous = max(jawHalf * 3.4, face.faceWidth * 1.9)
+        let neighbours = neighbourFaces.filter { $0.faceCenter != face.faceCenter }
+        let gapLeft = neighbours
+            .filter { $0.faceCenter.x < face.faceCenter.x }
+            .map { (face.faceCenter.x - $0.faceCenter.x) * 0.5 }
+            .min() ?? generous
+        let gapRight = neighbours
+            .filter { $0.faceCenter.x > face.faceCenter.x }
+            .map { ($0.faceCenter.x - face.faceCenter.x) * 0.5 }
+            .min() ?? generous
+        // A floor, or two faces almost touching leave no head at all.
+        let topHalf = max(face.faceWidth * 0.7, min(generous, min(gapLeft, gapRight)))
 
         let path = UIBezierPath()
         path.move(to: first)
