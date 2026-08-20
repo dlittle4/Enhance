@@ -191,7 +191,10 @@ struct SubjectSegmentationDeviceTests {
 
             guard let face = f, let mask = mask ?? nil else { continue }
             let source = CIImage(cgImage: cg)
-            let effect = BigHeadEffect(intensity: 0.8, size: 0.5, mask: mask)
+            // `isCrowded` follows the real rule the editor uses, so the render exercises whichever
+            // region model this photo would actually get.
+            let effect = BigHeadEffect(intensity: 0.8, size: 0.5, mask: mask,
+                                       isCrowded: faces.count > 1)
             let gif = writeGIF(frameCount: 8) { i, p in
                 effect.apply(to: source, face: face, progress: p, frameIndex: i)
                     .cropped(to: source.extent)

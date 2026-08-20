@@ -34,6 +34,9 @@ struct BigHeadEffect: FaceEffect {
     private let growth: CGFloat
     private let coverage: CGFloat
     private let mask: CIImage?
+    /// Whether another face shares the photo. Decides how the head region is bounded — see
+    /// `contourRegion`. Not a style choice: the two cases fail in opposite directions.
+    private let isCrowded: Bool
     private let cache = RegionCache()
 
     /// The region depends only on the face and the frame size, neither of which changes across
@@ -44,19 +47,22 @@ struct BigHeadEffect: FaceEffect {
     }
 
     /// - Parameters:
-    ///   - intensity: how much the head grows — up to +55% at full, a ceiling set by what keeps
-    ///     the body visible underneath rather than by taste.
+    ///   - intensity: how much the head grows — up to 3× at full.
     ///   - size: how much around the face the head ellipse covers. Larger catches tall hair and
-    ///     ears; too large starts taking shoulder with it.
-    init(intensity: Double = 0.5, size: Double = 0.5, mask: CIImage? = nil) {
+    ///     ears; too large starts taking shoulder with it. Only reaches the ellipse fallback —
+    ///     the contour path bounds itself.
+    ///   - isCrowded: whether another face shares the photo.
+    init(intensity: Double = 0.5, size: Double = 0.5, mask: CIImage? = nil, isCrowded: Bool = false) {
         self.growth = CGFloat(max(0, min(1, intensity)))
         self.coverage = 1.05 + CGFloat(max(0, min(1, size))) * 0.6
         self.mask = mask
+        self.isCrowded = isCrowded
     }
 
     /// Same effect with the segmentation mask attached — the view model has it, the factory does not.
-    func withMask(_ mask: CIImage?) -> BigHeadEffect {
-        BigHeadEffect(intensity: Double(growth), size: Double((coverage - 1.05) / 0.6), mask: mask)
+    func withMask(_ mask: CIImage?, isCrowded: Bool) -> BigHeadEffect {
+        BigHeadEffect(intensity: Double(growth), size: Double((coverage - 1.05) / 0.6),
+                      mask: mask, isCrowded: isCrowded)
     }
 
     func apply(to image: CIImage, face: DetectedFace, progress: CGFloat, frameIndex: Int) -> CIImage {
@@ -109,9 +115,12 @@ struct BigHeadEffect: FaceEffect {
         // off — seen at full intensity in the first render. A slightly higher pivot still keeps
         // the head on the neck while spending some of the growth sideways.
         let pivot = CGPoint(x: face.faceCenter.x, y: headBounds.minY + headBounds.height * 0.30)
-        // Max 1.55×. The first render went to 1.85× and simply overflowed the frame — the joke
-        // needs the body still visible underneath, so the ceiling is set by what keeps it there.
-        let scale = 1 + amount * 0.55
+        // **Max 3.0×**, raised from 1.55× on the user's call (2026-08-19). The old ceiling was
+        // set against a tightly framed cat, where 1.85× already overflowed the frame. Real
+        // photos frame a head as a small share of the picture — in `IMG_0624` it is a few
+        // percent — so the same multiplier that overwhelmed the cat is barely visible there.
+        // The ceiling belongs to the *framing*, not the effect, and the wider range covers both.
+        let scale = 1 + amount * 2.0
         let transform = CGAffineTransform(translationX: -pivot.x, y: -pivot.y)
             .concatenating(CGAffineTransform(scaleX: scale, y: scale))
             .concatenating(CGAffineTransform(translationX: pivot.x, y: pivot.y))
@@ -196,8 +205,25 @@ struct BigHeadEffect: FaceEffect {
         // region further off the head.
         let centreX = draw(face.faceCenter).x
         let jawHalf = max((last.x - first.x) * 0.5, face.faceWidth * 0.35)
-        let topHalf = max(jawHalf * 1.9, face.faceWidth * 0.85)
         let top = -CGFloat(h)
+
+        // **Two models, chosen by whether anyone else is in the photo.** They fail in opposite
+        // directions, which is why one setting cannot serve both:
+        //
+        // - *Alone in the frame:* above the jaw, everything in the subject mask **is** the head,
+        //   so the walls only need to be loose enough not to clip it. Tight walls were the bug
+        //   reported as the back of the head going missing — `faceCenter` sits toward the
+        //   *front* of a head in profile, and the skull runs much further back than forward, so
+        //   a region centred there and symmetric could not reach it. Widening is free here.
+        // - *Someone beside them:* loose walls reach straight into the next person's head and
+        //   grow two heads as one. Here the walls are the only thing preventing that, so they
+        //   stay near the face.
+        //
+        // The earlier single setting was a compromise that did neither job: too tight for a
+        // profile, and it would have been too loose had the group photos been rendered.
+        let topHalf: CGFloat = isCrowded
+            ? max(jawHalf * 1.6, face.faceWidth * 0.75)
+            : max(jawHalf * 3.4, face.faceWidth * 1.9)
 
         let path = UIBezierPath()
         path.move(to: first)

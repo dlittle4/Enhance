@@ -565,7 +565,9 @@ class EditorViewModel {
         // the factory has none. Without a mask it returns the frame untouched rather than
         // falling back to the bump-distortion version, which was rejected on look.
         if let bigHead = built as? BigHeadEffect {
-            return bigHead.withMask(subjectMask)
+            // More than one face means the head region has to stay walled in near the face, or
+            // it reaches into the next person. See `BigHeadEffect.contourRegion`.
+            return bigHead.withMask(subjectMask, isCrowded: detectedFaces.count > 1)
         }
         return built
     }
