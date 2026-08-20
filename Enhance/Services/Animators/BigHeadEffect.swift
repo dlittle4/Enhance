@@ -118,8 +118,21 @@ struct BigHeadEffect: FaceEffect {
         let extent = image.extent
         guard let mask, extent.width > 1, extent.height > 1 else { return image }
 
-        // One pass does all of them; the rest are no-ops.
-        let faces = facesToGrow.isEmpty ? [face] : facesToGrow
+        // **The stored lists must be re-scaled into this frame's space before anything uses
+        // them, and skipping that made the effect vanish entirely.**
+        //
+        // The preview renders a *downsampled* copy and scales the `face` it hands in to match
+        // (`EditorViewModel.updateCombinedPreview`), while `facesToGrow` and `neighbourFaces`
+        // are captured at full resolution. Iterating the stored list therefore positioned every
+        // head at full-res coordinates on a small frame — far outside it, so nothing drew at all
+        // *(user-reported: the effect simply does not apply on device)*. The fixture test missed
+        // it by feeding full-resolution image and faces together, which is the one combination
+        // where the mismatch cancels out.
+        //
+        // `normalizedBoundingBox` is the space-independent anchor: dividing a face's pixel width
+        // by its normalized width recovers the image width it was measured against, and the
+        // ratio to this frame is the correction.
+        let faces = rescaled(facesToGrow.isEmpty ? [face] : facesToGrow, to: extent)
         // Only the pipeline's first call does the work. If `face` is not in the growing set at
         // all, fall through and grow it anyway rather than rendering nothing — a mismatch between
         // the list and what the pipeline iterates should degrade to the old per-face behaviour,
@@ -130,10 +143,12 @@ struct BigHeadEffect: FaceEffect {
         }
 
         // Farthest first, so the nearest head is composited last and occludes the others.
+        let neighbours = rescaled(neighbourFaces.isEmpty ? faces : neighbourFaces, to: extent)
         let ordered = faces.sorted { $0.faceWidth < $1.faceWidth }
         var result = image
         for f in ordered {
-            result = grow(head: f, from: image, over: result, mask: mask, progress: progress)
+            result = grow(head: f, from: image, over: result, mask: mask, progress: progress,
+                          rescaledNeighbours: neighbours)
         }
         return result
     }
@@ -144,7 +159,8 @@ struct BigHeadEffect: FaceEffect {
         from image: CIImage,
         over canvas: CIImage,
         mask: CIImage,
-        progress: CGFloat
+        progress: CGFloat,
+        rescaledNeighbours: [DetectedFace]
     ) -> CIImage {
         let extent = image.extent
 
@@ -175,7 +191,7 @@ struct BigHeadEffect: FaceEffect {
 
         // The region that says "this part of the subject is head". Prefer the traced contour;
         // fall back to the ellipse where Vision gave none.
-        let region = contourRegion(for: face, extent: extent)
+        let region = contourRegion(for: face, extent: extent, neighbours: rescaledNeighbours)
             ?? FaceRegionMaskBuilder.ellipticalMask(bounds: headBounds, feather: 0.35)
         guard let region else { return canvas }
 
@@ -248,7 +264,8 @@ struct BigHeadEffect: FaceEffect {
     /// not a product of linear ramps. Cached on the face and frame size, neither of which changes
     /// across a GIF's frames — the same trick `AnimeBackgroundEffect` uses, and the reason this
     /// does not cost a render per frame.
-    private func contourRegion(for face: DetectedFace, extent: CGRect) -> CIImage? {
+    private func contourRegion(for face: DetectedFace, extent: CGRect,
+                               neighbours rescaledNeighbours: [DetectedFace]) -> CIImage? {
         let points = face.faceContourPoints
         // **12, not 5.** Vision's real `faceContour` returns dozens of points along the jaw; a
         // handful means detection fell back and the "contour" is a few landmarks that do not
@@ -349,18 +366,27 @@ struct BigHeadEffect: FaceEffect {
         // constraint has to come from the *faces*, and the honest limit is halfway to whichever
         // face is nearest on that side. Nobody beside them means nothing to avoid, so it opens
         // up to the solo width.
-        let generous = max(jawHalf * 3.4, face.faceWidth * rasterScale * 1.9)
-        let neighbours = neighbourFaces.filter { $0.faceCenter != face.faceCenter }
-        let gapLeft = neighbours
-            .filter { $0.faceCenter.x < face.faceCenter.x }
-            .map { (face.faceCenter.x - $0.faceCenter.x) * rasterScale * 0.5 }
-            .min() ?? generous
-        let gapRight = neighbours
-            .filter { $0.faceCenter.x > face.faceCenter.x }
-            .map { ($0.faceCenter.x - face.faceCenter.x) * rasterScale * 0.5 }
-            .min() ?? generous
+        let scaledFaceWidth: CGFloat = face.faceWidth * rasterScale
+        let generous: CGFloat = max(jawHalf * 3.4, scaledFaceWidth * 1.9)
+
+        let others = rescaledNeighbours.filter { $0.faceCenter != face.faceCenter }
+        let myX: CGFloat = face.faceCenter.x
+
+        var gapLeft: CGFloat = generous
+        var gapRight: CGFloat = generous
+        for other in others {
+            let dx: CGFloat = other.faceCenter.x - myX
+            let half: CGFloat = abs(dx) * rasterScale * 0.5
+            if dx < 0 {
+                gapLeft = min(gapLeft, half)
+            } else if dx > 0 {
+                gapRight = min(gapRight, half)
+            }
+        }
+
         // A floor, or two faces almost touching leave no head at all.
-        let topHalf = max(face.faceWidth * rasterScale * 0.7, min(generous, min(gapLeft, gapRight)))
+        let nearest: CGFloat = min(gapLeft, gapRight)
+        let topHalf: CGFloat = max(scaledFaceWidth * 0.7, min(generous, nearest))
 
         let path = UIBezierPath()
         path.move(to: first)
@@ -403,6 +429,27 @@ struct BigHeadEffect: FaceEffect {
 
         cache.regions[key] = region
         return region
+    }
+
+    /// Re-express faces in `extent`'s coordinate space.
+    ///
+    /// A face carries both its pixel geometry and its `normalizedBoundingBox`, so the image it
+    /// was measured against is recoverable — `faceWidth / normalizedBoundingBox.width` — and the
+    /// ratio to the frame in hand is the scale to apply. That keeps this correct whether the
+    /// caller hands over a full-resolution source or the preview's downsampled copy, rather than
+    /// silently working in only one of them.
+    private func rescaled(_ faces: [DetectedFace], to extent: CGRect) -> [DetectedFace] {
+        faces.map { f in
+            let normWidth = f.normalizedBoundingBox.width
+            guard normWidth > 0.0001, f.faceWidth > 0 else { return f }
+            let measuredAgainst = f.faceWidth / normWidth
+            guard measuredAgainst > 1 else { return f }
+            let scale = extent.width / measuredAgainst
+            // Within a percent of the frame it was measured in, leave it alone — rescaling by
+            // ~1.0 only introduces rounding.
+            guard abs(scale - 1) > 0.01 else { return f }
+            return f.scaled(x: scale, y: scale)
+        }
     }
 
     /// Face effects run in source space, so this is normally a no-op — it exists because the
