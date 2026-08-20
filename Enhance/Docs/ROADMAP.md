@@ -481,8 +481,24 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       **It is the first effect that composites rather than filters**, which is why it surfaced a
       class of interaction eleven filter-style effects never had; worth remembering before adding
       another compositing effect.
-- [ ] ⚠️ **BIG HEAD is reset to its first composite version (`ea96ce3`) as of 2026-08-19, on the
-      user's call.** A day of fixes took it from 122 to 468 lines — a flare, a crowded/solo split,
+- [ ] 🔍 **BIG HEAD rebuilt on person-instance masks (2026-08-20; plan executed, device pass
+      pending).** The full plan and its constraints ledger live in the session plan file; the
+      short version: `VNGeneratePersonInstanceMaskRequest` separates people (spike-measured on
+      the fixture corpus: 2/3/4-person groups → one instance each; past the API's cap of four,
+      neighbours merge into shared subsets — still strictly better than the foreground union),
+      so the effect now cuts each head from *that person's own silhouette* ∩ a traced-jaw region
+      with **no side walls**, composites every head in one batch pass (a new `FaceEffect`
+      protocol requirement with a sequential default — requirement, not extension, or existential
+      dispatch silently skips the override), widest face on top so overlaps occlude. Fallback
+      ladder per face: person mask → union → identity; animals land on union by design. Editor
+      fetches masks async on card selection (`segmentPersonsIfNeeded`) — no Vision on the
+      preview-rebuild path. `instanceMask(for:containing:)` is deleted: untestable (bypassed the
+      stub provider) and its ladder rung measured ≈ union.
+      **Still open: the Stage 5 device render** — the phone disconnected before the rewired
+      fixture pass ran. Everything Simulator-testable is green (594); the render-and-look over
+      the 11 fixtures plus in-app QA is what closes this item.
+- [x] ~~⚠️ **BIG HEAD reset to `ea96ce3` (2026-08-19)**~~ *(superseded by the rebuild above; the
+      reset's warning — do not re-patch wall geometry — held: the rebuild has no walls.)* A day of fixes took it from 122 to 468 lines — a flare, a crowded/solo split,
       neighbour-gap walls, a per-face raster cache, coordinate rescaling, a render-once guard —
       and every one of them was geometry standing in for a person boundary that segmentation will
       not supply. Each fix traded one artifact for another, so the file was reset rather than

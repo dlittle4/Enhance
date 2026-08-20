@@ -1759,3 +1759,32 @@ disabled, while `facesFromTheSameImage` keeps passing — so it isolates the spa
 than noticing any change. It needs no Vision and no device, so it runs everywhere the suite runs.
 Note what that means: the bug was *always* catchable in the Simulator; nothing about it required
 the hardware the whole investigation was routed through.
+
+## 2026-08-20: A mask that carries its value in alpha defeats both colour filters and your probes
+
+`FaceRegionMaskBuilder.ellipticalMask` feathers with a `CIRadialGradient` from white-alpha-1 to
+white-alpha-0 — the mask's value lives in its **alpha**, not its RGB. Three consequences
+compounded into a five-hour debugging session:
+
+1. **Colour filters silently do nothing.** `CIColorControls` (contrast hardening) adjusts
+   *unpremultiplied* RGB — which is solid white everywhere in that gradient — and never touches
+   alpha. The "hardened" mask was bit-identical to the unhardened one, which read as evidence
+   that hardening was irrelevant when it was actually inert.
+2. **Bitmap probes lie in the other direction.** Rendering the mask to RGBA8 and reading RGB
+   yields *premultiplied* values (white × alpha = the ramp), which look exactly like a proper
+   grayscale mask. Every probe said the mask was correct while every composite disagreed.
+3. **Downstream compositing honours something else again.** Stacked heads cross-faded at a
+   constant ~14% wherever the mask fed a blend, across two algebraically equivalent compositing
+   formulations — bit-identical outputs, because CI rewrites equivalent graphs to one kernel DAG.
+
+The unlock was a minimal hand-built repro with **opaque rectangle masks**, which composited
+perfectly — cornering the difference to the mask's alpha structure, not the compositing. Fix:
+`.settingAlphaOne(in:)` flattens premultiplied RGB into the opaque grayscale mask every other
+mask in the pipeline already is (Vision's segmentation masks are one-component buffers — they
+never hit this).
+
+Rules: masks in this codebase are **opaque grayscale, value in RGB** — flatten anything
+alpha-feathered at the boundary where it is built, not at each use. When probes and composites
+disagree, suspect premultiplication before suspecting the renderer. And bit-identical output
+across a code change means the change was inert — find *why* before iterating further (here, a
+poison-pill render proved the build fresh in one step).
