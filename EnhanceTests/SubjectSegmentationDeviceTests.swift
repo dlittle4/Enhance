@@ -1,4 +1,5 @@
 import Testing
+import Vision
 import CoreImage
 import ImageIO
 import UniformTypeIdentifiers
@@ -372,6 +373,167 @@ struct SubjectSegmentationDeviceTests {
                 .scaledBy(x: zoom, y: zoom)
                 .translatedBy(x: -c.x, y: -c.y)
             return composite.transformed(by: t).cropped(to: source.extent)
+        }
+    }
+
+    // MARK: - Stage 0 spike: VNGeneratePersonInstanceMaskRequest on the corpus
+
+    /// **The gate for the person-mask rebuild (plan Stage 0).** Runs the person-instance
+    /// request RAW — no service abstraction, deliberately, so the data is seen before any API
+    /// shape is baked in — over every fixture photo, and reports:
+    ///
+    /// - how many person instances Vision returns (the foreground request returned ONE for
+    ///   every group; this request is the reason to believe groups are separable at all),
+    /// - which instance label sits at each detected face's centre (0 = miss),
+    /// - a cutout render per instance and a tinted composite per photo, because edge quality
+    ///   at hair and hats is a looking question,
+    /// - cold vs warm request timing.
+    ///
+    /// The label lookup uses ORIENTED dimensions — the same fix `instanceIndex` needed, kept
+    /// here in spike form because a wrong-orientation spike would mis-gate the whole feature.
+    @Test func personRequestSpike_measuresTheCorpus() async throws {
+        let fixtures = Bundle(for: BundleToken.self).urls(forResourcesWithExtension: nil, subdirectory: nil) ?? []
+        let photos = fixtures
+            .filter { ["jpg", "jpeg", "png", "heic"].contains($0.pathExtension.lowercased()) }
+            .filter { !$0.lastPathComponent.hasPrefix("showcase") }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        guard !photos.isEmpty else { return }
+
+        var report = ["photo,detectedFaces,personInstances,labelsAtFaceCentres,coldMs,warmMs"]
+        let tints: [CIColor] = [
+            CIColor(red: 1, green: 0.2, blue: 0.2), CIColor(red: 0.2, green: 0.9, blue: 0.3),
+            CIColor(red: 0.25, green: 0.5, blue: 1), CIColor(red: 1, green: 0.9, blue: 0.2),
+            CIColor(red: 1, green: 0.4, blue: 0.9), CIColor(red: 0.3, green: 0.95, blue: 0.9)
+        ]
+
+        for url in photos {
+            guard let data = try? Data(contentsOf: url),
+                  let image = UIImage(data: data), let cgImage = image.cgImage else { continue }
+            // Async, so it cannot live inside the autoreleasepool below.
+            let faces = await FaceDetectionService().detectFaces(in: image)
+
+          try autoreleasepool {
+            let name = url.deletingPathExtension().lastPathComponent
+            let fullSource = CIImage(cgImage: cgImage)
+            // Attachments render at a capped size — a full-res PNG of a 24MP fixture is the
+            // exact per-face-bitmap memory failure of constraint 6, relocated into the test.
+            // The request itself still runs on the full-resolution image.
+            let attachScale = min(1, 1200 / max(fullSource.extent.width, fullSource.extent.height))
+            let source = attachScale < 1
+                ? fullSource.transformed(by: CGAffineTransform(scaleX: attachScale, y: attachScale))
+                : fullSource
+
+            let orientation = Self.visionOrientation(from: image)
+            let orientedSize: CGSize
+            switch orientation {
+            case .left, .right, .leftMirrored, .rightMirrored:
+                orientedSize = CGSize(width: cgImage.height, height: cgImage.width)
+            default:
+                orientedSize = CGSize(width: cgImage.width, height: cgImage.height)
+            }
+
+            func runRequest() throws -> (VNInstanceMaskObservation?, VNImageRequestHandler, Double) {
+                let request = VNGeneratePersonInstanceMaskRequest()
+                let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
+                let t0 = CFAbsoluteTimeGetCurrent()
+                try handler.perform([request])
+                let ms = (CFAbsoluteTimeGetCurrent() - t0) * 1000
+                return (request.results?.first, handler, ms)
+            }
+
+            // Cold then warm: the first fixture pays the model load once for the whole test,
+            // so per-photo cold/warm still shows the request's own cost.
+            let (obs, handler, coldMs) = try runRequest()
+            let (_, _, warmMs) = try runRequest()
+
+            guard let obs else {
+                report.append("\(name),\(faces.count),0,,\(Int(coldMs)),\(Int(warmMs))")
+                return
+            }
+
+            // Label under each face centre, read straight from the instance buffer.
+            let labels = faces.map { face -> String in
+                let idx = Self.spikeInstanceIndex(
+                    at: face.faceCenter, in: obs.instanceMask, imageSize: orientedSize
+                )
+                return String(idx)
+            }.joined(separator: "|")
+            report.append("\(name),\(faces.count),\(obs.allInstances.count),\(labels),\(Int(coldMs)),\(Int(warmMs))")
+
+            // Per-instance cutouts, and one composite with every instance tinted differently.
+            var composite = source.applyingFilter("CIColorControls", parameters: [
+                kCIInputSaturationKey: 0.0, kCIInputBrightnessKey: -0.2
+            ])
+            for instance in obs.allInstances.sorted() {
+                guard let buffer = try? obs.generateScaledMaskForImage(
+                    forInstances: IndexSet(integer: instance), from: handler
+                ) else { continue }
+                var mask = CIImage(cvPixelBuffer: buffer)
+                if mask.extent.size != source.extent.size {
+                    mask = mask.transformed(by: CGAffineTransform(
+                        scaleX: source.extent.width / mask.extent.width,
+                        y: source.extent.height / mask.extent.height
+                    ))
+                }
+                let cutout = source.applyingFilter("CIBlendWithMask", parameters: [
+                    kCIInputBackgroundImageKey: CIImage(color: CIColor(red: 0, green: 0, blue: 0))
+                        .cropped(to: source.extent),
+                    kCIInputMaskImageKey: mask
+                ])
+                if let cg = ctx.createCGImage(cutout, from: source.extent) {
+                    let rep = UIImage(cgImage: cg)
+                    if let png = rep.pngData() {
+                        Attachment.record(png, named: "person-\(name)-instance\(instance).png")
+                    }
+                }
+
+                let tint = tints[(instance - 1) % tints.count]
+                let tinted = source.applyingFilter("CIColorMonochrome", parameters: [
+                    kCIInputColorKey: tint, kCIInputIntensityKey: 0.9
+                ])
+                composite = tinted.applyingFilter("CIBlendWithMask", parameters: [
+                    kCIInputBackgroundImageKey: composite,
+                    kCIInputMaskImageKey: mask
+                ])
+            }
+            if let cg = ctx.createCGImage(composite.cropped(to: source.extent), from: source.extent),
+               let png = UIImage(cgImage: cg).pngData() {
+                Attachment.record(png, named: "person-\(name)-composite.png")
+            }
+          }
+        }
+
+        Attachment.record(Data(report.joined(separator: "\n").utf8), named: "person-spike.csv")
+    }
+
+    /// The oriented label-buffer read, spike-local so the spike bakes in no app API.
+    private static func spikeInstanceIndex(
+        at point: CGPoint, in buffer: CVPixelBuffer, imageSize: CGSize
+    ) -> Int {
+        CVPixelBufferLockBaseAddress(buffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
+        let w = CVPixelBufferGetWidth(buffer), h = CVPixelBufferGetHeight(buffer)
+        guard w > 0, h > 0, imageSize.width > 0, imageSize.height > 0,
+              let base = CVPixelBufferGetBaseAddress(buffer) else { return 0 }
+        let nx = point.x / imageSize.width
+        let ny = 1 - (point.y / imageSize.height)
+        guard nx >= 0, nx < 1, ny >= 0, ny < 1 else { return 0 }
+        let x = min(w - 1, max(0, Int(nx * CGFloat(w))))
+        let y = min(h - 1, max(0, Int(ny * CGFloat(h))))
+        return Int(base.assumingMemoryBound(to: UInt8.self)[y * CVPixelBufferGetBytesPerRow(buffer) + x])
+    }
+
+    private static func visionOrientation(from image: UIImage) -> CGImagePropertyOrientation {
+        switch image.imageOrientation {
+        case .up: return .up
+        case .down: return .down
+        case .left: return .left
+        case .right: return .right
+        case .upMirrored: return .upMirrored
+        case .downMirrored: return .downMirrored
+        case .leftMirrored: return .leftMirrored
+        case .rightMirrored: return .rightMirrored
+        @unknown default: return .up
         }
     }
 
