@@ -157,6 +157,9 @@ class EditorViewModel {
     /// either "not segmented yet" or "this photo has no subject" — `hasSegmentedSubject`
     /// separates the two, because only the second should raise the toast.
     var subjectMask: CIImage? = nil
+    /// Per-person instance masks aligned with `detectedFaces`, populated only when the
+    /// HEAD MASK LAB approach flag asks for them.
+    var personMasks: [CIImage?] = []
     var isSegmentingSubject: Bool = false
 
     /// Whether segmentation has *run* for the current photo. Needed because `subjectMask`
@@ -565,10 +568,23 @@ class EditorViewModel {
         // the factory has none. Without a mask it returns the frame untouched rather than
         // falling back to the bump-distortion version, which was rejected on look.
         if let bigHead = built as? BigHeadEffect {
-            // The shared union mask, fetched async when the card was selected. The per-person
-            // path is parked (§2a); no Vision call happens here — this is read on every
-            // preview rebuild.
-            return bigHead.withMask(subjectMask)
+            // The shared union mask, fetched async when the card was selected — no Vision call
+            // happens here; this is read on every preview rebuild. When the lab's PERSON MASKS
+            // approach is on, the per-face instances fetched alongside the union ride in too,
+            // matched by normalized face centre so the preview's downsampling cannot desync them.
+            guard let source = image ?? sourceImage else { return bigHead.withMask(subjectMask) }
+            let size = CGSize(width: source.size.width * source.scale,
+                              height: source.size.height * source.scale)
+            let perFace: [BigHeadEffect.PerFaceMask] = zip(detectedFaces, personMasks).compactMap {
+                face, mask in
+                guard let mask, size.width > 0, size.height > 0 else { return nil }
+                return BigHeadEffect.PerFaceMask(
+                    normCenter: CGPoint(x: face.faceCenter.x / size.width,
+                                        y: face.faceCenter.y / size.height),
+                    mask: mask
+                )
+            }
+            return bigHead.withMask(subjectMask, perFace: perFace)
         }
         return built
     }
@@ -760,8 +776,18 @@ class EditorViewModel {
         isSegmentingSubject = true
         Task {
             let mask = await subjectSegmentationService.subjectMask(for: source)
+            // The lab's person-mask approach needs per-face instances; fetched in the same pass
+            // so toggling the setting never adds a second loading stall.
+            let person = HeadMaskTuningStore.shared.tuning.usePersonMasks
+                ? await subjectSegmentationService.personMasks(
+                    for: source,
+                    at: detectedFaces.map(\.faceCenter),
+                    radii: detectedFaces.map { $0.faceWidth * 0.5 }
+                )
+                : []
             await MainActor.run {
                 self.subjectMask = mask
+                self.personMasks = person
                 self.hasSegmentedSubject = true
                 self.isSegmentingSubject = false
                 if mask == nil {
@@ -790,6 +816,7 @@ class EditorViewModel {
     /// against the previous one's silhouette, which reads as a segmentation failure.
     func clearSubjectMask() {
         subjectMask = nil
+        personMasks = []
         hasSegmentedSubject = false
         subjectSegmentationService.clearCache()
     }

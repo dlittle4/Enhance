@@ -29,6 +29,8 @@ struct HeadMaskLabView: View {
     @State private var photo: UIImage?
     @State private var faces: [DetectedFace] = []
     @State private var subjectMask: CIImage?
+    /// Per-person instance masks aligned with `faces` — the PERSON MASKS approach's input.
+    @State private var personMasks: [CIImage?] = []
     @State private var overlay: UIImage?
     @State private var isPreparing = false
     @State private var statusNote: String?
@@ -40,6 +42,7 @@ struct HeadMaskLabView: View {
     private let faceService = FaceDetectionService()
     private let segmentationService = SubjectSegmentationService()
     private static let renderContext = CIContext(options: [.useSoftwareRenderer: false])
+    private let labRegionBuilder = HeadRegionBuilder()
 
     /// Distinct tints per face, matching the segmentation spike's convention.
     private static let tints: [CIColor] = [
@@ -64,6 +67,8 @@ struct HeadMaskLabView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 18) {
                         modeToggle
+                        divider
+                        approachToggles
                         divider
                         ellipseSliders
                         divider
@@ -165,6 +170,26 @@ struct HeadMaskLabView: View {
                         )
                 }
             }
+        }
+    }
+
+    private var approachToggles: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("APPROACH")
+            labToggle("PERSON MASKS", isOn: $store.tuning.usePersonMasks,
+                      hint: "per-person instance mask instead of the shared union")
+            labToggle("JAW REGION", isOn: $store.tuning.useJawRegion,
+                      hint: "bound below by traced facial landmarks; ellipse for animals")
+        }
+    }
+
+    private func labToggle(_ label: String, isOn: Binding<Bool>, hint: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Toggle(isOn: isOn) {
+                Text(label).font(.silkscreenCaption).foregroundColor(.textPrimary)
+            }
+            .tint(.enhanceMint)
+            Text(hint).font(.system(size: 10)).foregroundColor(.textInactive)
         }
     }
 
@@ -312,10 +337,18 @@ struct HeadMaskLabView: View {
             let image = UIImage(cgImage: cg)
             let detected = await faceService.detectFaces(in: image)
             let mask = await segmentationService.subjectMask(for: image)
+            // Fetched unconditionally: one warm request (~15ms) per photo, and having them on
+            // hand makes the PERSON MASKS toggle instant rather than a second loading state.
+            let person = await segmentationService.personMasks(
+                for: image,
+                at: detected.map(\.faceCenter),
+                radii: detected.map { $0.faceWidth * 0.5 }
+            )
             await MainActor.run {
                 photo = image
                 faces = detected
                 subjectMask = mask
+                personMasks = person
                 isPreparing = false
                 if mask == nil {
                     statusNote = "NO SUBJECT MASK\n(segmentation needs a real device)"
@@ -345,8 +378,15 @@ struct HeadMaskLabView: View {
         guard let photo, let cg = photo.cgImage, !faces.isEmpty else { return }
         let source = CIImage(cgImage: cg)
         let extent = source.extent
-        let subject = subjectMask.map { scaledMask($0, to: extent) }
+        let union = subjectMask.map { scaledMask($0, to: extent) }
             ?? CIImage(color: CIColor(red: 1, green: 1, blue: 1)).cropped(to: extent)
+        // The approach toggle, applied exactly as the effect applies it: this face's own
+        // instance when available, the union otherwise.
+        func subject(for index: Int) -> CIImage {
+            guard tuning.usePersonMasks, index < personMasks.count,
+                  let personal = personMasks[index] else { return union }
+            return scaledMask(personal, to: extent)
+        }
 
         var output: CIImage
         switch mode {
@@ -358,7 +398,8 @@ struct HeadMaskLabView: View {
             ])
             for (i, face) in faces.enumerated() {
                 guard let mask = BigHeadEffect.headMask(
-                    for: face, subject: subject, extent: extent, tuning: tuning
+                    for: face, subject: subject(for: i), extent: extent, tuning: tuning,
+                    regionBuilder: labRegionBuilder
                 ) else { continue }
                 let tint = CIImage(color: Self.tints[i % Self.tints.count]).cropped(to: extent)
                 let tinted = tint.applyingFilter("CIBlendWithMask", parameters: [
@@ -372,8 +413,17 @@ struct HeadMaskLabView: View {
         case .result:
             // The real effect through the real sequential pass — group overlap artifacts
             // included, because that is what ships.
+            let perFace: [BigHeadEffect.PerFaceMask] = zip(faces, personMasks).compactMap {
+                face, mask in
+                guard let mask else { return nil }
+                return BigHeadEffect.PerFaceMask(
+                    normCenter: CGPoint(x: face.faceCenter.x / extent.width,
+                                        y: face.faceCenter.y / extent.height),
+                    mask: mask
+                )
+            }
             let effect = BigHeadEffect(
-                intensity: intensity, size: 0.5, mask: subject, tuning: tuning
+                intensity: intensity, size: 0.5, mask: union, perFace: perFace, tuning: tuning
             )
             output = source
             for face in faces {

@@ -21,10 +21,28 @@ import CoreImage
 /// **Without a mask it returns the frame untouched.** Per §1g the editor leaves the card live
 /// on a photo with no subject, and a live card must never render a broken frame.
 struct BigHeadEffect: FaceEffect {
+
+    /// One person's silhouette, addressable by where their face sits.
+    ///
+    /// `normCenter` is the face centre normalized to the mask's own image space (0…1, y-up),
+    /// which is what makes the match survive the preview's downsampling: the effect receives
+    /// faces already scaled into frame space, normalizes them by the frame, and compares in
+    /// unit space — no stored pixel coordinate can go stale. That indirection is the lesson of
+    /// the coordinate-trap regression (LEARNINGS 2026-08-19), applied instead of repeated.
+    struct PerFaceMask {
+        let normCenter: CGPoint
+        let mask: CIImage
+    }
+
     private let growth: CGFloat
     private let sizeScale: CGFloat
     private let mask: CIImage?
+    private let perFace: [PerFaceMask]
     private let tuning: HeadMaskTuning
+    /// Region cache shared across this effect's frames — a class, so it survives the struct
+    /// being copied, and per-effect rather than global so concurrent preview and export renders
+    /// never share a mutable dictionary.
+    private let regionBuilder = HeadRegionBuilder()
 
     /// - Parameters:
     ///   - intensity: how much the head grows — `1 + intensity² × tuning.growthMax` at full.
@@ -34,6 +52,7 @@ struct BigHeadEffect: FaceEffect {
     ///   - tuning: mask geometry. Defaults to the live store, so the lab's values apply
     ///     everywhere the effect is built without any call site knowing the lab exists.
     init(intensity: Double = 0.5, size: Double = 0.5, mask: CIImage? = nil,
+         perFace: [PerFaceMask] = [],
          tuning: HeadMaskTuning = HeadMaskTuningStore.shared.tuning) {
         self.growth = CGFloat(max(0, min(1, intensity)))
         // The ea96ce3 ellipse at slider position s spanned (2.3 + 1.5s) face-widths; the tuned
@@ -41,15 +60,15 @@ struct BigHeadEffect: FaceEffect {
         // position rendering exactly as the approved baseline did.
         self.sizeScale = CGFloat((2.3 + 1.5 * max(0, min(1, size))) / 3.05)
         self.mask = mask
+        self.perFace = perFace
         self.tuning = tuning
     }
 
     /// Same effect with the segmentation mask attached — the view model has it, the factory
     /// does not.
-    func withMask(_ mask: CIImage?) -> BigHeadEffect {
-        var copy = self
-        copy = BigHeadEffect(intensity: Double(growth), size: sliderPosition, mask: mask, tuning: tuning)
-        return copy
+    func withMask(_ mask: CIImage?, perFace: [PerFaceMask] = []) -> BigHeadEffect {
+        BigHeadEffect(intensity: Double(growth), size: sliderPosition, mask: mask,
+                      perFace: perFace, tuning: tuning)
     }
 
     /// Inverts `sizeScale` back to the slider position for `withMask`'s reconstruction.
@@ -68,8 +87,24 @@ struct BigHeadEffect: FaceEffect {
         subject: CIImage,
         extent: CGRect,
         tuning: HeadMaskTuning,
-        sizeScale: CGFloat = 1
+        sizeScale: CGFloat = 1,
+        regionBuilder: HeadRegionBuilder? = nil
     ) -> CIImage? {
+        // The jaw-region approach (user setting, 2026-08-20): bound the head below by the traced
+        // contour instead of ellipse + chin ramp. Gated on a real trace — animals and estimated
+        // faces carry synthetic 5-point contours and fall through to the ellipse path.
+        if tuning.useJawRegion, let builder = regionBuilder,
+           face.landmarkQuality == .precise,
+           face.faceContourPoints.count >= HeadRegionBuilder.minContourPoints,
+           let region = builder.region(for: face, coverage: 1.3, extent: extent) {
+            // The jaw cut *is* the chin cut here — no ramp on top, or the head loses its chin
+            // to a double fade.
+            return region
+                .applyingFilter("CIMultiplyCompositing", parameters: [
+                    kCIInputBackgroundImageKey: subject
+                ])
+                .cropped(to: extent)
+        }
         let fullW = face.faceWidth * CGFloat(tuning.ellipseWidth) * sizeScale
         let fullH = face.faceHeight * CGFloat(tuning.ellipseHeight) * sizeScale
         let centre = CGPoint(
@@ -136,10 +171,20 @@ struct BigHeadEffect: FaceEffect {
         let amount = growth * (progress * progress)
         guard amount > 0.01 else { return image }
 
-        let subjectInFrame = scaled(mask, to: extent)
+        // Person-mask approach: this face's own silhouette when one is available, matched in
+        // normalized space; the union otherwise. Off by default — the shared union is the
+        // approved baseline.
+        let chosen: CIImage
+        if tuning.usePersonMasks,
+           let nearest = nearestPerFaceMask(to: face, extent: extent) {
+            chosen = nearest
+        } else {
+            chosen = mask
+        }
+        let subjectInFrame = scaled(chosen, to: extent)
         guard let headMask = Self.headMask(
             for: face, subject: subjectInFrame, extent: extent,
-            tuning: tuning, sizeScale: sizeScale
+            tuning: tuning, sizeScale: sizeScale, regionBuilder: regionBuilder
         ) else { return image }
 
         let bounds = Self.ellipseBounds(for: face, tuning: tuning, sizeScale: sizeScale)
@@ -168,6 +213,25 @@ struct BigHeadEffect: FaceEffect {
                 kCIInputMaskImageKey: grownMask
             ])
             .cropped(to: extent)
+    }
+
+    /// The stored mask whose owner's face sits closest to `face`, compared in unit space so the
+    /// match is immune to the preview's downsampling. Rejects matches further than half the
+    /// frame apart — a mismatch that gross means the lists disagree, and the union is safer.
+    private func nearestPerFaceMask(to face: DetectedFace, extent: CGRect) -> CIImage? {
+        guard !perFace.isEmpty, extent.width > 0, extent.height > 0 else { return nil }
+        let target = CGPoint(
+            x: (face.faceCenter.x - extent.origin.x) / extent.width,
+            y: (face.faceCenter.y - extent.origin.y) / extent.height
+        )
+        let best = perFace.min {
+            hypot($0.normCenter.x - target.x, $0.normCenter.y - target.y) <
+            hypot($1.normCenter.x - target.x, $1.normCenter.y - target.y)
+        }
+        guard let best,
+              hypot(best.normCenter.x - target.x, best.normCenter.y - target.y) < 0.5
+        else { return nil }
+        return best.mask
     }
 
     /// Face effects run in source space, so this is normally a no-op — it exists because the

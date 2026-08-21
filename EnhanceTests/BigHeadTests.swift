@@ -150,6 +150,47 @@ struct BigHeadTests {
         #expect(builder.rasterCount == 1)
     }
 
+    /// The PERSON MASKS approach must grow each face from its *own* silhouette. Two faces,
+    /// two stub masks that cover opposite halves of the frame: with the approach on, the left
+    /// face's head must come from the left mask — asserted by the right face's half being
+    /// untouched when only the left face is applied.
+    @Test func personMaskApproach_picksTheOwnersMask() {
+        let side: CGFloat = 800
+        let source = CIImage(image: UIImage.checkerboard(side: side))!
+        let leftFace = makeFace(measuredAgainst: side, centre: CGPoint(x: 200, y: 400), width: 120)
+        let rightFace = makeFace(measuredAgainst: side, centre: CGPoint(x: 600, y: 400), width: 120)
+
+        let leftMask = CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: 400, height: 800))
+            .composited(over: CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: side, height: side)))
+        let rightMask = CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 400, height: 800))
+            .composited(over: CIImage(color: .white).cropped(to: CGRect(x: 0, y: 0, width: side, height: side)))
+
+        var tuning = HeadMaskTuning.default
+        tuning.usePersonMasks = true
+
+        let effect = BigHeadEffect(
+            intensity: 1.0, size: 0.5, mask: makeMask(side: side),
+            perFace: [
+                .init(normCenter: CGPoint(x: 0.25, y: 0.5), mask: leftMask),
+                .init(normCenter: CGPoint(x: 0.75, y: 0.5), mask: rightMask)
+            ],
+            tuning: tuning
+        )
+        let out = effect.apply(to: source, face: leftFace, progress: 1.0, frameIndex: 3)
+
+        // The left face grew (something changed near it)…
+        let leftProbe = CGRect(x: 120, y: 300, width: 160, height: 200)
+        #expect(difference(out.cropped(to: leftProbe), source.cropped(to: leftProbe),
+                           side: Int(side), bounds: leftProbe) > 0.5)
+        // …and the right half stayed untouched, which it would not if the left face had been
+        // grown from the union or from the right person's mask.
+        // Clear of the grown left head's reach: its ellipse edge (x≈383) scales about the
+        // pivot to ≈484 at full growth, so the probe starts at 540 with margin for feather.
+        let rightProbe = CGRect(x: 540, y: 200, width: 240, height: 400)
+        #expect(difference(out.cropped(to: rightProbe), source.cropped(to: rightProbe),
+                           side: Int(side), bounds: rightProbe) == 0)
+    }
+
     // MARK: - Stage 2: batch seam and the layered pass
 
     private func rgbAt(_ image: CIImage, x: Int, y: Int) -> (r: Double, g: Double, b: Double) {

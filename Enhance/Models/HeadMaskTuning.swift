@@ -39,6 +39,20 @@ struct HeadMaskTuning: Codable, Equatable {
     /// Length of the fade below the cut, × faceHeight. Smaller is a harder line.
     var chinFade: Double
 
+    // MARK: Approach *(added 2026-08-20, user's call — the person-instance path, revived from
+    // the parked work as lab-selectable settings rather than a rebuild)*
+
+    /// Per-person instance masks (`VNGeneratePersonInstanceMaskRequest`) instead of the shared
+    /// foreground union. Each face's head is cut from **that person's** silhouette, so a
+    /// neighbour's pixels cannot ride along — the measured limit is Vision's cap of four
+    /// instances, past which neighbours share a mask and degrade toward union behaviour.
+    var usePersonMasks: Bool
+
+    /// Bound the head region below by the **traced jaw** (Vision's `faceContour` landmarks,
+    /// dropped slightly below the trace) instead of the ellipse + chin ramp. Falls back to the
+    /// ellipse automatically for animals and estimated faces, whose contours are synthetic.
+    var useJawRegion: Bool
+
     // MARK: Growth (previewed in the lab so the mask is judged on the result, not the overlay)
 
     /// Extra scale at full intensity: final = 1 + intensity² × growthMax.
@@ -57,6 +71,8 @@ struct HeadMaskTuning: Codable, Equatable {
         feather: 0.35,
         chinCutOffset: -0.5,
         chinFade: 0.35,
+        usePersonMasks: false,
+        useJawRegion: false,
         growthMax: 0.55,
         pivotY: 0.30
     )
