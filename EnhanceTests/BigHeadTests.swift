@@ -100,29 +100,15 @@ struct BigHeadTests {
         #expect(difference(out, source, side: Int(side)) == 0)
     }
 
-    // MARK: - Stage 1: sizing, gating, range, raster cap, cache
-
-    /// The half-extent regression. With the corrected sizing, a point 1.5 face-widths from the
-    /// face centre lies outside any plausible head region, so the effect must leave it alone —
-    /// the buggy version's ellipse was ~2× too large and moved it.
-    @Test func contentFarFromTheFace_isUntouched() {
-        let side: CGFloat = 1000
-        let source = CIImage(image: UIImage.checkerboard(side: side))!
-        // .estimated → ellipse path, which is where the sizing bug lived.
-        let face = makeFace(measuredAgainst: side, centre: CGPoint(x: 500, y: 500), width: 200,
-                            quality: .estimated)
-        // Moderate intensity, deliberately: at full 3× the *enlarged* head legitimately
-        // reaches the probe. At 1.6× the corrected region's content stops ~60px short of it,
-        // while the buggy double-size region would carry checkerboard across it — which is the
-        // discrimination this test exists for.
-        let effect = BigHeadEffect(intensity: 0.3, size: 1.0, mask: makeMask(side: side))
-        let out = effect.apply(to: source, face: face, progress: 1.0, frameIndex: 7)
-
-        // Probe a 40px strip at x=800+ (1.5 face-widths from centre): identical to the source.
-        let region = CGRect(x: 820, y: 480, width: 40, height: 40)
-        #expect(difference(out.cropped(to: region), source.cropped(to: region),
-                           side: Int(side), bounds: region) == 0)
-    }
+    // MARK: - The baseline's own contract
+    //
+    // Two tests that used to live here — corrected ellipse sizing, and the 3× growth reach —
+    // are deliberately absent. The user chose the exact ea96ce3 baseline (2026-08-20), which
+    // predates both changes: its ellipse uses face extents as half-extents (larger than
+    // intended, takes neck with it) and growth caps at 1.55×. Those are recorded as known
+    // quirks of the chosen baseline on ROADMAP §2a, not regressions — do not "fix" them here
+    // without a render the user has approved, and do not resurrect the removed tests while the
+    // baseline stands.
 
     /// The effect must not read the contour at all — the traced-jaw path is parked (§2a), so a
     /// rich contour and a sparse synthetic one must render identically at any quality.
@@ -141,24 +127,6 @@ struct BigHeadTests {
             .apply(to: source, face: sparse, progress: 1.0, frameIndex: 3)
 
         #expect(difference(a, b, side: Int(side)) == 0)
-    }
-
-    /// The 3× range: at full intensity, head content reaches a probe point that 1.55× (the old
-    /// ceiling) could not have moved anything into.
-    @Test func fullIntensity_reachesBeyondTheOldCeiling() {
-        let side: CGFloat = 1000
-        let source = CIImage(image: UIImage.checkerboard(side: side))!
-        let face = makeFace(measuredAgainst: side, centre: CGPoint(x: 500, y: 500), width: 200,
-                            quality: .precise)
-        let effect = BigHeadEffect(intensity: 1.0, size: 0.5, mask: makeMask(side: side))
-        let out = effect.apply(to: source, face: face, progress: 1.0, frameIndex: 7)
-
-        // The pivot sits ~474 in image space. At 3×, content originally ~155px above the pivot
-        // lands ~465 above it; at 1.55× nothing above ~300 moves past 465. Probe a strip around
-        // y=940 (in image space, near the top): it must differ from the source.
-        let region = CGRect(x: 430, y: 900, width: 140, height: 60)
-        #expect(difference(out.cropped(to: region), source.cropped(to: region),
-                           side: Int(side), bounds: region) > 0.5)
     }
 
     /// HeadRegionBuilder is parked (§2a) but stays compiled per the retired-effects
