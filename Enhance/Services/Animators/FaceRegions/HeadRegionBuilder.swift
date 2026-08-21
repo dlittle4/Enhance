@@ -60,16 +60,18 @@ final class HeadRegionBuilder {
     ///   is cut at the midline between them. Per-person-mask faces never pass this.
     func region(
         for face: DetectedFace, coverage: CGFloat, extent: CGRect,
-        xBounds: ClosedRange<CGFloat>? = nil
+        xBounds: ClosedRange<CGFloat>? = nil,
+        jawDrop: CGFloat = 0.12, jawFeather: CGFloat = 0.08
     ) -> CIImage? {
         guard extent.width > 1, extent.height > 1 else { return nil }
 
         let key = cacheKey(for: face, coverage: coverage, extent: extent, xBounds: xBounds)
+            + "|d\(Int(jawDrop * 100))f\(Int(jawFeather * 100))"
         if let cached = cache[key] { return cached }
 
         var built: CIImage?
         if face.landmarkQuality == .precise, face.faceContourPoints.count >= Self.minContourPoints {
-            built = jawCutRegion(for: face, extent: extent)
+            built = jawCutRegion(for: face, extent: extent, jawDrop: jawDrop, jawFeather: jawFeather)
         } else {
             built = ellipseRegion(for: face, coverage: coverage, extent: extent)
         }
@@ -93,7 +95,9 @@ final class HeadRegionBuilder {
 
     // MARK: - Traced jaw
 
-    private func jawCutRegion(for face: DetectedFace, extent: CGRect) -> CIImage? {
+    private func jawCutRegion(
+        for face: DetectedFace, extent: CGRect, jawDrop: CGFloat, jawFeather: CGFloat
+    ) -> CIImage? {
         let scale = Self.rasterScale(for: extent)
         let w = max(2, Int((extent.width * scale).rounded()))
         let h = max(2, Int((extent.height * scale).rounded()))
@@ -123,7 +127,7 @@ final class HeadRegionBuilder {
         // cut off, an artificial line around the jaw). The cut is therefore pushed ~12% of a
         // face-height *below* the trace: under the chin and ear lobes, where the seam hides in
         // the neck, while ears and everything above stay inside the region.
-        let drop = face.faceHeight * scale * 0.12
+        let drop = face.faceHeight * scale * jawDrop
         var jaw = face.faceContourPoints.map(draw).map { CGPoint(x: $0.x, y: $0.y + drop) }
         guard jaw.count >= 2 else { return nil }
         if let f = jaw.first, let l = jaw.last, f.x > l.x { jaw.reverse() }
@@ -162,7 +166,7 @@ final class HeadRegionBuilder {
         // The jaw cut is the only seam, and it should read as a fade into the neck rather
         // than a knife line. Clamped first: an unclamped blur samples the void past the frame
         // edge and fades the region exactly where a tightly framed crown needs it solid.
-        let featherRadius = max(2, face.faceWidth * scale * 0.08)
+        let featherRadius = max(2, face.faceWidth * scale * jawFeather)
         return CIImage(cgImage: cg)
             .clampedToExtent()
             .applyingFilter("CIGaussianBlur", parameters: [kCIInputRadiusKey: featherRadius])

@@ -21,6 +21,9 @@ struct HeadMaskTuningTests {
         // The approved chin cut: face-box bottom edge, fading over a third of a face-height.
         #expect(d.chinCutOffset == -0.5)
         #expect(d.chinFade == 0.35)
+        // The jaw approach's own numbers, matching what was hardcoded before they were exposed.
+        #expect(d.jawDrop == 0.12)
+        #expect(d.jawFeather == 0.08)
         // ea96ce3's growth ceiling and pivot.
         #expect(d.growthMax == 0.55)
         #expect(d.pivotY == 0.30)

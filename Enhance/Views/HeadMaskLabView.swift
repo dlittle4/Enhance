@@ -180,6 +180,12 @@ struct HeadMaskLabView: View {
                       hint: "per-person instance mask instead of the shared union")
             labToggle("JAW REGION", isOn: $store.tuning.useJawRegion,
                       hint: "bound below by traced facial landmarks; ellipse for animals")
+            if store.tuning.useJawRegion {
+                labSlider("JAW DROP", value: $store.tuning.jawDrop, in: 0.0...0.4,
+                          hint: "cut below the trace, × face height — 0 cuts on the trace")
+                labSlider("JAW FEATHER", value: $store.tuning.jawFeather, in: 0.01...0.3,
+                          hint: "seam softness, × face width")
+            }
         }
     }
 

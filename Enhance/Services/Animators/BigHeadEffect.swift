@@ -96,7 +96,10 @@ struct BigHeadEffect: FaceEffect {
         if tuning.useJawRegion, let builder = regionBuilder,
            face.landmarkQuality == .precise,
            face.faceContourPoints.count >= HeadRegionBuilder.minContourPoints,
-           let region = builder.region(for: face, coverage: 1.3, extent: extent) {
+           let region = builder.region(
+               for: face, coverage: 1.3, extent: extent,
+               jawDrop: CGFloat(tuning.jawDrop), jawFeather: CGFloat(tuning.jawFeather)
+           ) {
             // The jaw cut *is* the chin cut here — no ramp on top, or the head loses its chin
             // to a double fade.
             return region

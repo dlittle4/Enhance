@@ -53,6 +53,15 @@ struct HeadMaskTuning: Codable, Equatable {
     /// ellipse automatically for animals and estimated faces, whose contours are synthetic.
     var useJawRegion: Bool
 
+    /// How far below the traced jaw the cut sits, × faceHeight. Vision traces the face oval —
+    /// cheeks, not the anatomical jaw — so a cut on the trace clips ears and draws a seam along
+    /// the face; dropping it hides the seam under the chin. 0 cuts on the trace itself.
+    var jawDrop: Double
+
+    /// Softness of the jaw seam, × faceWidth. Small is a knife line, large dissolves into the
+    /// neck.
+    var jawFeather: Double
+
     // MARK: Growth (previewed in the lab so the mask is judged on the result, not the overlay)
 
     /// Extra scale at full intensity: final = 1 + intensity² × growthMax.
@@ -73,6 +82,8 @@ struct HeadMaskTuning: Codable, Equatable {
         chinFade: 0.35,
         usePersonMasks: false,
         useJawRegion: false,
+        jawDrop: 0.12,
+        jawFeather: 0.08,
         growthMax: 0.55,
         pivotY: 0.30
     )
