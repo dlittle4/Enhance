@@ -70,11 +70,32 @@ struct BigHeadEffect: FaceEffect {
 
         // Intersect: subject AND head-region. Multiply blend on two masks is the intersection,
         // and it keeps the ellipse's feather at the neck while the silhouette stays crisp.
-        let headMask = ellipse
+        var headMask = ellipse
             .applyingFilter("CIMultiplyCompositing", parameters: [
                 kCIInputBackgroundImageKey: subjectInFrame
             ])
             .cropped(to: extent)
+
+        // **The chin cut** *(user tweak, 2026-08-20: "mask around the chin a bit better, or
+        // maybe the neck")*. The oversized ellipse reaches well below the chin, so the grown
+        // copy carried neck and collar with it. Rather than reshaping the ellipse — whose look
+        // above the chin is the approved baseline — a vertical ramp fades the region out just
+        // under the chin: solid above the face box's bottom edge, gone a third of a face-height
+        // below it. Everything above the chin renders exactly as before.
+        let chinY = face.faceCenter.y - face.faceHeight * 0.5
+        let fade = max(4, face.faceHeight * 0.35)
+        if let ramp = CIFilter(name: "CILinearGradient", parameters: [
+            "inputPoint0": CIVector(x: extent.midX, y: chinY - fade),
+            "inputPoint1": CIVector(x: extent.midX, y: chinY),
+            "inputColor0": CIColor(red: 0, green: 0, blue: 0, alpha: 1),
+            "inputColor1": CIColor(red: 1, green: 1, blue: 1, alpha: 1)
+        ])?.outputImage {
+            headMask = headMask
+                .applyingFilter("CIMultiplyCompositing", parameters: [
+                    kCIInputBackgroundImageKey: ramp.cropped(to: extent)
+                ])
+                .cropped(to: extent)
+        }
 
         // Pin the bottom of the head so it grows upward and outward off the neck.
         // 0.30, not 0.18. Anchoring at the very bottom sent almost all the growth upward, and
