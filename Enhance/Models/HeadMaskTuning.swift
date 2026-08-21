@@ -94,6 +94,13 @@ struct HeadMaskTuning: Codable, Equatable {
         case portraitMatte
     }
 
+    /// Intersect the region with the segmentation silhouette. **On is the shipped behaviour.**
+    /// Off is the classic cheap big-head: the feathered region cut straight from the photo,
+    /// background and all — it can never miss a hat, works on any subject, and carries a
+    /// smeared disc of background that only shows on busy scenes. Exposed (user's call,
+    /// 2026-08-20) so the eleven-photo walk can judge where the classic look holds up.
+    var useSilhouette: Bool
+
     // MARK: Auto fit *(2026-08-20 — derive per-photo geometry instead of tuning it)*
 
     /// Derive the chin cut and ellipse height per face from the silhouette itself:
@@ -129,6 +136,7 @@ struct HeadMaskTuning: Codable, Equatable {
         followPose: false,
         yawShift: 0.35,
         unionSource: .foreground,
+        useSilhouette: true,
         autoFit: false,
         growthMax: 0.55,
         pivotY: 0.30

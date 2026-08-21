@@ -118,6 +118,7 @@ struct BigHeadEffect: FaceEffect {
            ) {
             // The jaw cut *is* the chin cut here — no ramp on top, or the head loses its chin
             // to a double fade.
+            guard tuning.useSilhouette else { return region }
             return region
                 .applyingFilter("CIMultiplyCompositing", parameters: [
                     kCIInputBackgroundImageKey: subject
@@ -151,12 +152,15 @@ struct BigHeadEffect: FaceEffect {
         else { return nil }
 
         // Intersect: subject AND head-region. Multiply blend on two masks is the intersection,
-        // keeping the ellipse's feather while the silhouette stays crisp.
-        var headMask = ellipse
-            .applyingFilter("CIMultiplyCompositing", parameters: [
-                kCIInputBackgroundImageKey: subject
-            ])
-            .cropped(to: extent)
+        // keeping the ellipse's feather while the silhouette stays crisp. With SILHOUETTE off
+        // the region alone is the mask — the classic box/ellipse cutout, background included.
+        var headMask = tuning.useSilhouette
+            ? ellipse
+                .applyingFilter("CIMultiplyCompositing", parameters: [
+                    kCIInputBackgroundImageKey: subject
+                ])
+                .cropped(to: extent)
+            : ellipse.cropped(to: extent)
 
         // The chin cut: a vertical ramp, solid above the cut line, gone `chinFade` below it,
         // so the grown copy stops carrying neck and collar.
