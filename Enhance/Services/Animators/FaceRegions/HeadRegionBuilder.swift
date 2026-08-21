@@ -61,17 +61,19 @@ final class HeadRegionBuilder {
     func region(
         for face: DetectedFace, coverage: CGFloat, extent: CGRect,
         xBounds: ClosedRange<CGFloat>? = nil,
-        jawDrop: CGFloat = 0.12, jawFeather: CGFloat = 0.08
+        jawDrop: CGFloat = 0.12, jawFeather: CGFloat = 0.08,
+        jawHalfWidth: CGFloat = 2.2, xShift: CGFloat = 0
     ) -> CIImage? {
         guard extent.width > 1, extent.height > 1 else { return nil }
 
         let key = cacheKey(for: face, coverage: coverage, extent: extent, xBounds: xBounds)
-            + "|d\(Int(jawDrop * 100))f\(Int(jawFeather * 100))"
+            + "|d\(Int(jawDrop * 100))f\(Int(jawFeather * 100))w\(Int(jawHalfWidth * 100))x\(Int(xShift))"
         if let cached = cache[key] { return cached }
 
         var built: CIImage?
         if face.landmarkQuality == .precise, face.faceContourPoints.count >= Self.minContourPoints {
-            built = jawCutRegion(for: face, extent: extent, jawDrop: jawDrop, jawFeather: jawFeather)
+            built = jawCutRegion(for: face, extent: extent, jawDrop: jawDrop,
+                                 jawFeather: jawFeather, jawHalfWidth: jawHalfWidth, xShift: xShift)
         } else {
             built = ellipseRegion(for: face, coverage: coverage, extent: extent)
         }
@@ -96,7 +98,8 @@ final class HeadRegionBuilder {
     // MARK: - Traced jaw
 
     private func jawCutRegion(
-        for face: DetectedFace, extent: CGRect, jawDrop: CGFloat, jawFeather: CGFloat
+        for face: DetectedFace, extent: CGRect, jawDrop: CGFloat, jawFeather: CGFloat,
+        jawHalfWidth: CGFloat, xShift: CGFloat
     ) -> CIImage? {
         let scale = Self.rasterScale(for: extent)
         let w = max(2, Int((extent.width * scale).rounded()))
@@ -138,9 +141,10 @@ final class HeadRegionBuilder {
         // the separating). It exists for the shared-mask case: past Vision's 4-instance cap a
         // mask covers several people, and a frame-wide region grown once per face duplicated
         // every face and torso in the shared silhouette across the photo.
-        let bound = face.faceWidth * scale * 2.2
-        let leftX = max(-1, min(first.x, last.x) - bound + (last.x - first.x) * 0.5)
-        let rightX = min(CGFloat(w) + 1, max(first.x, last.x) + bound - (last.x - first.x) * 0.5)
+        let bound = face.faceWidth * scale * jawHalfWidth
+        let shift = xShift * scale
+        let leftX = max(-1, min(first.x, last.x) - bound + (last.x - first.x) * 0.5 + shift)
+        let rightX = min(CGFloat(w) + 1, max(first.x, last.x) + bound - (last.x - first.x) * 0.5 + shift)
 
         // From each jaw endpoint the cut continues *downward-outward* (~25°) to the bound,
         // rather than flat at ear level: hair that hangs below the ears — a bun, a bob —

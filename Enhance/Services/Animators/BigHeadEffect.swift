@@ -92,13 +92,22 @@ struct BigHeadEffect: FaceEffect {
     ) -> CIImage? {
         // The jaw-region approach (user setting, 2026-08-20): bound the head below by the traced
         // contour instead of ellipse + chin ramp. Gated on a real trace — animals and estimated
-        // faces carry synthetic 5-point contours and fall through to the ellipse path.
-        if tuning.useJawRegion, let builder = regionBuilder,
+        // faces carry synthetic 5-point contours and **fall through to the tuned ellipse path
+        // below**, not to a private duplicate: an earlier version passed the builder its own
+        // hardcoded coverage here, which silently ignored the WIDTH/HEIGHT sliders and REACH for
+        // exactly the faces most likely to need them.
+        if tuning.useJawRegion,
            face.landmarkQuality == .precise,
            face.faceContourPoints.count >= HeadRegionBuilder.minContourPoints,
+           let builder = regionBuilder,
            let region = builder.region(
                for: face, coverage: 1.3, extent: extent,
-               jawDrop: CGFloat(tuning.jawDrop), jawFeather: CGFloat(tuning.jawFeather)
+               // REACH scales the jaw region exactly as it scales the ellipse, so the slider
+               // keeps one meaning across modes. Yaw shifts the side bound toward the back of
+               // the head — the skull a profile's symmetric bound cannot reach.
+               jawDrop: CGFloat(tuning.jawDrop), jawFeather: CGFloat(tuning.jawFeather),
+               jawHalfWidth: CGFloat(tuning.jawWidth) * sizeScale,
+               xShift: yawShift(for: face, tuning: tuning)
            ) {
             // The jaw cut *is* the chin cut here — no ramp on top, or the head loses its chin
             // to a double fade.
@@ -111,7 +120,9 @@ struct BigHeadEffect: FaceEffect {
         let fullW = face.faceWidth * CGFloat(tuning.ellipseWidth) * sizeScale
         let fullH = face.faceHeight * CGFloat(tuning.ellipseHeight) * sizeScale
         let centre = CGPoint(
-            x: face.faceCenter.x,
+            // Yaw pushes the ellipse toward the back of a turned head — the skull extends
+            // behind the face, and a centred ellipse can only reach it by growing everywhere.
+            x: face.faceCenter.x + yawShift(for: face, tuning: tuning),
             y: face.faceCenter.y + face.faceHeight * CGFloat(tuning.centerYOffset)
         )
         let bounds = CGRect(
@@ -147,7 +158,31 @@ struct BigHeadEffect: FaceEffect {
                 ])
                 .cropped(to: extent)
         }
+
+        // FOLLOW POSE: rotate the whole ellipse+ramp geometry with the head's roll, about the
+        // face centre. Only here — the traced jaw needs no help, its points already tilt with
+        // the face. The subject intersection happens before this rotation, which is wrong in
+        // principle (the silhouette should not rotate) — in practice the silhouette is
+        // rotation-symmetric enough near the head that re-intersecting is not worth a second
+        // multiply; judge it in the lab before promoting.
+        if tuning.followPose, abs(face.roll) > 0.02 {
+            let c = face.faceCenter
+            let rotate = CGAffineTransform(translationX: -c.x, y: -c.y)
+                .concatenating(CGAffineTransform(rotationAngle: CGFloat(face.roll)))
+                .concatenating(CGAffineTransform(translationX: c.x, y: c.y))
+            headMask = headMask.transformed(by: rotate).cropped(to: extent)
+        }
         return headMask
+    }
+
+    /// The sideways push yaw gives the mask, in frame points. Sign follows Vision's convention
+    /// (positive yaw = head turned toward its left); **if the lab shows the shift landing on the
+    /// face side rather than the skull side, negate here once** — the overlay makes the check a
+    /// two-second look.
+    private static func yawShift(for face: DetectedFace, tuning: HeadMaskTuning) -> CGFloat {
+        guard tuning.followPose else { return 0 }
+        let normalised = max(-1, min(1, face.yaw / (Double.pi / 2)))
+        return CGFloat(normalised * tuning.yawShift) * face.faceWidth
     }
 
     /// The ellipse bounds for `face` under `tuning` — the lab draws them as a guide.
@@ -190,13 +225,27 @@ struct BigHeadEffect: FaceEffect {
             tuning: tuning, sizeScale: sizeScale, regionBuilder: regionBuilder
         ) else { return image }
 
-        let bounds = Self.ellipseBounds(for: face, tuning: tuning, sizeScale: sizeScale)
-        // Pin low in the ellipse so the head grows upward and outward off the neck — but not at
-        // the very bottom, which sends all growth upward and clips a tightly framed crown.
-        let pivot = CGPoint(
-            x: face.faceCenter.x,
-            y: bounds.minY + bounds.height * CGFloat(tuning.pivotY)
-        )
+        // Pin low in the head so it grows upward and outward off the neck — but not at the
+        // very bottom, which sends all growth upward and clips a tightly framed crown.
+        // **Each mode pivots on its own geometry.** The ellipse path pivots in the ellipse's
+        // bounds; the jaw path pivots just under its traced cut — an earlier version pivoted the
+        // jaw mode on the ellipse bounds, which meant the "inert" ellipse sliders silently moved
+        // where a jaw-mode head grew from.
+        let pivot: CGPoint
+        if tuning.useJawRegion,
+           face.landmarkQuality == .precise,
+           face.faceContourPoints.count >= HeadRegionBuilder.minContourPoints,
+           let jawLowY = face.faceContourPoints.map(\.y).min() {
+            let cut = jawLowY - face.faceHeight * CGFloat(tuning.jawDrop)
+            let headSpan = face.faceHeight * 2.4
+            pivot = CGPoint(x: face.faceCenter.x, y: cut + headSpan * CGFloat(tuning.pivotY) - headSpan * 0.3)
+        } else {
+            let bounds = Self.ellipseBounds(for: face, tuning: tuning, sizeScale: sizeScale)
+            pivot = CGPoint(
+                x: face.faceCenter.x,
+                y: bounds.minY + bounds.height * CGFloat(tuning.pivotY)
+            )
+        }
         let scale = 1 + amount * CGFloat(tuning.growthMax)
         let transform = CGAffineTransform(translationX: -pivot.x, y: -pivot.y)
             .concatenating(CGAffineTransform(scaleX: scale, y: scale))

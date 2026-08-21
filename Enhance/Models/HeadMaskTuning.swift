@@ -62,6 +62,33 @@ struct HeadMaskTuning: Codable, Equatable {
     /// neck.
     var jawFeather: Double
 
+    /// Half-width of the jaw region, × faceWidth — how much hair and hat it admits sideways.
+    /// Scaled by REACH like the ellipse, so the slider means the same thing in both modes.
+    var jawWidth: Double
+
+    // MARK: Head pose *(2026-08-20, user's call)*
+
+    /// Rotate the mask geometry with the head's roll, and shift it sideways with yaw, using the
+    /// pose angles Vision reports on the same observation the landmarks come from. Ellipse and
+    /// chin ramp only — the traced jaw already follows the head, because its points do.
+    var followPose: Bool
+
+    /// How far yaw pushes the ellipse toward the back of the head, × faceWidth at full profile.
+    /// The skull extends behind the face; a symmetric ellipse cannot reach it on a turned head.
+    var yawShift: Double
+
+    /// Which request supplies the shared subject silhouette in the lab.
+    /// `.foreground` is the shipped path (any subject, incl. animals); `.personAccurate` is
+    /// `VNGeneratePersonSegmentationRequest` at `.accurate`, whose soft confidence matte has
+    /// noticeably better hair edges but sees only people. Lab-only until graduated: the app's
+    /// other subject effects (ECHO, BACKGROUND ONLY) stay on foreground regardless.
+    var unionSource: UnionSource
+
+    enum UnionSource: String, Codable, Equatable {
+        case foreground
+        case personAccurate
+    }
+
     // MARK: Growth (previewed in the lab so the mask is judged on the result, not the overlay)
 
     /// Extra scale at full intensity: final = 1 + intensity² × growthMax.
@@ -84,6 +111,10 @@ struct HeadMaskTuning: Codable, Equatable {
         useJawRegion: false,
         jawDrop: 0.12,
         jawFeather: 0.08,
+        jawWidth: 2.2,
+        followPose: false,
+        yawShift: 0.35,
+        unionSource: .foreground,
         growthMax: 0.55,
         pivotY: 0.30
     )

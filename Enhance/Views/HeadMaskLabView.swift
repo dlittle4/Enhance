@@ -71,8 +71,12 @@ struct HeadMaskLabView: View {
                         approachToggles
                         divider
                         ellipseSliders
+                            .disabled(store.tuning.useJawRegion)
+                            .opacity(store.tuning.useJawRegion ? 0.35 : 1)
                         divider
                         chinSliders
+                            .disabled(store.tuning.useJawRegion)
+                            .opacity(store.tuning.useJawRegion ? 0.35 : 1)
                         divider
                         growthSliders
                         divider
@@ -185,7 +189,19 @@ struct HeadMaskLabView: View {
                           hint: "cut below the trace, × face height — 0 cuts on the trace")
                 labSlider("JAW FEATHER", value: $store.tuning.jawFeather, in: 0.01...0.3,
                           hint: "seam softness, × face width")
+                labSlider("JAW WIDTH", value: $store.tuning.jawWidth, in: 0.8...4.0,
+                          hint: "side reach, × face width — how much hair and hat it admits")
             }
+            labToggle("FOLLOW POSE", isOn: $store.tuning.followPose,
+                      hint: "rotate with head roll; shift with yaw (ellipse mode)")
+            if store.tuning.followPose {
+                labSlider("YAW SHIFT", value: $store.tuning.yawShift, in: 0.0...1.0,
+                          hint: "push toward the back of a turned head, × face width at profile")
+            }
+            labToggle("ACCURATE PERSON MATTE", isOn: Binding(
+                get: { store.tuning.unionSource == .personAccurate },
+                set: { store.tuning.unionSource = $0 ? .personAccurate : .foreground }
+            ), hint: "person-segmentation .accurate — softer hair edges, people only")
         }
     }
 
@@ -342,7 +358,9 @@ struct HeadMaskLabView: View {
             }
             let image = UIImage(cgImage: cg)
             let detected = await faceService.detectFaces(in: image)
-            let mask = await segmentationService.subjectMask(for: image)
+            let mask = (try? segmentationService.subjectMask(
+                for: image, source: store.tuning.unionSource
+            )) ?? nil
             // Fetched unconditionally: one warm request (~15ms) per photo, and having them on
             // hand makes the PERSON MASKS toggle instant rather than a second loading state.
             let person = await segmentationService.personMasks(

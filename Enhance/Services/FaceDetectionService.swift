@@ -63,6 +63,10 @@ final class FaceDetectionService {
     /// and partially occluded faces that landmarks miss.
     private func detectWithLandmarks(cgImage: CGImage, orientation: CGImagePropertyOrientation, imageWidth: CGFloat, imageHeight: CGFloat) -> [DetectedFace]? {
         let landmarkRequest = VNDetectFaceLandmarksRequest()
+        // The 76-point constellation (revision 3) traces the jaw far more densely than the
+        // 65-point default — raw material for the jaw region. User's call, 2026-08-20.
+        landmarkRequest.revision = VNDetectFaceLandmarksRequestRevision3
+        landmarkRequest.constellation = .constellation76Points
         let rectRequest = VNDetectFaceRectanglesRequest()
         let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
 
@@ -629,7 +633,10 @@ final class FaceDetectionService {
             leftEyeWidth: leftEyeW, rightEyeWidth: rightEyeW,
             leftEyebrowPoints: leftBrow, rightEyebrowPoints: rightBrow,
             faceContourPoints: contour, normalizedBoundingBox: bb,
-            regions: regions, landmarkQuality: .precise
+            regions: regions, landmarkQuality: .precise,
+            roll: obs.roll?.doubleValue ?? 0,
+            yaw: obs.yaw?.doubleValue ?? 0,
+            pitch: obs.pitch?.doubleValue ?? 0
         )
     }
 

@@ -65,6 +65,8 @@ final class SubjectSegmentationService {
 
     private var cachedImageHash: Int?
     private var cachedMask: CIImage??
+    private var cachedAccurateHash: Int?
+    private var cachedAccurateMask: CIImage??
 
     /// How many real segmentation passes have run. The cache's whole job is to keep this
     /// near one per photo, and counting is the only way to assert that without timing —
@@ -100,6 +102,48 @@ final class SubjectSegmentationService {
         let mask = scaled(raw, toMatch: image)
         cache(mask, for: hash)
         return mask
+    }
+
+    /// `VNGeneratePersonSegmentationRequest` at `.accurate` — a soft confidence matte with
+    /// better hair edges than the instance masks, people-only. The lab's alternative union
+    /// source (user's call, 2026-08-20); a photo with no people yields an empty matte, which
+    /// coverage-checks as "no subject" downstream rather than throwing.
+    static func personAccurateUnionProvider(
+        cgImage: CGImage,
+        orientation: CGImagePropertyOrientation
+    ) throws -> CIImage? {
+        let request = VNGeneratePersonSegmentationRequest()
+        request.qualityLevel = .accurate
+        let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
+        do {
+            try handler.perform([request])
+        } catch {
+            throw Failure.visionFailed(error)
+        }
+        guard let buffer = request.results?.first?.pixelBuffer else { return nil }
+        return CIImage(cvPixelBuffer: buffer)
+    }
+
+    /// The union mask via a caller-chosen source. `.foreground` is the cached shipped path;
+    /// `.personAccurate` runs its own request and keeps its own single-slot cache, so flipping
+    /// the lab toggle back and forth costs one segmentation per source, not per flip.
+    func subjectMask(for image: UIImage, source: HeadMaskTuning.UnionSource) throws -> CIImage? {
+        switch source {
+        case .foreground:
+            return try subjectMaskOrThrow(for: image)
+        case .personAccurate:
+            let hash = image.hashValue
+            if hash == cachedAccurateHash, let cached = cachedAccurateMask { return cached }
+            guard let cgImage = image.cgImage else { throw Failure.noCGImage }
+            segmentationCount += 1
+            let raw = try Self.personAccurateUnionProvider(
+                cgImage: cgImage, orientation: visionOrientation(from: image)
+            )
+            let mask = raw.map { scaled($0, toMatch: image) }
+            cachedAccurateHash = hash
+            cachedAccurateMask = .some(mask)
+            return mask
+        }
     }
 
     /// The real Vision path. Returns `nil` for "no subject", throws for genuine failure.
@@ -337,6 +381,8 @@ final class SubjectSegmentationService {
     func clearCache() {
         cachedImageHash = nil
         cachedMask = nil
+        cachedAccurateHash = nil
+        cachedAccurateMask = nil
         cachedPersonHash = nil
         cachedPersonSegmentation = nil
     }

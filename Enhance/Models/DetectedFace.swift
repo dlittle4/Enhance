@@ -65,6 +65,14 @@ struct DetectedFace: Identifiable {
     /// `.estimated`, the honest answer for every path that does not set it.
     var landmarkQuality: LandmarkQuality = .estimated
 
+    /// Head pose in radians, from `VNFaceObservation` — 0 when the detector provides none
+    /// (animals, CIDetector, estimated paths). Angles are scale-invariant, so `scaled()`
+    /// carries them through untouched; dropping them there would silently disable pose-following
+    /// in the preview, whose faces are always scaled copies.
+    var roll: Double = 0
+    var yaw: Double = 0
+    var pitch: Double = 0
+
     /// Landmark coordinates scaled to a differently-sized copy of the same image.
     ///
     /// Detection runs against the full-size source, but effects are applied to
@@ -94,7 +102,8 @@ struct DetectedFace: Identifiable {
             faceContourPoints: faceContourPoints.map { CGPoint(x: $0.x * scaleX, y: $0.y * scaleY) },
             normalizedBoundingBox: normalizedBoundingBox,
             regions: regions.scaled(x: scaleX, y: scaleY),
-            landmarkQuality: landmarkQuality
+            landmarkQuality: landmarkQuality,
+            roll: roll, yaw: yaw, pitch: pitch
         )
     }
 }
