@@ -87,7 +87,21 @@ struct HeadMaskTuning: Codable, Equatable {
     enum UnionSource: String, Codable, Equatable {
         case foreground
         case personAccurate
+        /// The hair+skin mattes Portrait-mode photos embed in the file (iOS 13+,
+        /// `AVSemanticSegmentationMatte`). The best head boundary available anywhere when
+        /// present; absent from ordinary photos, so the lab falls back to foreground and says
+        /// so. Lab-only, like `.personAccurate`.
+        case portraitMatte
     }
+
+    // MARK: Auto fit *(2026-08-20 — derive per-photo geometry instead of tuning it)*
+
+    /// Derive the chin cut and ellipse height per face from the silhouette itself:
+    /// neck = the narrowest mask row below the chin, crown = the highest row that still reads
+    /// as head (`HeadGeometryScanner`). The sliders' job shifts from positions to fallbacks —
+    /// they apply unchanged wherever the scan finds nothing. Ellipse mode only; the traced jaw
+    /// already measures its own bottom.
+    var autoFit: Bool
 
     // MARK: Growth (previewed in the lab so the mask is judged on the result, not the overlay)
 
@@ -115,6 +129,7 @@ struct HeadMaskTuning: Codable, Equatable {
         followPose: false,
         yawShift: 0.35,
         unionSource: .foreground,
+        autoFit: false,
         growthMax: 0.55,
         pivotY: 0.30
     )

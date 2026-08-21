@@ -198,10 +198,16 @@ struct HeadMaskLabView: View {
                 labSlider("YAW SHIFT", value: $store.tuning.yawShift, in: 0.0...1.0,
                           hint: "push toward the back of a turned head, × face width at profile")
             }
+            labToggle("AUTO FIT", isOn: $store.tuning.autoFit,
+                      hint: "derive chin cut + ellipse from the silhouette: neck = narrowest row, crown = highest")
             labToggle("ACCURATE PERSON MATTE", isOn: Binding(
                 get: { store.tuning.unionSource == .personAccurate },
                 set: { store.tuning.unionSource = $0 ? .personAccurate : .foreground }
             ), hint: "person-segmentation .accurate — softer hair edges, people only")
+            labToggle("PORTRAIT MATTE", isOn: Binding(
+                get: { store.tuning.unionSource == .portraitMatte },
+                set: { store.tuning.unionSource = $0 ? .portraitMatte : .foreground }
+            ), hint: "the hair+skin mattes Portrait photos embed — best edges anywhere, when present")
         }
     }
 
@@ -358,8 +364,26 @@ struct HeadMaskLabView: View {
             }
             let image = UIImage(cgImage: cg)
             let detected = await faceService.detectFaces(in: image)
-            let mask = (try? segmentationService.subjectMask(
-                for: image, source: store.tuning.unionSource
+            // PORTRAIT MATTE: hair+skin auxiliary mattes straight from the file, when the photo
+            // carries them (Portrait mode embeds them; ordinary photos do not). Scaled to the
+            // working copy by the union path's own rescale later.
+            var portraitUnion: CIImage? = nil
+            if store.tuning.unionSource == .portraitMatte {
+                let hair = CIImage(contentsOf: url, options: [.auxiliarySemanticSegmentationHairMatte: true])
+                let skin = CIImage(contentsOf: url, options: [.auxiliarySemanticSegmentationSkinMatte: true])
+                switch (hair, skin) {
+                case let (h?, sk?):
+                    portraitUnion = h.applyingFilter("CIMaximumCompositing", parameters: [
+                        kCIInputBackgroundImageKey: sk.cropped(to: h.extent.union(sk.extent))
+                    ])
+                case let (h?, nil): portraitUnion = h
+                case let (nil, sk?): portraitUnion = sk
+                case (nil, nil): break
+                }
+            }
+            let mask = portraitUnion ?? (try? segmentationService.subjectMask(
+                for: image, source: store.tuning.unionSource == .portraitMatte
+                    ? .foreground : store.tuning.unionSource
             )) ?? nil
             // Fetched unconditionally: one warm request (~15ms) per photo, and having them on
             // hand makes the PERSON MASKS toggle instant rather than a second loading state.
@@ -421,9 +445,16 @@ struct HeadMaskLabView: View {
                 kCIInputSaturationKey: 0.35, kCIInputBrightnessKey: -0.08
             ])
             for (i, face) in faces.enumerated() {
+                // AUTO FIT's inputs for the overlay: scan the same silhouette the mask will
+                // intersect, so what is shown is what the effect computes.
+                let derived = HeadGeometryScanner.scan(
+                    mask: subject(for: i), face: face, context: Self.renderContext
+                )
                 guard let mask = BigHeadEffect.headMask(
                     for: face, subject: subject(for: i), extent: extent, tuning: tuning,
-                    regionBuilder: labRegionBuilder
+                    regionBuilder: labRegionBuilder,
+                    neckY: derived.neckNormY.map { CGFloat($0) * extent.height },
+                    crownY: derived.crownNormY.map { CGFloat($0) * extent.height }
                 ) else { continue }
                 let tint = CIImage(color: Self.tints[i % Self.tints.count]).cropped(to: extent)
                 let tinted = tint.applyingFilter("CIBlendWithMask", parameters: [
@@ -440,10 +471,13 @@ struct HeadMaskLabView: View {
             let perFace: [BigHeadEffect.PerFaceMask] = zip(faces, personMasks).compactMap {
                 face, mask in
                 guard let mask else { return nil }
+                let derived = HeadGeometryScanner.scan(mask: mask, face: face, context: Self.renderContext)
                 return BigHeadEffect.PerFaceMask(
                     normCenter: CGPoint(x: face.faceCenter.x / extent.width,
                                         y: face.faceCenter.y / extent.height),
-                    mask: mask
+                    mask: mask,
+                    neckNormY: derived.neckNormY,
+                    crownNormY: derived.crownNormY
                 )
             }
             let effect = BigHeadEffect(

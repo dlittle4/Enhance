@@ -578,10 +578,17 @@ class EditorViewModel {
             let perFace: [BigHeadEffect.PerFaceMask] = zip(detectedFaces, personMasks).compactMap {
                 face, mask in
                 guard let mask, size.width > 0, size.height > 0 else { return nil }
+                // AUTO FIT's scan: one small render per face, here on the already-computed
+                // masks rather than in any frame loop. Cheap enough to run unconditionally —
+                // the toggle decides whether headMask *uses* the result, so flipping it in the
+                // lab needs no refetch.
+                let derived = HeadGeometryScanner.scan(mask: mask, face: face, context: ciContext)
                 return BigHeadEffect.PerFaceMask(
                     normCenter: CGPoint(x: face.faceCenter.x / size.width,
                                         y: face.faceCenter.y / size.height),
-                    mask: mask
+                    mask: mask,
+                    neckNormY: derived.neckNormY,
+                    crownNormY: derived.crownNormY
                 )
             }
             return bigHead.withMask(subjectMask, perFace: perFace)

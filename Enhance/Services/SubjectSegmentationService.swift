@@ -129,6 +129,10 @@ final class SubjectSegmentationService {
     /// the lab toggle back and forth costs one segmentation per source, not per flip.
     func subjectMask(for image: UIImage, source: HeadMaskTuning.UnionSource) throws -> CIImage? {
         switch source {
+        case .portraitMatte:
+            // Auxiliary mattes live in the *file*, not the decoded UIImage — the lab loads them
+            // from its fixture URL and only falls through here when a photo has none.
+            return try subjectMaskOrThrow(for: image)
         case .foreground:
             return try subjectMaskOrThrow(for: image)
         case .personAccurate:

@@ -32,6 +32,11 @@ struct BigHeadEffect: FaceEffect {
     struct PerFaceMask {
         let normCenter: CGPoint
         let mask: CIImage
+        /// AUTO FIT's scan results for this face (`HeadGeometryScanner`), normalized to the
+        /// mask's image space like `normCenter`, and nil when the scan found nothing — the
+        /// tuned sliders then apply unchanged.
+        var neckNormY: Double? = nil
+        var crownNormY: Double? = nil
     }
 
     private let growth: CGFloat
@@ -88,7 +93,9 @@ struct BigHeadEffect: FaceEffect {
         extent: CGRect,
         tuning: HeadMaskTuning,
         sizeScale: CGFloat = 1,
-        regionBuilder: HeadRegionBuilder? = nil
+        regionBuilder: HeadRegionBuilder? = nil,
+        neckY: CGFloat? = nil,
+        crownY: CGFloat? = nil
     ) -> CIImage? {
         // The jaw-region approach (user setting, 2026-08-20): bound the head below by the traced
         // contour instead of ellipse + chin ramp. Gated on a real trace — animals and estimated
@@ -117,13 +124,22 @@ struct BigHeadEffect: FaceEffect {
                 ])
                 .cropped(to: extent)
         }
-        let fullW = face.faceWidth * CGFloat(tuning.ellipseWidth) * sizeScale
-        let fullH = face.faceHeight * CGFloat(tuning.ellipseHeight) * sizeScale
+        var fullW = face.faceWidth * CGFloat(tuning.ellipseWidth) * sizeScale
+        var fullH = face.faceHeight * CGFloat(tuning.ellipseHeight) * sizeScale
+        var derivedCentreY: CGFloat? = nil
+        // AUTO FIT: the photo told us where this head starts and ends — size the ellipse from
+        // neck to crown (padded a little past each) instead of from the sliders.
+        if tuning.autoFit, let neckY, let crownY, crownY > neckY {
+            let span = crownY - neckY
+            fullH = span * 1.25
+            fullW = min(fullW, span * 1.1)
+            derivedCentreY = (neckY + crownY) / 2
+        }
         let centre = CGPoint(
             // Yaw pushes the ellipse toward the back of a turned head — the skull extends
             // behind the face, and a centred ellipse can only reach it by growing everywhere.
             x: face.faceCenter.x + yawShift(for: face, tuning: tuning),
-            y: face.faceCenter.y + face.faceHeight * CGFloat(tuning.centerYOffset)
+            y: derivedCentreY ?? (face.faceCenter.y + face.faceHeight * CGFloat(tuning.centerYOffset))
         )
         let bounds = CGRect(
             x: centre.x - fullW / 2, y: centre.y - fullH / 2, width: fullW, height: fullH
@@ -144,7 +160,8 @@ struct BigHeadEffect: FaceEffect {
 
         // The chin cut: a vertical ramp, solid above the cut line, gone `chinFade` below it,
         // so the grown copy stops carrying neck and collar.
-        let chinY = face.faceCenter.y + face.faceHeight * CGFloat(tuning.chinCutOffset)
+        let chinY = (tuning.autoFit ? neckY : nil)
+            ?? (face.faceCenter.y + face.faceHeight * CGFloat(tuning.chinCutOffset))
         let fade = max(4, face.faceHeight * CGFloat(max(0.02, tuning.chinFade)))
         if let ramp = CIFilter(name: "CILinearGradient", parameters: [
             "inputPoint0": CIVector(x: extent.midX, y: chinY - fade),
@@ -213,16 +230,25 @@ struct BigHeadEffect: FaceEffect {
         // normalized space; the union otherwise. Off by default — the shared union is the
         // approved baseline.
         let chosen: CIImage
-        if tuning.usePersonMasks,
-           let nearest = nearestPerFaceMask(to: face, extent: extent) {
-            chosen = nearest
+        var derived: PerFaceMask? = nil
+        // The scan results ride on the per-face entries even when the person-mask *silhouette*
+        // is toggled off — AUTO FIT and PERSON MASKS are independent switches, and matching is
+        // in normalized space either way.
+        if let nearest = nearestPerFaceMask(to: face, extent: extent) {
+            derived = nearest
+            chosen = tuning.usePersonMasks ? nearest.mask : mask
         } else {
             chosen = mask
         }
         let subjectInFrame = scaled(chosen, to: extent)
+        // Derived rows are normalized to the mask's own space; the frame is a uniform scale of
+        // it, so a multiply re-expresses them here — the indirection that survives the preview.
+        let neckY = derived?.neckNormY.map { CGFloat($0) * extent.height + extent.origin.y }
+        let crownY = derived?.crownNormY.map { CGFloat($0) * extent.height + extent.origin.y }
         guard let headMask = Self.headMask(
             for: face, subject: subjectInFrame, extent: extent,
-            tuning: tuning, sizeScale: sizeScale, regionBuilder: regionBuilder
+            tuning: tuning, sizeScale: sizeScale, regionBuilder: regionBuilder,
+            neckY: neckY, crownY: crownY
         ) else { return image }
 
         // Pin low in the head so it grows upward and outward off the neck — but not at the
@@ -270,7 +296,7 @@ struct BigHeadEffect: FaceEffect {
     /// The stored mask whose owner's face sits closest to `face`, compared in unit space so the
     /// match is immune to the preview's downsampling. Rejects matches further than half the
     /// frame apart — a mismatch that gross means the lists disagree, and the union is safer.
-    private func nearestPerFaceMask(to face: DetectedFace, extent: CGRect) -> CIImage? {
+    private func nearestPerFaceMask(to face: DetectedFace, extent: CGRect) -> PerFaceMask? {
         guard !perFace.isEmpty, extent.width > 0, extent.height > 0 else { return nil }
         let target = CGPoint(
             x: (face.faceCenter.x - extent.origin.x) / extent.width,
@@ -283,7 +309,7 @@ struct BigHeadEffect: FaceEffect {
         guard let best,
               hypot(best.normCenter.x - target.x, best.normCenter.y - target.y) < 0.5
         else { return nil }
-        return best.mask
+        return best
     }
 
     /// Face effects run in source space, so this is normally a no-op — it exists because the

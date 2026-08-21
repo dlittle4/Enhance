@@ -29,6 +29,7 @@ struct HeadMaskTuningTests {
         #expect(d.followPose == false)
         #expect(d.yawShift == 0.35)
         #expect(d.unionSource == .foreground)
+        #expect(d.autoFit == false)
         // ea96ce3's growth ceiling and pivot.
         #expect(d.growthMax == 0.55)
         #expect(d.pivotY == 0.30)
