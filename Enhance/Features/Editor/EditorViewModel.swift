@@ -160,6 +160,9 @@ class EditorViewModel {
     /// Per-person instance masks aligned with `detectedFaces`, populated only when the
     /// HEAD MASK LAB approach flag asks for them.
     var personMasks: [CIImage?] = []
+    /// BIG HEAD's union mask under the lab's chosen source; other subject effects keep
+    /// `subjectMask` (always foreground).
+    var bigHeadUnion: CIImage? = nil
     var isSegmentingSubject: Bool = false
 
     /// Whether segmentation has *run* for the current photo. Needed because `subjectMask`
@@ -572,7 +575,9 @@ class EditorViewModel {
             // happens here; this is read on every preview rebuild. When the lab's PERSON MASKS
             // approach is on, the per-face instances fetched alongside the union ride in too,
             // matched by normalized face centre so the preview's downsampling cannot desync them.
-            guard let source = image ?? sourceImage else { return bigHead.withMask(subjectMask) }
+            guard let source = image ?? sourceImage else {
+                return bigHead.withMask(bigHeadUnion ?? subjectMask)
+            }
             let size = CGSize(width: source.size.width * source.scale,
                               height: source.size.height * source.scale)
             let perFace: [BigHeadEffect.PerFaceMask] = zip(detectedFaces, personMasks).compactMap {
@@ -591,7 +596,7 @@ class EditorViewModel {
                     crownNormY: derived.crownNormY
                 )
             }
-            return bigHead.withMask(subjectMask, perFace: perFace)
+            return bigHead.withMask(bigHeadUnion ?? subjectMask, perFace: perFace)
         }
         return built
     }
@@ -776,16 +781,38 @@ class EditorViewModel {
     /// Follows the face precedent on absence (ROADMAP §1g, user's call): a toast, with the
     /// cards left live. It does **not** repeat that feature's bug of re-toasting on every
     /// visit; `hasSegmentedSubject` gates it to once per photo.
+    /// The lab settings the last segmentation fetch was made under. When the user changes a
+    /// data-dependent toggle in HEAD MASK LAB and comes back, the fetch must rerun — without
+    /// this, "apply lab settings to the app" would silently mean "apply them after the next
+    /// photo change", which reads as the lab being broken *(user request, 2026-08-21: test lab
+    /// settings on any photo through the real editor)*.
+    private var segmentationFetchKey: String?
+
+    private var currentSegmentationKey: String {
+        let t = HeadMaskTuningStore.shared.tuning
+        return "\(t.unionSource.rawValue)|\(t.usePersonMasks)"
+    }
+
     func segmentSubjectIfNeeded() {
-        guard !isSegmentingSubject, !hasSegmentedSubject else { return }
+        guard !isSegmentingSubject else { return }
+        guard !(hasSegmentedSubject && segmentationFetchKey == currentSegmentationKey) else { return }
         guard let source = image ?? sourceImage else { return }
 
         isSegmentingSubject = true
+        let key = currentSegmentationKey
+        let tuning = HeadMaskTuningStore.shared.tuning
         Task {
+            // The shared union for ECHO and BACKGROUND ONLY is always the foreground request —
+            // those effects are outside the lab's remit and must not change under it.
             let mask = await subjectSegmentationService.subjectMask(for: source)
+            // BIG HEAD's union follows the lab's source choice. For .foreground this is the
+            // same cached mask, so it costs nothing extra.
+            let bigHeadUnion = tuning.unionSource == .foreground
+                ? mask
+                : ((try? subjectSegmentationService.subjectMask(for: source, source: tuning.unionSource)) ?? mask)
             // The lab's person-mask approach needs per-face instances; fetched in the same pass
             // so toggling the setting never adds a second loading stall.
-            let person = HeadMaskTuningStore.shared.tuning.usePersonMasks
+            let person = tuning.usePersonMasks
                 ? await subjectSegmentationService.personMasks(
                     for: source,
                     at: detectedFaces.map(\.faceCenter),
@@ -794,8 +821,10 @@ class EditorViewModel {
                 : []
             await MainActor.run {
                 self.subjectMask = mask
+                self.bigHeadUnion = bigHeadUnion
                 self.personMasks = person
                 self.hasSegmentedSubject = true
+                self.segmentationFetchKey = key
                 self.isSegmentingSubject = false
                 if mask == nil {
                     self.showToast("NO SUBJECT DETECTED")
@@ -824,6 +853,8 @@ class EditorViewModel {
     func clearSubjectMask() {
         subjectMask = nil
         personMasks = []
+        bigHeadUnion = nil
+        segmentationFetchKey = nil
         hasSegmentedSubject = false
         subjectSegmentationService.clearCache()
     }
