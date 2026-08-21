@@ -198,6 +198,8 @@ struct HeadMaskLabView: View {
                 labSlider("YAW SHIFT", value: $store.tuning.yawShift, in: 0.0...1.0,
                           hint: "push toward the back of a turned head, × face width at profile")
             }
+            labToggle("STACKED PASS", isOn: $store.tuning.stackedPass,
+                      hint: "groups: heads occlude instead of blurring — cut from the original, widest on top")
             labToggle("SILHOUETTE", isOn: $store.tuning.useSilhouette,
                       hint: "off = classic cutout: the feathered region alone, background and all")
             labToggle("AUTO FIT", isOn: $store.tuning.autoFit,

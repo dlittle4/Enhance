@@ -101,6 +101,12 @@ struct HeadMaskTuning: Codable, Equatable {
     /// 2026-08-20) so the eleven-photo walk can judge where the classic look holds up.
     var useSilhouette: Bool
 
+    /// Composite all heads in one layered pass — each cut from the original frame, nearer
+    /// (wider) faces occluding farther ones with hardened edges — instead of the sequential
+    /// per-face loop whose overlapping heads cross-fade into ghosts. The anti-blur switch for
+    /// group photos; off is the sequential baseline.
+    var stackedPass: Bool
+
     // MARK: Auto fit *(2026-08-20 — derive per-photo geometry instead of tuning it)*
 
     /// Derive the chin cut and ellipse height per face from the silhouette itself:
@@ -137,6 +143,7 @@ struct HeadMaskTuning: Codable, Equatable {
         yawShift: 0.35,
         unionSource: .foreground,
         useSilhouette: true,
+        stackedPass: false,
         autoFit: false,
         growthMax: 0.55,
         pivotY: 0.30

@@ -280,3 +280,43 @@ private extension UIImage {
         return image
     }
 }
+extension BigHeadTests {
+
+    /// STACKED PASS: where two grown heads overlap, the nearer (wider) face's pixels must win
+    /// outright — the sequential pass cross-fades there, which is the reported group blur.
+    @Test func stackedPass_overlapIsOcclusionNotBlend() {
+        let side: CGFloat = 800
+        // Left half red, right half blue: each head carries its side's colour, so the overlap's
+        // colour says whose pixels are on top — a mix means cross-fade.
+        UIGraphicsBeginImageContextWithOptions(CGSize(width: side, height: side), true, 1)
+        let g = UIGraphicsGetCurrentContext()!
+        g.setFillColor(UIColor.red.cgColor); g.fill(CGRect(x: 0, y: 0, width: 400, height: 800))
+        g.setFillColor(UIColor.blue.cgColor); g.fill(CGRect(x: 400, y: 0, width: 400, height: 800))
+        let img = UIGraphicsGetImageFromCurrentImageContext()!
+        UIGraphicsEndImageContext()
+        let source = CIImage(cgImage: img.cgImage!)
+
+        let narrow = makeFace(measuredAgainst: side, centre: CGPoint(x: 330, y: 400), width: 150)
+        let wide = makeFace(measuredAgainst: side, centre: CGPoint(x: 470, y: 400), width: 200)
+
+        var tuning = HeadMaskTuning.default
+        tuning.stackedPass = true
+        let effect = BigHeadEffect(intensity: 1.0, size: 0.5,
+                                   mask: makeMask(side: side), tuning: tuning)
+        let out = effect.apply(to: source, faces: [narrow, wide],
+                               progress: 1.0, frameIndex: 7)
+
+        // Probe the overlap band between the two grown heads. The wide face is blue-side;
+        // occlusion means blue dominance with no red admixture worth the name.
+        var buf = [UInt8](repeating: 0, count: 16 * 16 * 4)
+        context.render(out, toBitmap: &buf, rowBytes: 16 * 4,
+                       bounds: CGRect(x: 392, y: 392, width: 16, height: 16),
+                       format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB())
+        var red = 0, blue = 0
+        for i in stride(from: 0, to: buf.count, by: 4) {
+            red += Int(buf[i]); blue += Int(buf[i + 2])
+        }
+        // Sequential cross-fade yields a red/blue mix; occlusion yields nearly pure blue.
+        #expect(blue > red * 3)
+    }
+}

@@ -222,13 +222,47 @@ struct BigHeadEffect: FaceEffect {
     // MARK: - FaceEffect
 
     func apply(to image: CIImage, face: DetectedFace, progress: CGFloat, frameIndex: Int) -> CIImage {
+        grow(face: face, from: image, over: image, progress: progress, hardEdge: false)
+    }
+
+    /// STACKED PASS *(user's call, 2026-08-20: "make sure faces won't blur into each other")*.
+    ///
+    /// The sequential default re-blends each face over the previous face's output, so two
+    /// overlapping grown heads cross-fade into translucent ghosts — the recorded smear, and a
+    /// mask cannot reach it because it is a property of the pass structure. With the toggle on,
+    /// every head is cut from the **original** frame and composited back-to-front — widest face
+    /// last, since a wider face is nearer the camera — with the mask edge hardened so the front
+    /// head **occludes** the back one instead of blending with it. Off (the default), behaviour
+    /// is byte-identical to the sequential loop.
+    func apply(to image: CIImage, faces: [DetectedFace], progress: CGFloat, frameIndex: Int) -> CIImage {
+        guard tuning.stackedPass, faces.count > 1 else {
+            var result = image
+            for face in faces {
+                result = apply(to: result, face: face, progress: progress, frameIndex: frameIndex)
+            }
+            return result
+        }
+        let ordered = faces.sorted { $0.faceWidth < $1.faceWidth }
+        var canvas = image
+        for face in ordered {
+            canvas = grow(face: face, from: image, over: canvas, progress: progress, hardEdge: true)
+        }
+        return canvas
+    }
+
+    /// One head: cut from `source`, composited over `canvas`. The two are the same image in the
+    /// sequential pass and deliberately different in the stacked one.
+    private func grow(
+        face: DetectedFace, from image: CIImage, over canvas: CIImage,
+        progress: CGFloat, hardEdge: Bool
+    ) -> CIImage {
         let extent = image.extent
-        guard let mask, extent.width > 1, extent.height > 1 else { return image }
+        guard let mask, extent.width > 1, extent.height > 1 else { return canvas }
 
         // Quadratic, like HANDSOME: most of the growth arrives late, so the head inflates as
         // the zoom lands rather than being large for the whole loop.
         let amount = growth * (progress * progress)
-        guard amount > 0.01 else { return image }
+        guard amount > 0.01 else { return canvas }
 
         // Person-mask approach: this face's own silhouette when one is available, matched in
         // normalized space; the union otherwise. Off by default — the shared union is the
@@ -253,7 +287,7 @@ struct BigHeadEffect: FaceEffect {
             for: face, subject: subjectInFrame, extent: extent,
             tuning: tuning, sizeScale: sizeScale, regionBuilder: regionBuilder,
             neckY: neckY, crownY: crownY
-        ) else { return image }
+        ) else { return canvas }
 
         // Pin low in the head so it grows upward and outward off the neck — but not at the
         // very bottom, which sends all growth upward and clips a tightly framed crown.
@@ -284,14 +318,27 @@ struct BigHeadEffect: FaceEffect {
         // Clamped before transforming: a head near the frame edge should extend its border
         // pixels rather than sample transparency and tear a hole as it grows.
         let grownHead = image.clampedToExtent().transformed(by: transform)
-        let grownMask = headMask.transformed(by: transform)
+        var grownMask = headMask.transformed(by: transform)
         guard grownHead.extent.hasFiniteComponents, grownMask.extent.hasFiniteComponents else {
-            return image
+            return canvas
+        }
+        if hardEdge {
+            // Occlusion needs a step, not a feather: a soft edge here is exactly the
+            // cross-fade the stacked pass exists to remove. Alpha is flattened first — the
+            // region raster carries its coverage in alpha, and contrast alone would steepen
+            // the wrong channel (the settingAlphaOne lesson, LEARNINGS 2026-08-20).
+            grownMask = grownMask
+                .settingAlphaOne(in: extent)
+                .applyingFilter("CIColorControls", parameters: [
+                    kCIInputContrastKey: 12.0,
+                    kCIInputBrightnessKey: -0.15
+                ])
+                .applyingFilter("CIColorClamp")
         }
 
         return grownHead
             .applyingFilter("CIBlendWithMask", parameters: [
-                kCIInputBackgroundImageKey: image,
+                kCIInputBackgroundImageKey: canvas,
                 kCIInputMaskImageKey: grownMask
             ])
             .cropped(to: extent)
