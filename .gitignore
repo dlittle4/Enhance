@@ -22,3 +22,7 @@ Pods/
 # skips cleanly when it is empty, so CI and fresh clones are unaffected by their absence.
 EnhanceTests/Fixtures/*
 !EnhanceTests/Fixtures/README.md
+
+# Dev-only lab fixtures. Personal photos bundled into local dev builds so HEAD MASK LAB can
+# preview against the real test corpus; never committed, and must not ship in a release build.
+Enhance/DevFixtures/

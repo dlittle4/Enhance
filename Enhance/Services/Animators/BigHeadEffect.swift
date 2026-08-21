@@ -3,87 +3,100 @@ import CoreImage
 /// Enlarges the subject's **head** — cutting its outline out and growing it on the body, rather
 /// than distorting the pixels in place. ROADMAP §2a.
 ///
-/// **This replaces a `CIBumpDistortion` version, on the user's call (2026-08-18): "big head just
-/// seems like a slightly different fisheye".** That was accurate and it is worth recording why.
-/// A bump warps a disc of the image outward, so the head grows *and* everything near it smears —
-/// the ears bend, the background curves, and the result is a lens artefact rather than a bigger
-/// head. Scaling a cutout keeps the head's own shape intact and lets it occlude the body, which
-/// is what "grown on the individual's body" actually means. The distortion approach is not
-/// tunable into this one; it is the wrong mechanism, not the wrong constants.
+/// **Every number that shapes the mask lives in `HeadMaskTuning`**, and the mask is built in
+/// exactly one place — `headMask(for:subject:extent:tuning:sizeScale:)` — which HEAD MASK LAB
+/// calls with the same inputs to draw its overlay. What the lab shows is what the GIF gets;
+/// tune there, then graduate the numbers into `HeadMaskTuning.default`.
 ///
-/// The head silhouette is the subject mask **intersected with an ellipse around the face**: the
-/// mask alone is the whole body, and the ellipse alone is the oval that made ANIME read as a
-/// vignette. Multiplied together they give the head's real outline — hair, ears and all — bounded
-/// to the head.
+/// `HeadMaskTuning.default` reproduces the ea96ce3 baseline the user chose (2026-08-20),
+/// including its oversized ellipse — that size is part of the approved look, exposed rather
+/// than corrected — plus the approved chin cut. The REACH slider scales the tuned ellipse by
+/// the same ratio the baseline's `size` parameter did, so every slider position renders as it
+/// did before the tuning existed.
 ///
-/// **It scales about a point low in the head, not its centre.** Growing about the centre lifts
-/// the head off the neck; anchoring low keeps it sitting on the body while the crown rises.
-/// Anchoring at the *very* bottom is also wrong — it sends all the growth upward and clips the
-/// ears on a tightly framed subject, which the first render did.
+/// **Known limit, structural:** overlapping faces double-expose, because the pipeline applies
+/// the effect once per face and each pass re-blends the previous pass's output. That is the
+/// sequential seam recorded on §2a; no mask tuning reaches it.
 ///
-/// **Without a mask it returns the frame untouched.** Per §1g the editor leaves the card live on
-/// a photo with no subject, and a fallback that reverted to the bump would be shipping the look
-/// the user rejected.
+/// **Without a mask it returns the frame untouched.** Per §1g the editor leaves the card live
+/// on a photo with no subject, and a live card must never render a broken frame.
 struct BigHeadEffect: FaceEffect {
     private let growth: CGFloat
-    private let coverage: CGFloat
+    private let sizeScale: CGFloat
     private let mask: CIImage?
+    private let tuning: HeadMaskTuning
 
     /// - Parameters:
-    ///   - intensity: how much the head grows — up to +55% at full, a ceiling set by what keeps
-    ///     the body visible underneath rather than by taste.
-    ///   - size: how much around the face the head ellipse covers. Larger catches tall hair and
-    ///     ears; too large starts taking shoulder with it.
-    init(intensity: Double = 0.5, size: Double = 0.5, mask: CIImage? = nil) {
+    ///   - intensity: how much the head grows — `1 + intensity² × tuning.growthMax` at full.
+    ///   - size: the REACH slider. Scales the tuned ellipse by the baseline's own ratio, so the
+    ///     mid-point is exactly the tuned size and the ends match the old slider's range.
+    ///   - mask: the subject silhouette from `SubjectSegmentationService`.
+    ///   - tuning: mask geometry. Defaults to the live store, so the lab's values apply
+    ///     everywhere the effect is built without any call site knowing the lab exists.
+    init(intensity: Double = 0.5, size: Double = 0.5, mask: CIImage? = nil,
+         tuning: HeadMaskTuning = HeadMaskTuningStore.shared.tuning) {
         self.growth = CGFloat(max(0, min(1, intensity)))
-        self.coverage = 1.15 + CGFloat(max(0, min(1, size))) * 0.75
+        // The ea96ce3 ellipse at slider position s spanned (2.3 + 1.5s) face-widths; the tuned
+        // default is its mid-point, 3.05. Expressing the slider as that same ratio keeps every
+        // position rendering exactly as the approved baseline did.
+        self.sizeScale = CGFloat((2.3 + 1.5 * max(0, min(1, size))) / 3.05)
         self.mask = mask
+        self.tuning = tuning
     }
 
-    /// Same effect with the segmentation mask attached — the view model has it, the factory does not.
+    /// Same effect with the segmentation mask attached — the view model has it, the factory
+    /// does not.
     func withMask(_ mask: CIImage?) -> BigHeadEffect {
-        BigHeadEffect(intensity: Double(growth), size: Double((coverage - 1.15) / 0.75), mask: mask)
+        var copy = self
+        copy = BigHeadEffect(intensity: Double(growth), size: sliderPosition, mask: mask, tuning: tuning)
+        return copy
     }
 
-    func apply(to image: CIImage, face: DetectedFace, progress: CGFloat, frameIndex: Int) -> CIImage {
-        let extent = image.extent
-        guard let mask, extent.width > 1, extent.height > 1 else { return image }
+    /// Inverts `sizeScale` back to the slider position for `withMask`'s reconstruction.
+    private var sliderPosition: Double {
+        Double((sizeScale * 3.05 - 2.3) / 1.5)
+    }
 
-        // Quadratic, like HANDSOME: most of the growth arrives late, so the head inflates as the
-        // zoom lands rather than being large for the whole loop.
-        let amount = growth * (progress * progress)
-        guard amount > 0.01 else { return image }
+    // MARK: - The mask, in one place
 
-        let headBounds = CGRect(
-            x: face.faceCenter.x - face.faceWidth * coverage,
-            y: face.faceCenter.y - face.faceHeight * coverage,
-            width: face.faceWidth * coverage * 2,
-            height: face.faceHeight * coverage * 2
+    /// The head mask: ellipse ∩ subject silhouette, faded out below the chin.
+    ///
+    /// Static and tuning-driven so HEAD MASK LAB can build the identical mask for its overlay.
+    /// Returns nil when the geometry is degenerate — callers return the frame unchanged.
+    static func headMask(
+        for face: DetectedFace,
+        subject: CIImage,
+        extent: CGRect,
+        tuning: HeadMaskTuning,
+        sizeScale: CGFloat = 1
+    ) -> CIImage? {
+        let fullW = face.faceWidth * CGFloat(tuning.ellipseWidth) * sizeScale
+        let fullH = face.faceHeight * CGFloat(tuning.ellipseHeight) * sizeScale
+        let centre = CGPoint(
+            x: face.faceCenter.x,
+            y: face.faceCenter.y + face.faceHeight * CGFloat(tuning.centerYOffset)
         )
-        guard headBounds.hasFiniteComponents, headBounds.width >= 2, headBounds.height >= 2,
-              // A soft ellipse edge, so the head silhouette fades out at the neck instead of
-              // ending on a cut line across the throat.
-              let ellipse = FaceRegionMaskBuilder.ellipticalMask(bounds: headBounds, feather: 0.35)
-        else { return image }
-
-        let subjectInFrame = scaled(mask, to: extent)
+        let bounds = CGRect(
+            x: centre.x - fullW / 2, y: centre.y - fullH / 2, width: fullW, height: fullH
+        )
+        guard bounds.hasFiniteComponents, bounds.width >= 2, bounds.height >= 2,
+              let ellipse = FaceRegionMaskBuilder.ellipticalMask(
+                bounds: bounds, feather: CGFloat(max(0.02, min(1, tuning.feather)))
+              )
+        else { return nil }
 
         // Intersect: subject AND head-region. Multiply blend on two masks is the intersection,
-        // and it keeps the ellipse's feather at the neck while the silhouette stays crisp.
+        // keeping the ellipse's feather while the silhouette stays crisp.
         var headMask = ellipse
             .applyingFilter("CIMultiplyCompositing", parameters: [
-                kCIInputBackgroundImageKey: subjectInFrame
+                kCIInputBackgroundImageKey: subject
             ])
             .cropped(to: extent)
 
-        // **The chin cut** *(user tweak, 2026-08-20: "mask around the chin a bit better, or
-        // maybe the neck")*. The oversized ellipse reaches well below the chin, so the grown
-        // copy carried neck and collar with it. Rather than reshaping the ellipse — whose look
-        // above the chin is the approved baseline — a vertical ramp fades the region out just
-        // under the chin: solid above the face box's bottom edge, gone a third of a face-height
-        // below it. Everything above the chin renders exactly as before.
-        let chinY = face.faceCenter.y - face.faceHeight * 0.5
-        let fade = max(4, face.faceHeight * 0.35)
+        // The chin cut: a vertical ramp, solid above the cut line, gone `chinFade` below it,
+        // so the grown copy stops carrying neck and collar.
+        let chinY = face.faceCenter.y + face.faceHeight * CGFloat(tuning.chinCutOffset)
+        let fade = max(4, face.faceHeight * CGFloat(max(0.02, tuning.chinFade)))
         if let ramp = CIFilter(name: "CILinearGradient", parameters: [
             "inputPoint0": CIVector(x: extent.midX, y: chinY - fade),
             "inputPoint1": CIVector(x: extent.midX, y: chinY),
@@ -96,16 +109,47 @@ struct BigHeadEffect: FaceEffect {
                 ])
                 .cropped(to: extent)
         }
+        return headMask
+    }
 
-        // Pin the bottom of the head so it grows upward and outward off the neck.
-        // 0.30, not 0.18. Anchoring at the very bottom sent almost all the growth upward, and
-        // on a subject whose head already reaches the top of the frame that clipped the ears
-        // off — seen at full intensity in the first render. A slightly higher pivot still keeps
-        // the head on the neck while spending some of the growth sideways.
-        let pivot = CGPoint(x: face.faceCenter.x, y: headBounds.minY + headBounds.height * 0.30)
-        // Max 1.55×. The first render went to 1.85× and simply overflowed the frame — the joke
-        // needs the body still visible underneath, so the ceiling is set by what keeps it there.
-        let scale = 1 + amount * 0.55
+    /// The ellipse bounds for `face` under `tuning` — the lab draws them as a guide.
+    static func ellipseBounds(
+        for face: DetectedFace, tuning: HeadMaskTuning, sizeScale: CGFloat = 1
+    ) -> CGRect {
+        let fullW = face.faceWidth * CGFloat(tuning.ellipseWidth) * sizeScale
+        let fullH = face.faceHeight * CGFloat(tuning.ellipseHeight) * sizeScale
+        let centre = CGPoint(
+            x: face.faceCenter.x,
+            y: face.faceCenter.y + face.faceHeight * CGFloat(tuning.centerYOffset)
+        )
+        return CGRect(x: centre.x - fullW / 2, y: centre.y - fullH / 2, width: fullW, height: fullH)
+    }
+
+    // MARK: - FaceEffect
+
+    func apply(to image: CIImage, face: DetectedFace, progress: CGFloat, frameIndex: Int) -> CIImage {
+        let extent = image.extent
+        guard let mask, extent.width > 1, extent.height > 1 else { return image }
+
+        // Quadratic, like HANDSOME: most of the growth arrives late, so the head inflates as
+        // the zoom lands rather than being large for the whole loop.
+        let amount = growth * (progress * progress)
+        guard amount > 0.01 else { return image }
+
+        let subjectInFrame = scaled(mask, to: extent)
+        guard let headMask = Self.headMask(
+            for: face, subject: subjectInFrame, extent: extent,
+            tuning: tuning, sizeScale: sizeScale
+        ) else { return image }
+
+        let bounds = Self.ellipseBounds(for: face, tuning: tuning, sizeScale: sizeScale)
+        // Pin low in the ellipse so the head grows upward and outward off the neck — but not at
+        // the very bottom, which sends all growth upward and clips a tightly framed crown.
+        let pivot = CGPoint(
+            x: face.faceCenter.x,
+            y: bounds.minY + bounds.height * CGFloat(tuning.pivotY)
+        )
+        let scale = 1 + amount * CGFloat(tuning.growthMax)
         let transform = CGAffineTransform(translationX: -pivot.x, y: -pivot.y)
             .concatenating(CGAffineTransform(scaleX: scale, y: scale))
             .concatenating(CGAffineTransform(translationX: pivot.x, y: pivot.y))
@@ -114,7 +158,6 @@ struct BigHeadEffect: FaceEffect {
         // pixels rather than sample transparency and tear a hole as it grows.
         let grownHead = image.clampedToExtent().transformed(by: transform)
         let grownMask = headMask.transformed(by: transform)
-
         guard grownHead.extent.hasFiniteComponents, grownMask.extent.hasFiniteComponents else {
             return image
         }
