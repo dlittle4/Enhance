@@ -33,6 +33,8 @@ Items marked 🔍 are landed and green but never confirmed on hardware.
 > [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) — the design-system audit and phased plan.
 > [LEARNINGS.md](LEARNINGS.md) — rules discovered the hard way.
 > [HISTORY.md](HISTORY.md) — everything already shipped, and why.
+> **[BIGHEAD-HANDOFF](BIGHEAD-HANDOFF.md)** — everything tried on BIG HEAD, measured facts, and
+> the questions we want fresh eyes on. **Read it before touching `BigHeadEffect`.**
 > Feature plans: [TEXT-EFFECTS](FEATURE-TEXT-EFFECTS.md) · [THEMES](FEATURE-THEMES.md) ·
 > [LENS](FEATURE-LENS-DISTORTION.md) · [SCRAMBLER](FEATURE-SCRAMBLER.md) *(historical)* ·
 > [VIEW-TRANSITIONS](FEATURE-VIEW-TRANSITIONS.md)
