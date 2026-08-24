@@ -157,6 +157,17 @@ class EditorViewModel {
     /// either "not segmented yet" or "this photo has no subject" — `hasSegmentedSubject`
     /// separates the two, because only the second should raise the toast.
     var subjectMask: CIImage? = nil
+    /// Per-person instance masks aligned with `detectedFaces`, populated only when the
+    /// HEAD MASK LAB approach flag asks for them.
+    var personMasks: [CIImage?] = []
+    /// Model-backed, head-only mattes aligned with `detectedFaces`. Populated only while the
+    /// experimental switch in HEAD MASK LAB is enabled.
+    var semanticHeadMasks: [SemanticHeadMask?] = []
+    /// Reserved compositor exclusion set. V2 currently keeps every distinct detected face.
+    var semanticSuppressedFaceIDs: Set<UUID> = []
+    /// BIG HEAD's union mask under the lab's chosen source; other subject effects keep
+    /// `subjectMask` (always foreground).
+    var bigHeadUnion: CIImage? = nil
     var isSegmentingSubject: Bool = false
 
     /// Whether segmentation has *run* for the current photo. Needed because `subjectMask`
@@ -165,6 +176,7 @@ class EditorViewModel {
     /// conflation. This flag is what keeps the toast to once per photo.
     private var hasSegmentedSubject = false
     private let subjectSegmentationService = SubjectSegmentationService()
+    private let semanticHeadMaskService = SemanticHeadMaskService()
 
     /// Called after a successful save to signal the editor should close.
     var onSaveComplete: (() -> Void)?
@@ -565,7 +577,53 @@ class EditorViewModel {
         // the factory has none. Without a mask it returns the frame untouched rather than
         // falling back to the bump-distortion version, which was rejected on look.
         if let bigHead = built as? BigHeadEffect {
-            return bigHead.withMask(subjectMask)
+            // The shared union mask, fetched async when the card was selected — no Vision call
+            // happens here; this is read on every preview rebuild. When the lab's PERSON MASKS
+            // approach is on, the per-face instances fetched alongside the union ride in too,
+            // matched by normalized face centre so the preview's downsampling cannot desync them.
+            guard let source = image ?? sourceImage else {
+                return bigHead.withMask(bigHeadUnion ?? subjectMask)
+            }
+            let size = CGSize(width: source.size.width * source.scale,
+                              height: source.size.height * source.scale)
+            let semanticEnabled = SemanticHeadMaskSettings.shared.isEnabled
+            let semanticV2 = SemanticHeadMaskSettings.shared.usesV2
+            let perFace: [BigHeadEffect.PerFaceMask] = detectedFaces.enumerated().compactMap {
+                index, face in
+                guard size.width > 0, size.height > 0 else { return nil }
+                if semanticEnabled, index < semanticHeadMasks.count,
+                   let semantic = semanticHeadMasks[index] {
+                    return BigHeadEffect.PerFaceMask(
+                        ownerID: face.id,
+                        normCenter: CGPoint(x: face.faceCenter.x / size.width,
+                                            y: face.faceCenter.y / size.height),
+                        mask: semantic.mask,
+                        neckNormY: semantic.neckNormY,
+                        crownNormY: semantic.crownNormY,
+                        isSemanticHeadMask: true
+                    )
+                }
+                guard index < personMasks.count, let mask = personMasks[index] else { return nil }
+                // AUTO FIT's scan: one small render per face, here on the already-computed
+                // masks rather than in any frame loop. Cheap enough to run unconditionally —
+                // the toggle decides whether headMask *uses* the result, so flipping it in the
+                // lab needs no refetch.
+                let derived = HeadGeometryScanner.scan(mask: mask, face: face, context: ciContext)
+                return BigHeadEffect.PerFaceMask(
+                    ownerID: face.id,
+                    normCenter: CGPoint(x: face.faceCenter.x / size.width,
+                                        y: face.faceCenter.y / size.height),
+                    mask: mask,
+                    neckNormY: derived.neckNormY,
+                    crownNormY: derived.crownNormY
+                )
+            }
+            return bigHead.withMask(
+                bigHeadUnion ?? subjectMask, perFace: perFace,
+                forceStackedPass: semanticEnabled && semanticHeadMasks.contains { $0 != nil },
+                suppressedFaceIDs: semanticV2 ? semanticSuppressedFaceIDs : [],
+                collisionSafe: semanticV2
+            )
         }
         return built
     }
@@ -729,7 +787,16 @@ class EditorViewModel {
 
         isDetectingFaces = true
         Task {
-            let faces = await faceDetectionService.detectFaces(in: source)
+            let started = ProcessInfo.processInfo.systemUptime
+            let faces = await faceDetectionService.detectFaces(
+                in: source, includeFullRange: SemanticHeadMaskSettings.shared.usesV2
+            )
+            #if DEBUG
+            if SemanticHeadMaskSettings.shared.usesV2 {
+                let milliseconds = Int(((ProcessInfo.processInfo.systemUptime - started) * 1_000).rounded())
+                print("BIG HEAD V2 PERF detect=\(milliseconds)ms tiles=\(faceDetectionService.lastFullRangeTileCount) faces=\(faces.count)")
+            }
+            #endif
             await MainActor.run {
                 self.detectedFaces = faces
                 self.isDetectingFaces = false
@@ -750,16 +817,82 @@ class EditorViewModel {
     /// Follows the face precedent on absence (ROADMAP §1g, user's call): a toast, with the
     /// cards left live. It does **not** repeat that feature's bug of re-toasting on every
     /// visit; `hasSegmentedSubject` gates it to once per photo.
+    /// The lab settings the last segmentation fetch was made under. When the user changes a
+    /// data-dependent toggle in HEAD MASK LAB and comes back, the fetch must rerun — without
+    /// this, "apply lab settings to the app" would silently mean "apply them after the next
+    /// photo change", which reads as the lab being broken *(user request, 2026-08-21: test lab
+    /// settings on any photo through the real editor)*.
+    private var segmentationFetchKey: String?
+
+    private var currentSegmentationKey: String {
+        let t = HeadMaskTuningStore.shared.tuning
+        return "\(t.unionSource.rawValue)|\(t.usePersonMasks)|semantic:\(SemanticHeadMaskSettings.shared.mode.rawValue)"
+    }
+
     func segmentSubjectIfNeeded() {
-        guard !isSegmentingSubject, !hasSegmentedSubject else { return }
+        guard !isSegmentingSubject else { return }
+        guard !(hasSegmentedSubject && segmentationFetchKey == currentSegmentationKey) else { return }
         guard let source = image ?? sourceImage else { return }
 
         isSegmentingSubject = true
+        let key = currentSegmentationKey
+        let tuning = HeadMaskTuningStore.shared.tuning
         Task {
+            let subjectStart = ProcessInfo.processInfo.systemUptime
+            // The shared union for ECHO and BACKGROUND ONLY is always the foreground request —
+            // those effects are outside the lab's remit and must not change under it.
             let mask = await subjectSegmentationService.subjectMask(for: source)
+            // BIG HEAD's union follows the lab's source choice. For .foreground this is the
+            // same cached mask, so it costs nothing extra.
+            let bigHeadUnion = tuning.unionSource == .foreground
+                ? mask
+                : ((try? subjectSegmentationService.subjectMask(for: source, source: tuning.unionSource)) ?? mask)
+            let subjectMs = Int(((ProcessInfo.processInfo.systemUptime - subjectStart) * 1_000).rounded())
+            // The lab's person-mask approach needs per-face instances; fetched in the same pass
+            // so toggling the setting never adds a second loading stall.
+            let semanticMode = SemanticHeadMaskSettings.shared.mode
+            let personStart = ProcessInfo.processInfo.systemUptime
+            let person = tuning.usePersonMasks || semanticMode == .semanticV2
+                ? await subjectSegmentationService.personMasks(
+                    for: source,
+                    at: detectedFaces.map(\.faceCenter),
+                    radii: detectedFaces.map { $0.faceWidth * 0.5 }
+                )
+                : []
+            let personMs = Int(((ProcessInfo.processInfo.systemUptime - personStart) * 1_000).rounded())
+            let semanticStart = ProcessInfo.processInfo.systemUptime
+            let semantic: [SemanticHeadMask?]
+            let suppressed: Set<UUID>
+            switch semanticMode {
+            case .legacy:
+                semantic = []
+                suppressed = []
+            case .semanticV1:
+                semantic = await semanticHeadMaskService.headMasks(
+                    for: source, faces: detectedFaces
+                )
+                suppressed = []
+            case .semanticV2:
+                let batch = await semanticHeadMaskService.headMasksV2(
+                    for: source, faces: detectedFaces, personMasks: person
+                )
+                semantic = batch.masks
+                suppressed = batch.suppressedFaceIDs
+            }
+            #if DEBUG
+            if semanticMode == .semanticV2 {
+                let semanticMs = Int(((ProcessInfo.processInfo.systemUptime - semanticStart) * 1_000).rounded())
+                print("BIG HEAD V2 PERF subject=\(subjectMs)ms person=\(personMs)ms head=\(semanticMs)ms masks=\(semantic.compactMap { $0 }.count)")
+            }
+            #endif
             await MainActor.run {
                 self.subjectMask = mask
+                self.bigHeadUnion = bigHeadUnion
+                self.personMasks = person
+                self.semanticHeadMasks = semantic
+                self.semanticSuppressedFaceIDs = suppressed
                 self.hasSegmentedSubject = true
+                self.segmentationFetchKey = key
                 self.isSegmentingSubject = false
                 if mask == nil {
                     self.showToast("NO SUBJECT DETECTED")
@@ -787,8 +920,14 @@ class EditorViewModel {
     /// against the previous one's silhouette, which reads as a segmentation failure.
     func clearSubjectMask() {
         subjectMask = nil
+        personMasks = []
+        semanticHeadMasks = []
+        semanticSuppressedFaceIDs = []
+        bigHeadUnion = nil
+        segmentationFetchKey = nil
         hasSegmentedSubject = false
         subjectSegmentationService.clearCache()
+        semanticHeadMaskService.clearCache()
     }
 
     func redetectFaces() {
@@ -1139,10 +1278,13 @@ class EditorViewModel {
                     let scaleX = result.extent.width / orientedWidth
                     let scaleY = result.extent.height / orientedHeight
                     let previewProg = self.selectedFaceFilter?.previewProgress ?? 1.0
-                    for face in faces {
-                        let scaledFace = face.scaled(x: scaleX, y: scaleY)
-                        result = faceEffect.apply(to: result, face: scaledFace, progress: previewProg, frameIndex: 5)
-                    }
+                    // One batch call with every face already scaled into preview space — the
+                    // scaling stays here with the caller (it owns the coordinate space), and
+                    // effects whose faces interact get to see all of them at once.
+                    let scaledFaces = faces.map { $0.scaled(x: scaleX, y: scaleY) }
+                    result = faceEffect.apply(
+                        to: result, faces: scaledFaces, progress: previewProg, frameIndex: 5
+                    )
 
                     // Rasterise the face pass before any visual effect sees it — the same thing
                     // the GIF path does, for the same reason.

@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		149969A8130D03FAC8182BE5 /* libPods-Enhance.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 771482E9DF1B13BFD01D53A4 /* libPods-Enhance.a */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXBuildRule section */
 		FD69C2012D8F8CD9001ED27D /* PBXBuildRule */ = {
 			isa = PBXBuildRule;
@@ -42,6 +46,9 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		65A6C145EC78B66B99738A82 /* Pods-Enhance.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Enhance.release.xcconfig"; path = "Target Support Files/Pods-Enhance/Pods-Enhance.release.xcconfig"; sourceTree = "<group>"; };
+		771482E9DF1B13BFD01D53A4 /* libPods-Enhance.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-Enhance.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A59980750DA18F7FB3D0652B /* Pods-Enhance.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Enhance.debug.xcconfig"; path = "Target Support Files/Pods-Enhance/Pods-Enhance.debug.xcconfig"; sourceTree = "<group>"; };
 		FD69C1772D8F8CD9001ED27D /* Enhance.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Enhance.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FD69C1872D8F8CDA001ED27D /* EnhanceTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EnhanceTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		FD69C1912D8F8CDA001ED27D /* EnhanceUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = EnhanceUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -78,11 +85,15 @@
 		};
 		FD69C18A2D8F8CDA001ED27D /* EnhanceTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = EnhanceTests;
 			sourceTree = "<group>";
 		};
 		FD69C1942D8F8CDA001ED27D /* EnhanceUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = EnhanceUITests;
 			sourceTree = "<group>";
 		};
@@ -93,6 +104,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				149969A8130D03FAC8182BE5 /* libPods-Enhance.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -113,6 +125,24 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		62079FCBD71DFD05495D5557 /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				A59980750DA18F7FB3D0652B /* Pods-Enhance.debug.xcconfig */,
+				65A6C145EC78B66B99738A82 /* Pods-Enhance.release.xcconfig */,
+			);
+			name = Pods;
+			path = Pods;
+			sourceTree = "<group>";
+		};
+		9C8FB664B3A8A4B62BDC9690 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				771482E9DF1B13BFD01D53A4 /* libPods-Enhance.a */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		FD69C16E2D8F8CD9001ED27D = {
 			isa = PBXGroup;
 			children = (
@@ -120,6 +150,8 @@
 				FD69C18A2D8F8CDA001ED27D /* EnhanceTests */,
 				FD69C1942D8F8CDA001ED27D /* EnhanceUITests */,
 				FD69C1782D8F8CD9001ED27D /* Products */,
+				62079FCBD71DFD05495D5557 /* Pods */,
+				9C8FB664B3A8A4B62BDC9690 /* Frameworks */,
 			);
 			sourceTree = "<group>";
 		};
@@ -140,6 +172,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = FD69C19B2D8F8CDA001ED27D /* Build configuration list for PBXNativeTarget "Enhance" */;
 			buildPhases = (
+				5199A2D0402505FD17F680A0 /* [CP] Check Pods Manifest.lock */,
 				FD69C1732D8F8CD9001ED27D /* Sources */,
 				FD69C1742D8F8CD9001ED27D /* Frameworks */,
 				FD69C1752D8F8CD9001ED27D /* Resources */,
@@ -153,8 +186,6 @@
 				FD69C1792D8F8CD9001ED27D /* Enhance */,
 			);
 			name = Enhance;
-			packageProductDependencies = (
-			);
 			productName = Enhance;
 			productReference = FD69C1772D8F8CD9001ED27D /* Enhance.app */;
 			productType = "com.apple.product-type.application";
@@ -176,8 +207,6 @@
 				FD69C18A2D8F8CDA001ED27D /* EnhanceTests */,
 			);
 			name = EnhanceTests;
-			packageProductDependencies = (
-			);
 			productName = EnhanceTests;
 			productReference = FD69C1872D8F8CDA001ED27D /* EnhanceTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -199,8 +228,6 @@
 				FD69C1942D8F8CDA001ED27D /* EnhanceUITests */,
 			);
 			name = EnhanceUITests;
-			packageProductDependencies = (
-			);
 			productName = EnhanceUITests;
 			productReference = FD69C1912D8F8CDA001ED27D /* EnhanceUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
@@ -272,6 +299,31 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		5199A2D0402505FD17F680A0 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-Enhance-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		FD69C1732D8F8CD9001ED27D /* Sources */ = {
@@ -436,6 +488,7 @@
 		};
 		FD69C19C2D8F8CDA001ED27D /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = A59980750DA18F7FB3D0652B /* Pods-Enhance.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon-Alt1 AppIcon-Alt2";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -469,6 +522,7 @@
 		};
 		FD69C19D2D8F8CDA001ED27D /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 65A6C145EC78B66B99738A82 /* Pods-Enhance.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES = "AppIcon-Alt1 AppIcon-Alt2";
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -506,6 +560,13 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Pods/MediaPipeTasksCommon/frameworks",
+					"$(SRCROOT)/Pods/MediaPipeTasksVision/frameworks",
+					"$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/XCFrameworkIntermediates/MediaPipeTasksCommon",
+					"$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/XCFrameworkIntermediates/MediaPipeTasksVision",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
 				MARKETING_VERSION = 1.0;
@@ -524,6 +585,13 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Pods/MediaPipeTasksCommon/frameworks",
+					"$(SRCROOT)/Pods/MediaPipeTasksVision/frameworks",
+					"$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/XCFrameworkIntermediates/MediaPipeTasksCommon",
+					"$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/XCFrameworkIntermediates/MediaPipeTasksVision",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 18.2;
 				MARKETING_VERSION = 1.0;
@@ -541,6 +609,13 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Pods/MediaPipeTasksCommon/frameworks",
+					"$(SRCROOT)/Pods/MediaPipeTasksVision/frameworks",
+					"$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/XCFrameworkIntermediates/MediaPipeTasksCommon",
+					"$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/XCFrameworkIntermediates/MediaPipeTasksVision",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = Enhance.EnhanceUITests;
@@ -557,6 +632,13 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				FRAMEWORK_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Pods/MediaPipeTasksCommon/frameworks",
+					"$(SRCROOT)/Pods/MediaPipeTasksVision/frameworks",
+					"$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/XCFrameworkIntermediates/MediaPipeTasksCommon",
+					"$(BUILD_DIR)/$(CONFIGURATION)$(EFFECTIVE_PLATFORM_NAME)/XCFrameworkIntermediates/MediaPipeTasksVision",
+				);
 				GENERATE_INFOPLIST_FILE = YES;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = Enhance.EnhanceUITests;

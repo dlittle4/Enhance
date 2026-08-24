@@ -1,6 +1,7 @@
 import Vision
 import UIKit
 import CoreImage
+import MediaPipeTasksVision
 
 /// Detects human and animal faces/heads in a still image.
 /// Human detection uses a three-tier fallback:
@@ -12,13 +13,18 @@ import CoreImage
 /// Results are cached per image to avoid redundant detection.
 final class FaceDetectionService {
     private var cachedImageHash: Int?
+    private var cachedIncludedFullRange = false
     private var cachedFaces: [DetectedFace] = []
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
+    private var fullRangeDetector: FaceDetector?
+    private(set) var lastFullRangeTileCount = 0
 
     /// Detect human and animal faces in the given image. Returns cached results if the image hasn't changed.
-    func detectFaces(in image: UIImage) async -> [DetectedFace] {
+    func detectFaces(in image: UIImage, includeFullRange: Bool = false) async -> [DetectedFace] {
         let hash = image.hashValue
-        if hash == cachedImageHash { return cachedFaces }
+        if hash == cachedImageHash, includeFullRange == cachedIncludedFullRange {
+            return cachedFaces
+        }
 
         guard let cgImage = image.cgImage else { return [] }
         let orientation = visionOrientation(from: image)
@@ -43,6 +49,18 @@ final class FaceDetectionService {
         if humanFaces == nil {
             humanFaces = detectWithCIDetector(image: image)
         }
+        if includeFullRange {
+            let primary = humanFaces ?? []
+            humanFaces = mergeHumanFaces(
+                primary: primary,
+                supplemental: detectWithFullRangeMediaPipe(
+                    image: image, imageWidth: imageWidth, imageHeight: imageHeight,
+                    knownFaces: primary
+                )
+            )
+        } else {
+            lastFullRangeTileCount = 0
+        }
 
         // Animal detection (cats & dogs)
         let animalFaces = detectAnimals(cgImage: cgImage, orientation: orientation, imageWidth: imageWidth, imageHeight: imageHeight)
@@ -54,8 +72,237 @@ final class FaceDetectionService {
         print("FaceDetectionService: detected \(humanCount) human face(s), \(animalCount) animal face(s)")
         #endif
         cachedImageHash = hash
+        cachedIncludedFullRange = includeFullRange
         cachedFaces = result
         return result
+    }
+
+    /// Semantic V2 supplements Apple's landmark-rich observations with BlazeFace full-range.
+    /// It is deliberately opt-in: LEGACY/V1 keep their measured detector behavior, while V2 can
+    /// recover smaller and sunglasses-obscured faces before per-head segmentation begins.
+    private func detectWithFullRangeMediaPipe(
+        image: UIImage, imageWidth: CGFloat, imageHeight: CGFloat,
+        knownFaces: [DetectedFace]
+    ) -> [DetectedFace] {
+        do {
+            let detector: FaceDetector
+            if let fullRangeDetector {
+                detector = fullRangeDetector
+            } else {
+                let url = Bundle.main.url(
+                    forResource: "blaze_face_full_range", withExtension: "tflite",
+                    subdirectory: "Models"
+                ) ?? Bundle.main.url(
+                    forResource: "blaze_face_full_range", withExtension: "tflite"
+                )
+                guard let url else { return [] }
+                let options = FaceDetectorOptions()
+                options.baseOptions.modelAssetPath = url.path
+                options.runningMode = .image
+                // MediaPipe's standard 0.50 confidence gate avoids helmet/round-object false
+                // positives. Tiled inference below recovers the distant faces that previously
+                // motivated lowering this threshold, without trading away precision.
+                options.minDetectionConfidence = 0.50
+                options.minSuppressionThreshold = 0.30
+                detector = try FaceDetector(options: options)
+                fullRangeDetector = detector
+            }
+
+            guard let oriented = image.orientationAppliedCIImage(),
+                  let cg = ciContext.createCGImage(oriented, from: oriented.extent)
+            else { return [] }
+            let imageExtent = CGRect(x: 0, y: 0, width: imageWidth, height: imageHeight)
+            // MediaPipe resizes to its fixed model input internally. Cap the pixels handed across
+            // the UIKit/MediaPipe bridge first so a 48MP photo does not allocate five full-size
+            // images merely to become a small detector tensor.
+            func detect(tile: CGRect, maxInputDimension: CGFloat) throws -> [DetectedFace] {
+                guard let tileCG = cg.cropping(to: tile) else { return [] }
+                let inputScale = min(
+                    1, maxInputDimension / max(CGFloat(tileCG.width), CGFloat(tileCG.height))
+                )
+                let inputCG: CGImage
+                if inputScale < 0.999 {
+                    let reduced = CIImage(cgImage: tileCG).transformed(by: CGAffineTransform(
+                        scaleX: inputScale, y: inputScale
+                    ))
+                    let reducedExtent = CGRect(
+                        x: 0, y: 0,
+                        width: max(1, CGFloat(tileCG.width) * inputScale),
+                        height: max(1, CGFloat(tileCG.height) * inputScale)
+                    ).integral
+                    guard let rendered = ciContext.createCGImage(reduced, from: reducedExtent)
+                    else { return [] }
+                    inputCG = rendered
+                } else {
+                    inputCG = tileCG
+                }
+
+                let input = UIImage(cgImage: inputCG, scale: 1, orientation: .up)
+                let result = try detector.detect(image: MPImage(uiImage: input))
+                let scaleX = tile.width / CGFloat(inputCG.width)
+                let scaleY = tile.height / CGFloat(inputCG.height)
+                return result.detections.compactMap { detection in
+                    let local = detection.boundingBox
+                    let topLeft = CGRect(
+                        x: local.minX * scaleX + tile.minX,
+                        y: local.minY * scaleY + tile.minY,
+                        width: local.width * scaleX,
+                        height: local.height * scaleY
+                    )
+                    // MediaPipe boxes are UIKit-style (top-left origin); all Enhance face
+                    // geometry is Core Image-style (bottom-left origin).
+                    let box = CGRect(
+                        x: topLeft.minX,
+                        y: imageHeight - topLeft.maxY,
+                        width: topLeft.width,
+                        height: topLeft.height
+                    ).intersection(imageExtent)
+                    guard box.width >= max(10, imageWidth * 0.008),
+                          box.height >= max(10, imageHeight * 0.008) else { return nil }
+                    let normalizedBox = CGRect(
+                        x: box.minX / imageWidth, y: box.minY / imageHeight,
+                        width: box.width / imageWidth, height: box.height / imageHeight
+                    )
+                    return buildEstimatedFace(
+                        fromNormalizedBox: normalizedBox,
+                        imageWidth: imageWidth, imageHeight: imageHeight
+                    )
+                }
+            }
+
+            let whole = try detect(tile: imageExtent, maxInputDimension: 1280)
+            var candidates = whole
+            let initial = mergeHumanFaces(primary: knownFaces, supplemental: whole)
+            guard Self.shouldRunFullRangeTiles(
+                for: initial, imageWidth: imageWidth, imageHeight: imageHeight
+            ) else {
+                lastFullRangeTileCount = 0
+                return mergeHumanFaces(primary: [], supplemental: candidates)
+            }
+
+            // A distant group face can occupy only a handful of whole-image tensor pixels.
+            // Four overlapping quadrants recover those faces without penalising an ordinary
+            // close-up portrait. The overlap keeps centreline faces intact; merge removes repeats.
+            let tileWidth = imageWidth * 0.60
+            let tileHeight = imageHeight * 0.60
+            let tiles = [
+                CGRect(x: 0, y: 0, width: tileWidth, height: tileHeight),
+                CGRect(x: imageWidth - tileWidth, y: 0, width: tileWidth, height: tileHeight),
+                CGRect(x: 0, y: imageHeight - tileHeight, width: tileWidth, height: tileHeight),
+                CGRect(x: imageWidth - tileWidth, y: imageHeight - tileHeight,
+                       width: tileWidth, height: tileHeight)
+            ].map(\.integral)
+            lastFullRangeTileCount = tiles.count
+            for tile in tiles {
+                candidates.append(contentsOf: try detect(tile: tile, maxInputDimension: 1024))
+            }
+            return mergeHumanFaces(primary: [], supplemental: candidates)
+        } catch {
+            lastFullRangeTileCount = 0
+            #if DEBUG
+            print("FaceDetectionService: BlazeFace full-range failed — \(error.localizedDescription)")
+            #endif
+            return []
+        }
+    }
+
+    /// Close-up portraits normally need only the whole-image detector pass. Empty/very small
+    /// results and genuine groups still receive the four-tile recall pass.
+    static func shouldRunFullRangeTiles(
+        for faces: [DetectedFace], imageWidth: CGFloat, imageHeight: CGFloat
+    ) -> Bool {
+        let shortEdge = max(1, min(imageWidth, imageHeight))
+        guard !faces.isEmpty else { return true }
+        if faces.count >= 3 { return true }
+        let relativeWidths = faces.map { $0.faceWidth / shortEdge }
+        if faces.count == 1, let face = faces.first {
+            let centreX = face.faceCenter.x / max(1, imageWidth)
+            let centreY = face.faceCenter.y / max(1, imageHeight)
+            let isConventionalCloseup = (relativeWidths.first ?? 0) >= 0.18
+                && (0.28...0.72).contains(centreX)
+                && (0.52...0.82).contains(centreY)
+            return !isConventionalCloseup
+        }
+        return relativeWidths.contains { $0 < 0.07 }
+    }
+
+    /// Lab-only escape hatch for a head that no face model can seed (full cap, back of head,
+    /// extreme profile). The closest detected face supplies a perspective-appropriate size;
+    /// downstream V2 segmentation and ownership are unchanged.
+    func estimatedFace(
+        at point: CGPoint, imageSize: CGSize, referenceFaces: [DetectedFace]
+    ) -> DetectedFace? {
+        guard imageSize.width > 1, imageSize.height > 1 else { return nil }
+        let extent = CGRect(origin: .zero, size: imageSize)
+        let centre = CGPoint(
+            x: min(max(point.x, extent.minX), extent.maxX),
+            y: min(max(point.y, extent.minY), extent.maxY)
+        )
+        let nearest = referenceFaces.min {
+            hypot($0.faceCenter.x - centre.x, $0.faceCenter.y - centre.y)
+                < hypot($1.faceCenter.x - centre.x, $1.faceCenter.y - centre.y)
+        }
+        let shortEdge = min(imageSize.width, imageSize.height)
+        let faceWidth = min(
+            shortEdge * 0.24,
+            max(shortEdge * 0.035, nearest?.faceWidth ?? shortEdge * 0.10)
+        )
+        let aspect = nearest.map { $0.faceHeight / max(1, $0.faceWidth) } ?? 1.22
+        let faceHeight = faceWidth * min(1.55, max(0.90, aspect))
+        var box = CGRect(
+            x: centre.x - faceWidth / 2, y: centre.y - faceHeight / 2,
+            width: faceWidth, height: faceHeight
+        )
+        box.origin.x = min(max(box.minX, extent.minX), extent.maxX - box.width)
+        box.origin.y = min(max(box.minY, extent.minY), extent.maxY - box.height)
+        let normalized = CGRect(
+            x: box.minX / imageSize.width, y: box.minY / imageSize.height,
+            width: box.width / imageSize.width, height: box.height / imageSize.height
+        )
+        return buildEstimatedFace(
+            fromNormalizedBox: normalized,
+            imageWidth: imageSize.width, imageHeight: imageSize.height
+        )
+    }
+
+    private func mergeHumanFaces(
+        primary: [DetectedFace], supplemental: [DetectedFace]
+    ) -> [DetectedFace] {
+        var merged = primary
+        for candidate in supplemental {
+            let duplicate = merged.contains { existing in
+                let intersection = existing.boundingBox.intersection(candidate.boundingBox)
+                let intersectionArea = intersection.isNull
+                    ? 0 : intersection.width * intersection.height
+                let unionArea = existing.boundingBox.width * existing.boundingBox.height
+                    + candidate.boundingBox.width * candidate.boundingBox.height - intersectionArea
+                let iou = unionArea > 0 ? intersectionArea / unionArea : 0
+                let centreDistance = hypot(
+                    existing.faceCenter.x - candidate.faceCenter.x,
+                    existing.faceCenter.y - candidate.faceCenter.y
+                )
+                let maxWidth = max(existing.faceWidth, candidate.faceWidth)
+                let maxHeight = max(existing.faceHeight, candidate.faceHeight)
+                let dx = abs(existing.faceCenter.x - candidate.faceCenter.x) / max(1, maxWidth)
+                let dy = abs(existing.faceCenter.y - candidate.faceCenter.y) / max(1, maxHeight)
+                let areaRatio = (existing.faceWidth * existing.faceHeight)
+                    / max(1, candidate.faceWidth * candidate.faceHeight)
+
+                // Vision boxes hug visible face skin while BlazeFace's full-range box includes
+                // more forehead/hair. Looking down exaggerates that vertical offset: the same
+                // person can have little IoU even though both boxes share an axis and scale.
+                // Keep Vision's landmark-rich observation whenever either overlap or the
+                // scale-aware centres establish identity. The size gate avoids folding a small
+                // background face into a much larger foreground one in group photographs.
+                return iou >= 0.18
+                    || (areaRatio >= 0.28 && areaRatio <= 3.6
+                        && ((dx <= 0.48 && dy <= 0.82)
+                            || (dx <= 0.68 && dy <= 0.60)))
+                    || centreDistance <= maxWidth * 0.32
+            }
+            if !duplicate { merged.append(candidate) }
+        }
+        return merged
     }
 
     /// Primary path: run landmarks and rectangles in parallel, merge results.
@@ -63,6 +310,10 @@ final class FaceDetectionService {
     /// and partially occluded faces that landmarks miss.
     private func detectWithLandmarks(cgImage: CGImage, orientation: CGImagePropertyOrientation, imageWidth: CGFloat, imageHeight: CGFloat) -> [DetectedFace]? {
         let landmarkRequest = VNDetectFaceLandmarksRequest()
+        // The 76-point constellation (revision 3) traces the jaw far more densely than the
+        // 65-point default — raw material for the jaw region. User's call, 2026-08-20.
+        landmarkRequest.revision = VNDetectFaceLandmarksRequestRevision3
+        landmarkRequest.constellation = .constellation76Points
         let rectRequest = VNDetectFaceRectanglesRequest()
         let handler = VNImageRequestHandler(cgImage: cgImage, orientation: orientation, options: [:])
 
@@ -134,7 +385,15 @@ final class FaceDetectionService {
     /// proportional positions for eyes, brows, and contour based on average
     /// facial geometry ratios.
     private func buildEstimatedFace(from obs: VNFaceObservation, imageWidth: CGFloat, imageHeight: CGFloat) -> DetectedFace {
-        let bb = obs.boundingBox
+        buildEstimatedFace(
+            fromNormalizedBox: obs.boundingBox,
+            imageWidth: imageWidth, imageHeight: imageHeight
+        )
+    }
+
+    private func buildEstimatedFace(
+        fromNormalizedBox bb: CGRect, imageWidth: CGFloat, imageHeight: CGFloat
+    ) -> DetectedFace {
         let boxInImage = CGRect(
             x: bb.origin.x * imageWidth,
             y: bb.origin.y * imageHeight,
@@ -575,6 +834,7 @@ final class FaceDetectionService {
 
     func clearCache() {
         cachedImageHash = nil
+        cachedIncludedFullRange = false
         cachedFaces = []
     }
 
@@ -629,7 +889,10 @@ final class FaceDetectionService {
             leftEyeWidth: leftEyeW, rightEyeWidth: rightEyeW,
             leftEyebrowPoints: leftBrow, rightEyebrowPoints: rightBrow,
             faceContourPoints: contour, normalizedBoundingBox: bb,
-            regions: regions, landmarkQuality: .precise
+            regions: regions, landmarkQuality: .precise,
+            roll: obs.roll?.doubleValue ?? 0,
+            yaw: obs.yaw?.doubleValue ?? 0,
+            pitch: obs.pitch?.doubleValue ?? 0
         )
     }
 

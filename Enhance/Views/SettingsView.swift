@@ -45,6 +45,7 @@ struct SettingsView: View {
     @AppStorage(FeatureFlags.motionSharedZoomKey) private var motionSharedZoom: Bool = false
 
     @State private var showMotionLab = false
+    @State private var showHeadMaskLab = false
 
     private let mintGreen = Color.enhanceMint
     private let themes = ["PIXEL", "THEME 2", "THEME 3"]
@@ -90,6 +91,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showMotionLab) {
             MotionLabView(isPresented: $showMotionLab)
+        }
+        .sheet(isPresented: $showHeadMaskLab) {
+            HeadMaskLabView(isPresented: $showHeadMaskLab)
         }
     }
 
@@ -175,6 +179,7 @@ struct SettingsView: View {
             labRow("GRADIENT LAB →") { showGradientLab = true }
             labRow("FACE MARKER LAB →") { showFaceMarkerLab = true }
             labRow("MOTION LAB →") { showMotionLab = true }
+            labRow("HEAD MASK LAB →") { showHeadMaskLab = true }
         }
     }
 

@@ -46,6 +46,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+
+      - name: Install MediaPipe dependencies
+        run: bundle exec pod install
+
       - name: Show toolchain
         run: |
           xcodebuild -version
@@ -94,7 +102,7 @@ jobs:
         run: |
           set -o pipefail
           xcodebuild test \
-            -project Enhance.xcodeproj \
+            -workspace Enhance.xcworkspace \
             -scheme Enhance \
             -destination "id=${{ steps.sim.outputs.udid }}" \
             -only-testing:EnhanceTests \
