@@ -347,7 +347,9 @@ struct GalleryView: View {
             }
         }
         .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isSelectMode)
-        .padding(.horizontal, 17)
+        // The gallery's one margin, shared with the grid and the bottom bar. It was 17 — an
+        // off-by-one that put MY GIFS a point outside the cells beneath it.
+        .padding(.horizontal, AppConstants.Spacing.grid)
         .padding(.top, 32)
         .padding(.bottom, 8)
     }
