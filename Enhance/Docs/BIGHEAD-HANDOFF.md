@@ -367,10 +367,25 @@ bleed. The result bundle is `/tmp/BigHeadV2CrowdDeviceFix-20260823.xcresult`, wi
 diagnostics in `.test-results/bighead-semantic-v2-crowd-device-fix-v1/`. Physical-device validation
 is still required because Simulator person segmentation returns no instances for these fixtures.
 
+### V2.5 Y-position control
+
+The face-effect panel's second slider used to be labelled `REACH`. That value scales the legacy
+ellipse/jaw region, but semantic masks already contain the complete head outline and bypass that
+geometry, so the control was inert in V2. It is now labelled `VERTICAL POSITION` and, in collision-safe
+V2, maps `0...1` to down...up with `0.5` preserving the approved face-centred result.
+
+Travel is face-relative and proportional to the amount of enlargement. At either extreme it uses
+only 60% of the new vertical margin produced by scaling the protected face box, leaving the
+original face covered instead of recreating V1's normal-head-under-enlarged-head failure. The
+legacy comparison path retains its old REACH arithmetic internally. Targeted tests cover movement
+direction, the neutral midpoint, normalized travel across group face sizes, and original-face
+coverage at both extremes; all 18 `BigHeadTests` (19 parameterized invocations) plus the parameter
+declaration tests passed in `/tmp/EnhanceBigHeadYPositionTests/Logs/Test/`.
+
 ## 9. Release-candidate status
 
 The 2026-08-23 release gate passed the full 20-photo V2 corpus with 53 detected faces, 53 masks,
-and zero suppressed faces. It also passed all 15 `BigHeadTests`, the shared-instance crowd
+and zero suppressed faces. It also passed the full `BigHeadTests` suite, the shared-instance crowd
 regression, and an unsigned Release build for a generic iOS device. The crowd regression now pins
 the exact properties behind the last device failure: every owner mask is at least 95% opaque at
 its own detected face centre and no more than 5% active at any neighbouring face centre. The

@@ -124,6 +124,64 @@ struct BigHeadTests {
         #expect(difference(out, source, side: Int(side)) > 0.5)
     }
 
+    @Test func semanticYPosition_movesInTheExpectedDirectionAndKeepsMidpointNeutral() {
+        let center = CGPoint(x: 200, y: 200)
+        let scale: CGFloat = 1.55
+        let low = center.applying(BigHeadEffect.semanticGrowthTransform(
+            faceCenter: center, faceHeight: 100, requestedScale: scale, position: 0
+        ))
+        let middle = center.applying(BigHeadEffect.semanticGrowthTransform(
+            faceCenter: center, faceHeight: 100, requestedScale: scale, position: 0.5
+        ))
+        let high = center.applying(BigHeadEffect.semanticGrowthTransform(
+            faceCenter: center, faceHeight: 100, requestedScale: scale, position: 1
+        ))
+
+        #expect(low.y < center.y)
+        #expect(abs(middle.y - center.y) < 0.001)
+        #expect(high.y > center.y)
+    }
+
+    @Test func semanticYPosition_scalesConsistentlyAcrossGroupFaceSizes() {
+        let scale: CGFloat = 1.4
+        let smallHeight: CGFloat = 60
+        let largeHeight: CGFloat = 180
+        let center = CGPoint(x: 200, y: 200)
+        let small = center.applying(BigHeadEffect.semanticGrowthTransform(
+            faceCenter: center, faceHeight: smallHeight, requestedScale: scale, position: 1
+        ))
+        let large = center.applying(BigHeadEffect.semanticGrowthTransform(
+            faceCenter: center, faceHeight: largeHeight, requestedScale: scale, position: 1
+        ))
+
+        let smallNormalized = (small.y - center.y) / smallHeight
+        let largeNormalized = (large.y - center.y) / largeHeight
+        #expect(abs(smallNormalized - largeNormalized) < 0.0001)
+    }
+
+    @Test(arguments: [CGFloat(0), CGFloat(1)])
+    func semanticYPosition_extremesStillCoverTheOriginalFace(position: CGFloat) {
+        let side: CGFloat = 400
+        let faceRect = CGRect(x: 150, y: 150, width: 100, height: 100)
+        let center = CGPoint(x: faceRect.midX, y: faceRect.midY)
+        let originalFace = CIImage(color: .white).cropped(to: faceRect)
+            .composited(over: CIImage(color: .black)
+                .cropped(to: CGRect(x: 0, y: 0, width: side, height: side)))
+        let transformed = originalFace.transformed(by: BigHeadEffect.semanticGrowthTransform(
+            faceCenter: center, faceHeight: faceRect.height,
+            requestedScale: 1.55, position: position
+        ))
+        var pixels = [UInt8](repeating: 0, count: Int(faceRect.width * faceRect.height * 4))
+        context.render(
+            transformed, toBitmap: &pixels, rowBytes: Int(faceRect.width) * 4,
+            bounds: faceRect, format: .RGBA8, colorSpace: CGColorSpaceCreateDeviceRGB()
+        )
+
+        let darkestRed = stride(from: 0, to: pixels.count, by: 4)
+            .map { pixels[$0] }.min() ?? 0
+        #expect(darkestRed > 245, "position \(position) exposed the original face footprint")
+    }
+
     @Test func groupMembershipDoesNotShrinkOrBorrowAnOwnersHead() {
         let side: CGFloat = 500
         let source = CIImage(image: UIImage.checkerboard(side: side))!

@@ -10,9 +10,9 @@ import CoreImage
 ///
 /// `HeadMaskTuning.default` reproduces the ea96ce3 baseline the user chose (2026-08-20),
 /// including its oversized ellipse — that size is part of the approved look, exposed rather
-/// than corrected — plus the approved chin cut. The REACH slider scales the tuned ellipse by
-/// the same ratio the baseline's `size` parameter did, so every slider position renders as it
-/// did before the tuning existed.
+/// than corrected — plus the approved chin cut. Legacy masks still use the second slider to
+/// scale that ellipse by the baseline ratio. Semantic V2 already supplies the exact head outline,
+/// so its second slider instead controls a small, coverage-safe vertical position adjustment.
 ///
 /// **Known limit, structural:** overlapping faces double-expose, because the pipeline applies
 /// the effect once per face and each pass re-blends the previous pass's output. That is the
@@ -46,6 +46,9 @@ struct BigHeadEffect: FaceEffect {
     }
 
     private let growth: CGFloat
+    /// Raw second-slider position. In semantic V2, 0.5 is centred, 0 moves down and 1 moves up.
+    /// Keeping the raw value also avoids reconstructing it from `sizeScale` when a mask is added.
+    private let secondaryPosition: CGFloat
     private let sizeScale: CGFloat
     private let mask: CIImage?
     private let perFace: [PerFaceMask]
@@ -62,8 +65,8 @@ struct BigHeadEffect: FaceEffect {
 
     /// - Parameters:
     ///   - intensity: how much the head grows — `1 + intensity² × tuning.growthMax` at full.
-    ///   - size: the REACH slider. Scales the tuned ellipse by the baseline's own ratio, so the
-    ///     mid-point is exactly the tuned size and the ends match the old slider's range.
+    ///   - size: the second slider. Semantic V2 treats it as VERTICAL POSITION; legacy masks retain
+    ///     REACH so comparison renders remain unchanged. The midpoint is neutral in both modes.
     ///   - mask: the subject silhouette from `SubjectSegmentationService`.
     ///   - tuning: mask geometry. Defaults to the live store, so the lab's values apply
     ///     everywhere the effect is built without any call site knowing the lab exists.
@@ -73,6 +76,7 @@ struct BigHeadEffect: FaceEffect {
          collisionSafe: Bool = false,
          tuning: HeadMaskTuning = HeadMaskTuningStore.shared.tuning) {
         self.growth = CGFloat(max(0, min(1, intensity)))
+        self.secondaryPosition = CGFloat(max(0, min(1, size)))
         // The ea96ce3 ellipse at slider position s spanned (2.3 + 1.5s) face-widths; the tuned
         // default is its mid-point, 3.05. Expressing the slider as that same ratio keeps every
         // position rendering exactly as the approved baseline did.
@@ -92,15 +96,28 @@ struct BigHeadEffect: FaceEffect {
     ) -> BigHeadEffect {
         var appliedTuning = tuning
         if forceStackedPass { appliedTuning.stackedPass = true }
-        return BigHeadEffect(intensity: Double(growth), size: sliderPosition, mask: mask,
+        return BigHeadEffect(intensity: Double(growth), size: Double(secondaryPosition), mask: mask,
                              perFace: perFace, suppressedFaceIDs: suppressedFaceIDs,
                              collisionSafe: collisionSafe,
                              tuning: appliedTuning)
     }
 
-    /// Inverts `sizeScale` back to the slider position for `withMask`'s reconstruction.
-    private var sliderPosition: Double {
-        Double((sizeScale * 3.05 - 2.3) / 1.5)
+    /// Semantic V2's position transform. Travel is proportional to the enlargement, so there is
+    /// no disconnected slide when INTENSITY is zero and no fixed-pixel jump between a close-up
+    /// and a group. A scaled face box gains `(scale - 1) * height / 2` on each vertical edge;
+    /// spending only 30% of that same quantity's full-height equivalent leaves 40% of the new
+    /// margin covering the original face even at either slider extreme.
+    static func semanticGrowthTransform(
+        faceCenter: CGPoint, faceHeight: CGFloat, requestedScale: CGFloat, position: CGFloat
+    ) -> CGAffineTransform {
+        let clampedScale = max(1, requestedScale)
+        let clampedPosition = max(0, min(1, position))
+        let bias = (clampedPosition - 0.5) * 2
+        let yOffset = bias * (clampedScale - 1) * max(0, faceHeight) * 0.30
+        return CGAffineTransform(translationX: -faceCenter.x, y: -faceCenter.y)
+            .concatenating(CGAffineTransform(scaleX: clampedScale, y: clampedScale))
+            .concatenating(CGAffineTransform(translationX: faceCenter.x, y: faceCenter.y))
+            .concatenating(CGAffineTransform(translationX: 0, y: yOffset))
     }
 
     // MARK: - The mask, in one place
@@ -389,9 +406,17 @@ struct BigHeadEffect: FaceEffect {
         // ordered stacked compositor; every head receives the same intensity-driven scale as it
         // would in a one-person photo.
         let requestedScale = 1 + amount * CGFloat(tuning.growthMax)
-        let transform = CGAffineTransform(translationX: -pivot.x, y: -pivot.y)
-            .concatenating(CGAffineTransform(scaleX: requestedScale, y: requestedScale))
-            .concatenating(CGAffineTransform(translationX: pivot.x, y: pivot.y))
+        let transform: CGAffineTransform
+        if derived?.isSemanticHeadMask == true, collisionSafe {
+            transform = Self.semanticGrowthTransform(
+                faceCenter: pivot, faceHeight: face.faceHeight,
+                requestedScale: requestedScale, position: secondaryPosition
+            )
+        } else {
+            transform = CGAffineTransform(translationX: -pivot.x, y: -pivot.y)
+                .concatenating(CGAffineTransform(scaleX: requestedScale, y: requestedScale))
+                .concatenating(CGAffineTransform(translationX: pivot.x, y: pivot.y))
+        }
 
         // Clamped before transforming: a head near the frame edge should extend its border
         // pixels rather than sample transparency and tear a hole as it grows.
