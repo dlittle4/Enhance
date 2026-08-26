@@ -1727,3 +1727,64 @@ reaching the cache. A timing-based assertion would have masked this: the throw i
 where segmentation works fine. So the capability has now been seen working on macOS and seen
 throwing in the Simulator, and has still never run on an iOS device — which is why §1g's device
 pass stays open.
+
+## 2026-08-19: A render harness that feeds itself matched inputs will pass while the app is broken
+
+BIG HEAD did nothing at all on device, and it took four rounds of user reports to find why —
+because the render harness said it worked every time.
+
+**The bug.** `BigHeadEffect` carries face lists (`facesToGrow`, `neighbourFaces`) captured at the
+photo's full resolution. The preview renders a *downsampled* copy and scales the single `face` it
+passes in to match (`EditorViewModel.updateCombinedPreview`), but the stored lists are what `apply`
+iterates. On a 5712px photo previewed near 1000px, every head was positioned several times outside
+the frame. Nothing drew. The fix uses `normalizedBoundingBox` as a space-independent anchor —
+`faceWidth / normalizedBoundingBox.width` recovers the image width a face was measured against, and
+the ratio to the frame in hand is the correction.
+
+**Why every test and render missed it.** `SubjectSegmentationDeviceTests` loads a fixture photo,
+detects faces in *that* image, and applies the effect to *that* image. Full-resolution image,
+full-resolution faces — the single combination where the mismatch cancels out. Eleven photos
+rendered correctly on device while the app was broken on all of them, and the effect was reported
+as working three separate times on that evidence.
+
+**The rule.** A render harness proves the effect works *for the inputs the harness gives it*. If
+those inputs are constructed differently from the app's, it is testing a path nobody ships. When
+building one, copy the call site — including which image and which coordinate space the app
+actually passes — or deliberately vary the axis the app varies. Here the app's distinguishing move
+was downsampling for preview, and the harness never downsampled.
+
+**The cheap guard.** `BigHeadTests.facesFromALargerImage_stillGrowTheHead` applies faces measured
+against a 4000px image to a 1000px frame and asserts something changed. It fails with the fix
+disabled, while `facesFromTheSameImage` keeps passing — so it isolates the space mismatch rather
+than noticing any change. It needs no Vision and no device, so it runs everywhere the suite runs.
+Note what that means: the bug was *always* catchable in the Simulator; nothing about it required
+the hardware the whole investigation was routed through.
+
+## 2026-08-20: A mask that carries its value in alpha defeats both colour filters and your probes
+
+`FaceRegionMaskBuilder.ellipticalMask` feathers with a `CIRadialGradient` from white-alpha-1 to
+white-alpha-0 — the mask's value lives in its **alpha**, not its RGB. Three consequences
+compounded into a five-hour debugging session:
+
+1. **Colour filters silently do nothing.** `CIColorControls` (contrast hardening) adjusts
+   *unpremultiplied* RGB — which is solid white everywhere in that gradient — and never touches
+   alpha. The "hardened" mask was bit-identical to the unhardened one, which read as evidence
+   that hardening was irrelevant when it was actually inert.
+2. **Bitmap probes lie in the other direction.** Rendering the mask to RGBA8 and reading RGB
+   yields *premultiplied* values (white × alpha = the ramp), which look exactly like a proper
+   grayscale mask. Every probe said the mask was correct while every composite disagreed.
+3. **Downstream compositing honours something else again.** Stacked heads cross-faded at a
+   constant ~14% wherever the mask fed a blend, across two algebraically equivalent compositing
+   formulations — bit-identical outputs, because CI rewrites equivalent graphs to one kernel DAG.
+
+The unlock was a minimal hand-built repro with **opaque rectangle masks**, which composited
+perfectly — cornering the difference to the mask's alpha structure, not the compositing. Fix:
+`.settingAlphaOne(in:)` flattens premultiplied RGB into the opaque grayscale mask every other
+mask in the pipeline already is (Vision's segmentation masks are one-component buffers — they
+never hit this).
+
+Rules: masks in this codebase are **opaque grayscale, value in RGB** — flatten anything
+alpha-feathered at the boundary where it is built, not at each use. When probes and composites
+disagree, suspect premultiplication before suspecting the renderer. And bit-identical output
+across a code change means the change was inert — find *why* before iterating further (here, a
+poison-pill render proved the build fresh in one step).

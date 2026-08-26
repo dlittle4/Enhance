@@ -33,6 +33,8 @@ Items marked 🔍 are landed and green but never confirmed on hardware.
 > [DESIGN_SYSTEM.md](DESIGN_SYSTEM.md) — the design-system audit and phased plan.
 > [LEARNINGS.md](LEARNINGS.md) — rules discovered the hard way.
 > [HISTORY.md](HISTORY.md) — everything already shipped, and why.
+> **[BIGHEAD-HANDOFF](BIGHEAD-HANDOFF.md)** — everything tried on BIG HEAD, measured facts, and
+> the questions we want fresh eyes on. **Read it before touching `BigHeadEffect`.**
 > Feature plans: [TEXT-EFFECTS](FEATURE-TEXT-EFFECTS.md) · [THEMES](FEATURE-THEMES.md) ·
 > [LENS](FEATURE-LENS-DISTORTION.md) · [SCRAMBLER](FEATURE-SCRAMBLER.md) *(historical)* ·
 > [VIEW-TRANSITIONS](FEATURE-VIEW-TRANSITIONS.md)
@@ -481,7 +483,48 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       **It is the first effect that composites rather than filters**, which is why it surfaced a
       class of interaction eleven filter-style effects never had; worth remembering before adding
       another compositing effect.
-- [x] **BIG HEAD — shipped 2026-08-18, rebuilt as a composite.** Cuts the head's outline out of
+- [ ] ⚠️ **BIG HEAD: the person-mask rebuild is PARKED on the user's call (2026-08-20) after
+      failing visual review twice.** The shipped effect is the simple version: ellipse ∩ the
+      shared subject mask, sequential per-face, keeping only three corrections from the rebuild
+      (halved ellipse extents, 3× growth, the `settingAlphaOne` mask flattening —
+      LEARNINGS 2026-08-20). **Read this before ever re-opening the ambitious path:**
+      - **What was proven and survives**: `VNGeneratePersonInstanceMaskRequest` separates ≤4
+        people cleanly (spike CSVs + tinted composites in the 2026-08-20 xcresults);
+        `SubjectSegmentationService.personMasks` is cached, stubbable, orientation-correct, with
+        a face-spanning label vote; the `FaceEffect` batch seam exists (protocol requirement,
+        sequential default — dispatch pinned by test); `HeadRegionBuilder` stays compiled,
+        unreferenced, per the retired-effects convention.
+      - **What failed review**: past the 4-instance cap, shared masks grown once per face
+        duplicated heads and torsos; the traced contour is Vision's *face oval*, so a cut on it
+        clips ears and draws a visible line (dropping the cut below the trace helped, but the
+        user's verdict on the full set was "not correct at all"); each fix re-grew the
+        complexity the 2026-08-19 reset existed to remove. Five renders and two failed reviews
+        in one day — the constraint is the look, not the mechanism.
+      - **The review lesson is a memory now**: judge animated output by early/mid/final frames
+        of *every* file, never the last frame of a sample — the last frame is the most occluded
+        and least diagnostic. Two of this rebuild's "successes" were artifacts of final-frame
+        review.
+- [x] ~~⚠️ **BIG HEAD reset to `ea96ce3` (2026-08-19)**~~ *(superseded by the rebuild above; the
+      reset's warning — do not re-patch wall geometry — held: the rebuild has no walls.)* A day of fixes took it from 122 to 468 lines — a flare, a crowded/solo split,
+      neighbour-gap walls, a per-face raster cache, coordinate rescaling, a render-once guard —
+      and every one of them was geometry standing in for a person boundary that segmentation will
+      not supply. Each fix traded one artifact for another, so the file was reset rather than
+      patched further.
+      **What the reset gives back, and it is not nothing:** the two worst bugs of that day were
+      introduced by the additions, not present here. There are no stored face lists, so the
+      coordinate mismatch that made the effect draw nothing in the app cannot occur — the caller
+      owns the space, and it already scales the face. And the head region is a `CIRadialGradient`
+      ellipse rather than a rasterised path, so there is no full-frame bitmap per face and no
+      24MP crash.
+      **What it gives up:** the traced-jaw boundary, so the region is an oval that takes some neck
+      and does not follow the chin; head stacking, so enlarged heads in a group blend rather than
+      occlude; and the 3× range, which reverts to 1.55×. It also restores the known bug that the
+      ellipse is sized from `faceWidth` as a half-extent, which enlarges the whole subject on some
+      photos — fixed once in `9486c2b`, and the single cheapest thing to re-apply.
+      **Do not re-patch the geometry.** The root cause is filed below: Vision returns one
+      foreground instance for a whole group, and `VNGeneratePersonInstanceMaskRequest` is the fix
+      that makes the compensation unnecessary rather than better.
+- [x] ~~**BIG HEAD — shipped 2026-08-18, rebuilt as a composite.**~~ *(superseded by the reset above)* Cuts the head's outline out of
       the subject mask and scales it on the body. **The first version was a `CIBumpDistortion`
       and was rejected: "just seems like a slightly different fisheye"** — correctly, and the
       reason is worth keeping. A bump warps a disc of the image, so the head grows *and*
@@ -497,6 +540,15 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       the head ellipse up to 3.8× the face, so it enclosed the whole animal and the effect scaled
       the entire subject — reported as "only making the head larger" not happening. `HandsomeEffect`
       halves them for exactly this reason; anything reading these fields should check which it wants.
+      **The chin cut follows the traced jaw, not a horizontal line (2026-08-18).** The first
+      hybrid cut flat at the contour's lowest point — the chin — and a jaw *rises* toward the
+      ears, so that line sat below the jaw on both sides and scooped up neck *(user-reported:
+      "still including the neck and not outlining around the chin")*. The region is now the
+      contour polygon extended upward: bounded below by the real jaw curve, open above, with the
+      subject mask supplying crown and hair. Rendered once and cached on the face and frame size,
+      as `AnimeBackgroundEffect` does, so it costs no render per frame. **A curve through
+      arbitrary points is not a product of linear ramps** — that is why the gradient approach
+      could not be tuned into this and had to be replaced.
       **Head region is a hybrid as of 2026-08-18.** Vision's traced `faceContourPoints` where a
       real contour exists, the ellipse otherwise. Note the contour is *not* a head outline — it
       runs ear-to-ear round the jaw with nothing above the brow, so filling it would cut the head
@@ -521,6 +573,24 @@ Build mechanics, per-effect specifications, and the candidates deliberately reje
       while building: whether it animates with `progress` (it should — a head that inflates as the
       zoom lands is the joke; a permanently big head is a still) and how it degrades on estimated
       landmarks, where it should distort *less* rather than vanish.
+- [ ] **BIG HEAD in a group photo needs `VNGeneratePersonInstanceMaskRequest`, not a better wall.**
+      *Measured 2026-08-19 on the fixture corpus.* `VNGenerateForegroundInstanceMaskRequest`
+      returns **one** foreground instance for every photo tested — including a three-face and a
+      ten-face one. It segments a group as a single blob, so `instanceMask(for:containing:)` has
+      no per-person instance to pick and the mask cannot exclude a neighbour. Confirmed by
+      reporting the index and count per photo, not inferred: `instances` is 1 across the board.
+      **The consequence is that geometric side walls are currently the only thing separating one
+      person's head from the next**, and they bound the head by geometry rather than anatomy —
+      cutting a straight line through the subject's own hair, which reads as a cardboard cutout.
+      Loosening them enlarges every head in the frame; that regression was shipped and reverted
+      the same day.
+      **`VNGeneratePersonInstanceMaskRequest` (iOS 17+) is the request that actually separates
+      people** — up to four, per person rather than per foreground blob. Swapping it in for the
+      face-driven effects would let the walls go and the boundary follow the silhouette, which is
+      what the user asked for. Two things to check when doing it: behaviour past four people (the
+      ten-face photo in the corpus is the test), and that it is *people*-only, so animals still
+      need the foreground request — meaning the service likely offers both rather than replacing
+      one with the other.
 - [ ] **HATCHING (straight lines)** — `CILineScreen` / `CIHatchedScreen` take angle and width
       directly, which is closer than the `CIEdgeWork` route EFFECTS.md suggests. Three screens at
       15°/45°/75°, each masked by a luminance band, composited with darken. Grid effect: needs

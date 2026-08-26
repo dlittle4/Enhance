@@ -28,7 +28,7 @@ struct EffectParameterTests {
         .chromaShift:   ("INTENSITY", nil),
         .rainbow:       ("INTENSITY", "SPEED"),
         .lensDistortion: ("INTENSITY", "REACH"),
-        .bigHead:        ("INTENSITY", "REACH")
+        .bigHead:        ("INTENSITY", "VERTICAL POSITION")
     ]
 
     /// The table above must cover the enum — otherwise adding a case would silently
@@ -315,4 +315,3 @@ struct EffectParameterTests {
         }
     }
 }
-

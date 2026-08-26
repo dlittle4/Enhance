@@ -77,9 +77,10 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         case .rainbow:        return "SPEED"
         case .lensDistortion: return "REACH"
         case .thirdEye:       return "INTENSITY"
-        // The second slot is how much of the head the bump covers — "SIZE" reads as the head's
-        // size, which is what INTENSITY does, so this says what it actually controls.
-        case .bigHead:        return "REACH"
+        // Semantic V2 already owns the complete head outline, so the old REACH control (ellipse
+        // coverage) cannot affect it. The second slot now nudges the enlarged head vertically;
+        // its midpoint preserves the face-centred V2 result.
+        case .bigHead:        return "VERTICAL POSITION"
         default:              return nil
         }
     }

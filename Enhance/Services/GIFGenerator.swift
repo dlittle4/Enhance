@@ -255,10 +255,13 @@ public class GIFGenerator: GIFGenerating {
     /// the source's pixel size, so nothing downstream needs to know it was scaled.
     private func faceEffectedSource(pass: FaceEffectPass?, progress: CGFloat, frameIndex: Int) -> UIImage? {
         guard let pass else { return nil }
-        var result = CIImage(cgImage: pass.source)
-        for face in pass.faces {
-            result = pass.effect.apply(to: result, face: face, progress: progress, frameIndex: frameIndex)
-        }
+        // One batch call, not a per-face loop: faces whose effects interact (BIG HEAD's
+        // enlarged heads overlap) need to see every face at once, and the default batch
+        // implementation reproduces the old loop exactly for the effects that don't.
+        let result = pass.effect.apply(
+            to: CIImage(cgImage: pass.source), faces: pass.faces,
+            progress: progress, frameIndex: frameIndex
+        )
         guard let outputCG = ciContext.createCGImage(result, from: result.extent) else { return nil }
         return UIImage(cgImage: outputCG)
     }

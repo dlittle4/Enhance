@@ -45,6 +45,7 @@ struct SettingsView: View {
     @AppStorage(FeatureFlags.motionSharedZoomKey) private var motionSharedZoom: Bool = false
 
     @State private var showMotionLab = false
+    @State private var showHeadMaskLab = false
 
     /// Read by `GalleryView` (the camera button) — `@AppStorage` on both ends republishes, so
     /// toggling here repaints the bottom bar under this sheet with no plumbing between the two.
@@ -94,6 +95,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showMotionLab) {
             MotionLabView(isPresented: $showMotionLab)
+        }
+        .sheet(isPresented: $showHeadMaskLab) {
+            HeadMaskLabView(isPresented: $showHeadMaskLab)
         }
     }
 
@@ -180,6 +184,7 @@ struct SettingsView: View {
             labRow("GRADIENT LAB →") { showGradientLab = true }
             labRow("FACE MARKER LAB →") { showFaceMarkerLab = true }
             labRow("MOTION LAB →") { showMotionLab = true }
+            labRow("HEAD MASK LAB →") { showHeadMaskLab = true }
         }
     }
 

@@ -33,12 +33,12 @@ struct SubjectSegmentationTests {
 
     /// A service whose segmentation always finds a subject.
     private func serviceFindingSubject(maskSide: CGFloat = 64) -> SubjectSegmentationService {
-        SubjectSegmentationService { _, _ in self.makeMask(side: maskSide) }
+        SubjectSegmentationService(maskProvider: { _, _ in self.makeMask(side: maskSide) })
     }
 
     /// A service whose segmentation never finds one.
     private func serviceFindingNothing() -> SubjectSegmentationService {
-        SubjectSegmentationService { _, _ in nil }
+        SubjectSegmentationService(maskProvider: { _, _ in nil })
     }
 
     // MARK: - Absence is an answer, not an error
@@ -118,7 +118,7 @@ struct SubjectSegmentationTests {
     /// Vision error, so the distinction is part of the contract rather than a convenience.
     @Test func providerThrows_propagatesRatherThanReportingNoSubject() {
         struct Boom: Error {}
-        let service = SubjectSegmentationService { _, _ in throw Boom() }
+        let service = SubjectSegmentationService(maskProvider: { _, _ in throw Boom() })
 
         #expect(throws: Boom.self) {
             _ = try service.subjectMaskOrThrow(for: self.makeImage())
@@ -131,10 +131,10 @@ struct SubjectSegmentationTests {
         struct Boom: Error {}
         final class Gate: @unchecked Sendable { var shouldThrow = true }
         let gate = Gate()
-        let service = SubjectSegmentationService { _, _ in
+        let service = SubjectSegmentationService(maskProvider: { _, _ in
             if gate.shouldThrow { throw Boom() }
             return self.makeMask()
-        }
+        })
         let image = makeImage()
 
         _ = try? service.subjectMaskOrThrow(for: image)
@@ -171,6 +171,136 @@ struct SubjectSegmentationTests {
         let mask = await service.subjectMask(for: makeImage(side: 64))
 
         #expect(mask?.extent.width == 64)
+    }
+
+    // MARK: - Person masks
+
+    private func stubSegmentation(
+        masks: [Int: CIImage],
+        labels: @escaping (CGPoint) -> Int
+    ) -> SubjectSegmentationService.PersonSegmentation {
+        SubjectSegmentationService.PersonSegmentation(masks: masks, labelAt: labels)
+    }
+
+    /// N points, one segmentation pass — the whole point of the per-photo cache.
+    @Test func personMasks_runOnePassForManyPoints() async {
+        var providerCalls = 0
+        let mask = makeMask()
+        let service = SubjectSegmentationService(
+            maskProvider: { _, _ in nil },
+            personProvider: { _, _ in
+                providerCalls += 1
+                return self.stubSegmentation(masks: [1: mask]) { _ in 1 }
+            }
+        )
+        let image = makeImage()
+        let points = [CGPoint(x: 10, y: 10), CGPoint(x: 30, y: 30), CGPoint(x: 50, y: 50)]
+
+        let first = await service.personMasks(for: image, at: points)
+        let second = await service.personMasks(for: image, at: points)
+
+        #expect(providerCalls == 1)
+        #expect(first.count == 3)
+        #expect(second.count == 3)
+        #expect(first.allSatisfy { $0 != nil })
+    }
+
+    /// Alignment is positional, and a background (label 0) point yields nil — the caller owns
+    /// the union fallback.
+    @Test func personMasks_alignPositionally_andBackgroundIsNil() async {
+        let maskA = makeMask(side: 32)
+        let maskB = makeMask(side: 48)
+        let service = SubjectSegmentationService(
+            maskProvider: { _, _ in nil },
+            personProvider: { _, _ in
+                // Left half of the buffer is instance 1, right half instance 2, a background
+                // stripe at the very top (normalized y < 0.1 — remember y is DOWN here).
+                self.stubSegmentation(masks: [1: maskA, 2: maskB]) { p in
+                    if p.y < 0.1 { return 0 }
+                    return p.x < 0.5 ? 1 : 2
+                }
+            }
+        )
+        let image = makeImage()   // 64×64
+        let results = await service.personMasks(for: image, at: [
+            CGPoint(x: 16, y: 32),   // left → instance 1
+            CGPoint(x: 48, y: 32),   // right → instance 2
+            CGPoint(x: 32, y: 62)    // near the top in y-up = top stripe in buffer → background
+        ])
+
+        #expect(results.count == 3)
+        #expect(results[0]?.extent.width == 64)   // maskA rescaled to the image
+        #expect(results[1] != nil)
+        #expect(results[2] == nil)
+    }
+
+    /// The patch vote: a face centre that reads a neighbour's label at the exact pixel still
+    /// resolves to its own instance when the surrounding patch disagrees — the fixture corpus
+    /// measured exactly this failure on a tilted head.
+    @Test func personMasks_patchVoteOverridesASinglePixelMiss() async {
+        let mask = makeMask()
+        let service = SubjectSegmentationService(
+            maskProvider: { _, _ in nil },
+            personProvider: { _, _ in
+                self.stubSegmentation(masks: [1: mask, 2: mask]) { p in
+                    // Exactly at the centre: the wrong neighbour. Everywhere else: instance 2.
+                    (abs(p.x - 0.5) < 0.008 && abs(p.y - 0.5) < 0.008) ? 1 : 2
+                }
+            }
+        )
+        let image = makeImage()   // 64×64, centre (32, 32)
+        let results = await service.personMasks(for: image, at: [CGPoint(x: 32, y: 32)])
+
+        // Modal label over the patch is 2; a single-pixel read would have said 1.
+        #expect(results.count == 1)
+        #expect(results[0] != nil)
+    }
+
+    /// The oriented conversion, pinned with a stub: a `.right`-oriented image swaps the
+    /// dimensions, and a point given in oriented pixel space must arrive at the label lookup
+    /// in normalized oriented coordinates. This is the rotated-photo bug that silently returned
+    /// label 0, fixed once in the deleted API and kept fixed here.
+    @Test func personMasks_convertUsingOrientedDimensions() async {
+        var received: [CGPoint] = []
+        let mask = makeMask()
+        let service = SubjectSegmentationService(
+            maskProvider: { _, _ in nil },
+            personProvider: { _, _ in
+                self.stubSegmentation(masks: [1: mask]) { p in
+                    received.append(p); return 1
+                }
+            }
+        )
+        // A 64×32 bitmap displayed .right: oriented size is 32×64.
+        let raw = makeImage(side: 64).cgImage!
+        let context = CGContext(
+            data: nil, width: 64, height: 32, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        context.draw(raw, in: CGRect(x: 0, y: 0, width: 64, height: 32))
+        let wide = context.makeImage()!
+        let rotated = UIImage(cgImage: wide, scale: 1, orientation: .right)
+
+        // Oriented space is 32 wide × 64 tall; ask about its centre.
+        _ = await service.personMasks(for: rotated, at: [CGPoint(x: 16, y: 32)])
+
+        // Every patch sample must be normalized against 32×64, not 64×32: the centre lands at
+        // (0.5, 0.5) and the patch spreads around it, so all samples stay near the middle.
+        // Mis-normalizing against the raw dimensions would put x at 16/64 = 0.25.
+        #expect(!received.isEmpty)
+        #expect(received.allSatisfy { abs($0.x - 0.5) < 0.1 && abs($0.y - 0.5) < 0.12 })
+    }
+
+    /// A throwing provider yields nils, not a crash, and is not cached as "no people".
+    @Test func personMasks_throwingProviderYieldsNil() async {
+        struct Boom: Error {}
+        let service = SubjectSegmentationService(
+            maskProvider: { _, _ in nil },
+            personProvider: { _, _ in throw Boom() }
+        )
+        let results = await service.personMasks(for: makeImage(), at: [CGPoint(x: 10, y: 10)])
+        #expect(results == [nil])
     }
 
     // MARK: - Prewarm
