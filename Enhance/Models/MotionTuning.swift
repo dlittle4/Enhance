@@ -242,9 +242,10 @@ struct MotionTuning: Codable, Equatable {
 
     // MARK: - Defaults
 
-    /// **Today's behaviour, exactly.** Every geometry knob is its inert value — no stagger, no
-    /// scale, no press feedback — because that is what the app does now, and a default that
-    /// quietly introduced motion would break the "flags off changes nothing" contract that makes
+    /// **The adopted profile** *(user's call, 2026-08-26)*: the values dialled in on device and
+    /// pulled from its defaults, replacing the original inert baseline. The flags are still what
+    /// keep the app unchanged when off — a default carrying motion never plays until its flag
+    /// says so, which is the contract that makes
     /// these experiments safe to leave in.
     ///
     /// The one honest asterisk: with a flag *on* and these defaults, timing moves from the current
@@ -255,39 +256,32 @@ struct MotionTuning: Codable, Equatable {
     /// nobody has to dial them in from zero to see the intended effect.
     static let `default` = MotionTuning(
         globalCurve: MotionCurve(response: 0.3, dampingFraction: 0.6),
-        entranceStagger: 0,
-        entranceScale: 1,
-        entranceOffsetY: 0,
+        entranceStagger: 0.05,
+        entranceScale: 0.92,
+        entranceOffsetY: 12,
         entranceCurve: nil,
-        // Off by default: the entrance experiment's contract is that its geometry knobs are
-        // inert until moved, and a pixel build is the least inert thing here.
         canvasPixelEntrance: false,
         canvasRevealCell: 18,
         canvasRevealTime: 1.2,
         categorySwitchScale: 1,
-        categorySwitchCurve: nil,
-        cascadeStagger: 0,
-        tabScaleFrom: 1,
-        tabCurve: nil,
-        tilePressScale: 1,
+        categorySwitchCurve: MotionCurve(response: 0.22, dampingFraction: 0.82),
+        cascadeStagger: 0.06,
+        tabScaleFrom: 0.7,
+        tabCurve: MotionCurve(response: 0.22, dampingFraction: 0.6),
+        tilePressScale: 0.95,
         tileBrightnessDelta: 0,
-        tilePressCurve: nil,
-        // The ambient effects have no "off by geometry" value the way a scale of 1 is inert, so
-        // their defaults are simply the shape they should take the first time someone turns the
-        // flag on. The flag is what keeps the app unchanged, not these numbers.
-        generatingStyle: .spinner,
+        tilePressCurve: MotionCurve(response: 0.25, dampingFraction: 0.45),
+        generatingStyle: .build,
         generatingCell: 22,
         generatingCycle: 1.1,
         revealCellSize: 6,
         revealDuration: 1.6,
         revealDelay: 0.35,
         parallaxMagnitude: 4,
-        parallaxSmoothing: 0.9,
-        cameraScaleFrom: 0.05,
-        // Frozen at the camera's designed feel rather than inheriting: retuning the global
-        // for the editor experiments must not quietly reshape the camera launch.
-        cameraCurve: MotionCurve(response: 0.38, dampingFraction: 0.8),
-        cameraBottomPadding: 18
+        parallaxSmoothing: 0.882,
+        cameraScaleFrom: 0.461,
+        cameraCurve: MotionCurve(response: 0.385, dampingFraction: 0.595),
+        cameraBottomPadding: 48
     )
 
     /// The plan's proposed starting point — what the ideas describe, before anyone has judged

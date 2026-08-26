@@ -63,26 +63,39 @@ struct MotionTuningTests {
         #expect(decoded.cameraBottomPadding == MotionTuning.default.cameraBottomPadding)
     }
 
+    /// A stored blob with no curve keys decodes those curves as *inherit*, not as the
+    /// default's frozen overrides — a user who set an animation back to USE GLOBAL encodes
+    /// `nil` as an absent key, and resurrecting the adopted profile's frozen curve there
+    /// would undo their choice on every launch. Everything else falls back to the default.
+    /// (A fresh install never decodes at all: the store hands out `.default` directly, frozen
+    /// curves included — the reset test below pins that.)
     @Test
-    func decode_emptyObject_isExactlyTheDefault() throws {
+    func decode_emptyObject_isTheDefaultWithInheritedEditorCurves() throws {
         let decoded = try JSONDecoder().decode(MotionTuning.self, from: Data("{}".utf8))
-        #expect(decoded == MotionTuning.default)
+
+        var expected = MotionTuning.default
+        expected.entranceCurve = nil
+        expected.categorySwitchCurve = nil
+        expected.tabCurve = nil
+        expected.tilePressCurve = nil
+        #expect(decoded == expected)
     }
 
     // MARK: - Defaults
 
-    /// The contract that makes these experiments safe to leave in the build: with every flag on
-    /// and nothing tuned, the geometry is inert, so the app looks exactly as it ships.
+    /// The default is no longer inert: it is the adopted on-device profile *(user's call,
+    /// 2026-08-26)*. The flags remain the off-switch — a tuned default never plays until its
+    /// flag says so — and what this pins is that the adopted numbers do not drift by accident.
     @Test
-    func defaultTuning_isVisuallyInert() {
+    func defaultTuning_isTheAdoptedProfile() {
         let tuning = MotionTuning.default
-        #expect(tuning.entranceStagger == 0)
-        #expect(tuning.entranceScale == 1)
-        #expect(tuning.entranceOffsetY == 0)
-        #expect(tuning.categorySwitchScale == 1)
-        #expect(tuning.tabScaleFrom == 1)
-        #expect(tuning.tilePressScale == 1)
-        #expect(tuning.tileBrightnessDelta == 0)
+        #expect(tuning.entranceStagger == 0.05)
+        #expect(tuning.entranceScale == 0.92)
+        #expect(tuning.entranceOffsetY == 12)
+        #expect(tuning.tabScaleFrom == 0.7)
+        #expect(tuning.tilePressScale == 0.95)
+        #expect(tuning.cameraScaleFrom == 0.461)
+        #expect(tuning.cameraBottomPadding == 48)
     }
 
     /// `.default` is seeded from `Motion.panel`, the app's one shared chrome curve. If that

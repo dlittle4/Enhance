@@ -124,33 +124,33 @@ struct FaceMarkerTuning: Codable, Equatable {
 
     // MARK: - Defaults
 
-    /// Chosen to be *defensible starting points*, not answers — finding the answers is what the lab
-    /// is for. Two are deliberately conservative: `autoHideDelay` at 2s is long enough to notice
-    /// the markers before they go, and `spotlightDimming` at 0.45 is well short of a blackout.
+    /// **The adopted profile** *(user's call, 2026-08-26)*: the values dialled in on device and
+    /// pulled from its defaults — short brackets, a slow flash, one-and-three-quarter entrance
+    /// scans with no repeat. The RETICLE + SCANLINE variants now ship on these numbers.
     static let `default` = FaceMarkerTuning(
-        autoHideDelay: 2.0,
-        restingOpacity: 0.0,
-        flashDuration: 0.28,
-        minimumTapTarget: 44,
-        quietStroke: 1,
-        bracketLength: 0.28,
-        bracketThickness: 2,
-        markerScale: 1.08,
-        lockOnScale: 1.12,
-        lockOnDuration: 0.22,
+        autoHideDelay: 4.0,
+        restingOpacity: 0.45,
+        flashDuration: 0.9525,
+        minimumTapTarget: 46.4,
+        quietStroke: 0.675,
+        bracketLength: 0.0725,
+        bracketThickness: 1.75,
+        markerScale: 1.075,
+        lockOnScale: 1.175,
+        lockOnDuration: 0.3875,
         showsIndexLabel: true,
-        labelSize: 10,
-        unselectedOpacity: 0.35,
-        scanlineDuration: 1.6,
-        scanlineOpacity: 0.35,
-        scanlineHeight: 0.18,
+        labelSize: 10.9,
+        unselectedOpacity: 0.25,
+        scanlineDuration: 0.76,
+        scanlineOpacity: 0.55,
+        scanlineHeight: 0.31,
         entranceOrder: .scanFirst,
-        entranceScanPasses: 2,
-        entranceStagger: 0.18,
-        scanRepeats: true,
-        spotlightDimming: 0.45,
-        spotlightRadiusScale: 1.3,
-        spotlightFeather: 0.55
+        entranceScanPasses: 1.75,
+        entranceStagger: 0.25,
+        scanRepeats: false,
+        spotlightDimming: 0.665,
+        spotlightRadiusScale: 1.65,
+        spotlightFeather: 0.25
     )
 
     // MARK: - Derived

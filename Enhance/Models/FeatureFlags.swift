@@ -8,8 +8,9 @@ import Foundation
 /// them in one place is what makes that cleanup a single search rather than an archaeology
 /// exercise across the view model, the settings sheet and `UserDefaults`.
 ///
-/// Every flag is **off by default**, which `UserDefaults.bool(forKey:)` gives for free on a key
-/// that was never written: a flag nobody touches changes nothing.
+/// Flags default **off** via `UserDefaults.bool(forKey:)` — except the adopted profile
+/// registered in `EnhanceApp.init` *(user's call, 2026-08-26)*, which turns the lived-with set
+/// on for fresh installs. An explicit toggle always wins over the registration domain.
 enum FeatureFlags {
 
     /// Lets ENHANCE run before the user has pinched the canvas.

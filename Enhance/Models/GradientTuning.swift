@@ -145,18 +145,15 @@ struct GradientTuning: Codable, Equatable {
 
     // MARK: - Defaults
 
-    /// The border and the numerics carry `GradientViews.swift`'s original values forward, so the
-    /// flags-off look is unchanged.
-    ///
-    /// The poles start at the palette's cyan and orchid — the pairing the reference screenshots
-    /// show. The density stops span 0.77 → 0.51 → 0.31 luminance, wide enough for the falloff to
-    /// read; the light and mid are lifted straight from the old palette, the dark is orchid pulled
-    /// down since nothing in that palette was ever dark.
+    /// **The adopted profile** *(user's call, 2026-08-26)*: the values dialled in on device and
+    /// pulled from its defaults, replacing the carried-forward originals. The dark poles moved to
+    /// deep greens, the dither/noise mix settled at 0.65/0.2 with a touch of halftone, and the
+    /// field drifts — the look the STATIC/DITHERED flags now ship.
     static let `default` = GradientTuning(
         poleLightA: RGBColor(r: 0.231, g: 1.0, b: 0.988),
-        poleDarkA: RGBColor(r: 0.537, g: 0.545, b: 0.722),
+        poleDarkA: RGBColor(r: 0.0, g: 0.9367, b: 0.3347),
         poleLightB: RGBColor(r: 0.157, g: 0.851, b: 0.714),
-        poleDarkB: RGBColor(r: 0.765, g: 0.467, b: 0.863),
+        poleDarkB: RGBColor(r: 0.0, g: 0.7623, b: 0.4731),
         poleMidA: RGBColor(r: 0.122, g: 0.773, b: 0.580),
         poleMidB: RGBColor(r: 0.988, g: 0.388, b: 1.0),
         meshLight: RGBColor(r: 0.231, g: 1.0, b: 0.988),
@@ -166,21 +163,21 @@ struct GradientTuning: Codable, Equatable {
         borderEndA: RGBColor(r: 0.8, g: 0.2, b: 0.9),
         borderStartB: RGBColor(r: 0.95, g: 0.3, b: 0.7),
         borderEndB: RGBColor(r: 0.95, g: 0.1, b: 0.4),
-        cellSize: 2,
-        noiseAmount: 1.0,
-        orderedAmount: 1.0,
-        halftoneAmount: 0,
+        cellSize: 1.75,
+        noiseAmount: 0.2,
+        orderedAmount: 0.65,
+        halftoneAmount: 0.35,
         halftoneAngle: .pi / 8,          // 22.5°, off the pixel grid
-        splitDistance: 0,
-        splitAngle: 0,
+        splitDistance: 3,
+        splitAngle: 1.4 * .pi,
         levels: 2,
-        pulseDuration: 5.0,
-        staticFrameRate: 12,
-        borderRotationDuration: 10.0,
+        pulseDuration: 3.75,
+        staticFrameRate: 26.1,
+        borderRotationDuration: 11.8,
         borderReversed: false,
-        driftAngle: 0,
-        driftSpeed: 0,
-        fieldDuration: 3.0,
+        driftAngle: 0.8 * .pi,
+        driftSpeed: 16,
+        fieldDuration: 9.7,
         labelMode: .auto
     )
 
