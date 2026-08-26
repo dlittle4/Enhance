@@ -46,6 +46,10 @@ struct SettingsView: View {
 
     @State private var showMotionLab = false
 
+    /// Read by `GalleryView` (the camera button) — `@AppStorage` on both ends republishes, so
+    /// toggling here repaints the bottom bar under this sheet with no plumbing between the two.
+    @AppStorage(FeatureFlags.cameraCaptureKey) private var cameraCapture: Bool = false
+
     private let mintGreen = Color.enhanceMint
     private let themes = ["PIXEL", "THEME 2", "THEME 3"]
     private let appIcons: [(name: String, preview: String, identifier: String?)] = [
@@ -125,6 +129,7 @@ struct SettingsView: View {
             experimentRow("STATIC BUTTON GRADIENT", isOn: $staticGradient)
             experimentRow("DITHERED BUTTON GRADIENT", isOn: $ditherGradient)
             experimentRow("STATIC BUTTON BORDER", isOn: $staticBorder)
+            experimentRow("IN-APP CAMERA", isOn: $cameraCapture)
         }
     }
 

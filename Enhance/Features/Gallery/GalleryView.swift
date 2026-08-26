@@ -39,6 +39,21 @@ struct GalleryView: View {
     /// was opened on a newly-picked photo, which has no originating cell.
     @State private var zoomingIndex: Int?
 
+    /// The in-app camera experiment. Scaffolding — see `FeatureFlags.cameraCapture`.
+    @AppStorage(FeatureFlags.cameraCaptureKey) private var cameraCapture = false
+    @State private var isCameraPresented = false
+    @State private var cameraViewModel: CameraViewModel?
+
+    /// Bumped on every `openCamera()` and used as the overlay's `.id`, so each presentation
+    /// is structurally a new view with fresh `@State` — see `closeCamera()` for the revival
+    /// failure this forecloses.
+    @State private var cameraLaunchToken = 0
+
+    /// True from the moment the captured photo's geometry id is handed to the editor until the
+    /// camera overlay is torn down — the freeze frame yields `isSource` on this, the same
+    /// one-owner rule `zoomingIndex` implements for grid cells.
+    @State private var cameraZoomHandoff = false
+
     @StateObject private var deviceMotion = DeviceMotionService()
 
     private var gridColumns: [GridItem] {
@@ -73,6 +88,9 @@ struct GalleryView: View {
         }
         .preferredColorScheme(.dark)
         .overlay { editorOverlay }
+        // Above the editor on purpose: after a capture the frozen photo flies from the
+        // viewfinder to the canvas, and it must pass *over* the incoming editor.
+        .overlay { cameraOverlay }
         .overlay { loadingOverlay }
         .overlay(alignment: .top) {
             if showCopiedToast {
@@ -516,6 +534,7 @@ struct GalleryView: View {
             && !isSelectMode
             && !isPinching
             && !isEditorPresented
+            && !isCameraPresented
             && !isLoadingPhoto
             && !showSettings
     }
@@ -566,18 +585,54 @@ struct GalleryView: View {
     }
     
     private var normalBottomBar: some View {
-        PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-            Text("MAKE A GIF")
-                .font(.silkscreenButtonLabel)
+        HStack(spacing: 8) {
+            if cameraCapture {
+                cameraButton
+                    .transition(.scale.combined(with: .opacity))
+            }
+
+            PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
+                Text("MAKE A GIF")
+                    .font(.silkscreenButtonLabel)
+                    .gradientButtonLabel()
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 60)
+                    .background(
+                        ButtonGradientBackground()
+                            .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
+                    )
+            }
+            .buttonStyle(EnhancePressButtonStyle())
+        }
+        // Animated on the flag so toggling IN-APP CAMERA repaints live under the settings
+        // sheet, which floats over the gallery rather than replacing it.
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: cameraCapture)
+    }
+
+    private var cameraButton: some View {
+        Button {
+            HapticService.selection()
+            openCamera()
+        } label: {
+            Image("icon-camera-sharp")
+                .renderingMode(.template)
+                .resizable()
+                .frame(width: 24, height: 24)
                 .gradientButtonLabel()
-                .frame(maxWidth: .infinity)
-                .frame(height: 60)
+                .frame(width: 60, height: 60)
                 .background(
                     ButtonGradientBackground()
                         .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
                 )
         }
         .buttonStyle(EnhancePressButtonStyle())
+        // No matched geometry here: the overlay's scale transition is anchored on this
+        // button's spot instead (`CameraOverlayView.launchAnchor`). The button stays mounted
+        // and visible under the scrim the whole time the camera is up — an extra
+        // always-mounted source in the shared namespace destabilized the other
+        // view-transition experiments, and hiding the button read as it vanishing.
+        .accessibilityLabel("Open camera")
+        .accessibilityIdentifier("gallery-camera-button")
     }
     
     private var selectModeBottomBar: some View {
@@ -641,7 +696,8 @@ struct GalleryView: View {
                     viewModel: vm,
                     isPresented: $isEditorPresented,
                     namespace: animation,
-                    sharedZoomIndex: zoomingIndex
+                    sharedZoomID: zoomingIndex.map { "gif\($0)" }
+                        ?? (cameraZoomHandoff ? CameraOverlayView.captureGeometryID : nil)
                 )
                     .environmentObject(photoManager)
                     .onDisappear {
@@ -655,8 +711,116 @@ struct GalleryView: View {
         }
     }
     
+    // MARK: - Camera Overlay
+
+    private var cameraOverlay: some View {
+        Group {
+            if isCameraPresented, let vm = cameraViewModel {
+                CameraOverlayView(
+                    viewModel: vm,
+                    namespace: animation,
+                    hasYieldedGeometry: cameraZoomHandoff,
+                    // Capture the birth token: this instance may ask to close after a
+                    // reopen has already replaced it, and that request must die stale.
+                    onClose: { [token = cameraLaunchToken] in closeCameraIfCurrent(token) },
+                    onCapture: presentEditorFromCamera
+                )
+                .id(cameraLaunchToken)
+            }
+        }
+    }
+
     // MARK: - Actions
-    
+
+    private func openCamera() {
+        // A reopen can land inside the previous overlay's exit beat — it stays mounted,
+        // invisible and inert, until its shrink-out settles and it asks to be closed. Tear
+        // any remnant down instantly (closeCamera is idempotent) so the fresh presentation
+        // starts from nothing; bumping the token right after orphans that instance's still
+        // pending close (`closeCameraIfCurrent`), which must not kill the new camera.
+        if isCameraPresented { closeCamera() }
+        // A new identity per presentation, so SwiftUI can never hand a fresh open the
+        // previous overlay's dying render tree (whose `hasEntered` state is spent).
+        cameraLaunchToken += 1
+        // Both writes in ONE animated transaction: the overlay's insertion is gated on the
+        // pair (`if isCameraPresented, let vm`), and when the view-model write landed in its
+        // own unanimated transaction first, the insertion could ride that one and pop.
+        // The card's transition is a scale anchored on the button's spot plus a fade —
+        // just the fade under Reduce Motion. See `CameraOverlayView.cardTransition`.
+        // Curve and start scale are MOTION LAB knobs (`MotionTuning.cameraScaleFrom` /
+        // `.cameraCurve`), tuned live like the editor experiments.
+        withAnimation(motionStore.tuning.cameraEffective.animation) {
+            cameraViewModel = CameraViewModel()
+            isCameraPresented = true
+        }
+    }
+
+    /// The overlay's own close path. Each overlay instance closes with the token it was
+    /// born under — an instance replaced by a reopen still has a delayed close in flight,
+    /// and letting that stale request through would tear down its successor.
+    private func closeCameraIfCurrent(_ token: Int) {
+        guard token == cameraLaunchToken else { return }
+        closeCamera()
+    }
+
+    private func closeCamera() {
+        cameraViewModel?.close()
+        // The overlay has already animated itself out (`CameraOverlayView.dismiss()` shrinks
+        // the card back into the button before calling this), so the unmount is invisible
+        // and happens in one dead transaction. Leaving an animated removal running here kept
+        // a dying instance alive in the branch — a reopen inside that window could revive
+        // it, dismissed and inert, instead of inserting a fresh overlay.
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            isCameraPresented = false
+            cameraViewModel = nil
+        }
+    }
+
+    /// The captured photo's flight into the editor. Same destination as `selectPhoto(_:)`,
+    /// with the viewfinder's freeze frame as the geometry source the `.newImage` path never
+    /// had — see `FEATURE-CAMERA.md`.
+    private func presentEditorFromCamera(_ image: UIImage) {
+        guard !isEditorPresented else { return }
+
+        if reduceMotion {
+            // No flight: the editor fades in on its own and the camera goes quietly.
+            selectPhoto(image)
+            dismissCameraAfterHandoff()
+            return
+        }
+
+        // The freeze frame mounted this runloop; it needs one rendered frame as `isSource`
+        // before yielding, or there is no established geometry to fly from. The short delay
+        // also lets the chrome/scrim fade read as its own beat.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            guard isCameraPresented else { return }
+            // Yield outside the animation, then present inside it — `selectGif(at:)`'s
+            // one-owner ordering, in the same two transactions.
+            cameraZoomHandoff = true
+            editorViewModel = EditorViewModel(content: .newImage(image))
+            withAnimation(.spring(response: AppConstants.Animation.standard, dampingFraction: 0.8)) {
+                isEditorPresented = true
+            }
+            dismissCameraAfterHandoff()
+        }
+    }
+
+    /// Tears the camera down once the flight has settled — without animation, because by then
+    /// the freeze frame sits pixel-identical over the editor's own canvas.
+    private func dismissCameraAfterHandoff() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                isCameraPresented = false
+                cameraViewModel = nil
+                cameraZoomHandoff = false
+            }
+        }
+    }
+
     private func selectPhoto(_ image: UIImage) {
         editorViewModel = EditorViewModel(content: .newImage(image))
         withAnimation(.spring(response: AppConstants.Animation.standard, dampingFraction: 0.8)) {

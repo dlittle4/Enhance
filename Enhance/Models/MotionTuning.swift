@@ -220,6 +220,26 @@ struct MotionTuning: Codable, Equatable {
     /// grid twitch. This is the weight kept from the previous sample each tick.
     var parallaxSmoothing: Double
 
+    // MARK: - Camera launch (IN-APP CAMERA experiment)
+
+    /// Scale the viewfinder card grows from when the camera opens. The transition is anchored
+    /// on the camera button's spot (`CameraOverlayView.launchAnchor`), so this is how small the
+    /// card starts inside the button. 1 is a plain fade with no growth.
+    ///
+    /// **Live by default, unlike the editor knobs above.** The camera is itself an experiment
+    /// behind `FeatureFlags.cameraCapture` — the flag is what keeps the app unchanged, so these
+    /// follow the ambient-effects precedent: the default is the shape the transition should
+    /// take the first time someone turns the camera on.
+    var cameraScaleFrom: Double
+
+    /// `nil` inherits `globalCurve`.
+    var cameraCurve: MotionCurve?
+
+    /// Points between the viewfinder card's bottom edge and the physical bottom of the
+    /// screen — where the card comes to rest. The Figma spec sits it 18pt off the hardware
+    /// edge, below the safe area.
+    var cameraBottomPadding: Double
+
     // MARK: - Defaults
 
     /// **Today's behaviour, exactly.** Every geometry knob is its inert value — no stagger, no
@@ -262,7 +282,12 @@ struct MotionTuning: Codable, Equatable {
         revealDuration: 1.6,
         revealDelay: 0.35,
         parallaxMagnitude: 4,
-        parallaxSmoothing: 0.9
+        parallaxSmoothing: 0.9,
+        cameraScaleFrom: 0.05,
+        // Frozen at the camera's designed feel rather than inheriting: retuning the global
+        // for the editor experiments must not quietly reshape the camera launch.
+        cameraCurve: MotionCurve(response: 0.38, dampingFraction: 0.8),
+        cameraBottomPadding: 18
     )
 
     /// The plan's proposed starting point — what the ideas describe, before anyone has judged
@@ -291,7 +316,10 @@ struct MotionTuning: Codable, Equatable {
         revealDuration: 1.6,
         revealDelay: 0.35,
         parallaxMagnitude: 4,
-        parallaxSmoothing: 0.9
+        parallaxSmoothing: 0.9,
+        cameraScaleFrom: 0.05,
+        cameraCurve: MotionCurve(response: 0.38, dampingFraction: 0.8),
+        cameraBottomPadding: 18
     )
 
     // MARK: - Derived
@@ -303,6 +331,7 @@ struct MotionTuning: Codable, Equatable {
     var categorySwitchEffective: MotionCurve { effectiveCurve(categorySwitchCurve) }
     var tabEffective: MotionCurve { effectiveCurve(tabCurve) }
     var tilePressEffective: MotionCurve { effectiveCurve(tilePressCurve) }
+    var cameraEffective: MotionCurve { effectiveCurve(cameraCurve) }
 
     // MARK: - Export
 
@@ -340,7 +369,10 @@ struct MotionTuning: Codable, Equatable {
             revealDuration: \(Self.number(revealDuration)),
             revealDelay: \(Self.number(revealDelay)),
             parallaxMagnitude: \(Self.number(parallaxMagnitude)),
-            parallaxSmoothing: \(Self.number(parallaxSmoothing))
+            parallaxSmoothing: \(Self.number(parallaxSmoothing)),
+            cameraScaleFrom: \(Self.number(cameraScaleFrom)),
+            cameraCurve: \(Self.curve(cameraCurve)),
+            cameraBottomPadding: \(Self.number(cameraBottomPadding))
         )
         """
     }
@@ -408,7 +440,13 @@ extension MotionTuning {
             revealDuration: number(.revealDuration, fallback.revealDuration),
             revealDelay: number(.revealDelay, fallback.revealDelay),
             parallaxMagnitude: number(.parallaxMagnitude, fallback.parallaxMagnitude),
-            parallaxSmoothing: number(.parallaxSmoothing, fallback.parallaxSmoothing)
+            parallaxSmoothing: number(.parallaxSmoothing, fallback.parallaxSmoothing),
+            cameraScaleFrom: number(.cameraScaleFrom, fallback.cameraScaleFrom),
+            // Unlike the editor curves, absent means "the default's frozen curve" rather than
+            // inherit — a blob written before this field existed should keep the camera's
+            // designed feel, not pick up whatever the global happens to be.
+            cameraCurve: curve(.cameraCurve) ?? fallback.cameraCurve,
+            cameraBottomPadding: number(.cameraBottomPadding, fallback.cameraBottomPadding)
         )
     }
 }

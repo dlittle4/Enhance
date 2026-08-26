@@ -169,4 +169,17 @@ enum FeatureFlags {
     /// The shared-element zoom from a tapped gallery cell into the editor canvas.
     static let motionSharedZoomKey = "featureMotionSharedZoom"
     static var motionSharedZoom: Bool { UserDefaults.standard.bool(forKey: motionSharedZoomKey) }
+
+    // MARK: - Camera
+
+    /// An in-app camera for shooting the photo a GIF starts from, instead of picking one.
+    ///
+    /// Gates the camera button beside MAKE A GIF and everything behind it: the viewfinder
+    /// overlay above the gallery, and the captured photo's flight into the editor canvas. The
+    /// flight is part of this experiment's choreography, not a second opinion to hold — it is
+    /// deliberately **not** ANDed with `motionSharedZoom`, whose question (should tapping an
+    /// existing GIF zoom?) is unrelated to whether a camera user sees the feature as designed.
+    static let cameraCaptureKey = "featureCameraCapture"
+
+    static var cameraCapture: Bool { UserDefaults.standard.bool(forKey: cameraCaptureKey) }
 }

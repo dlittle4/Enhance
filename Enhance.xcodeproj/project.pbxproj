@@ -446,6 +446,7 @@
 				DEVELOPMENT_ASSET_PATHS = "\"Enhance/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "We need camera access so you can take a photo to turn into a GIF";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "We need permission to save your created GIFs to your photo library";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need access to your photos to display them in the gallery";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -479,6 +480,7 @@
 				DEVELOPMENT_ASSET_PATHS = "\"Enhance/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSCameraUsageDescription = "We need camera access so you can take a photo to turn into a GIF";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "We need permission to save your created GIFs to your photo library";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "We need access to your photos to display them in the gallery";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;

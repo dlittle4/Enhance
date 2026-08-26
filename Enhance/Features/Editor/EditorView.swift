@@ -5,12 +5,14 @@ struct EditorView: View {
     @Binding var isPresented: Bool
     let namespace: Namespace.ID
 
-    /// The grid index this editor zoomed out of, or `nil` when there is nothing to zoom from —
-    /// a freshly picked photo has no originating cell, and the experiment may simply be off.
+    /// The geometry id this editor's canvas claims on entry, or `nil` when there is nothing to
+    /// zoom from — a freshly picked photo has no originating view, and the experiment may simply
+    /// be off. `"gif<index>"` pairs with a grid cell; `CameraOverlayView.captureGeometryID`
+    /// pairs with the camera's frozen viewfinder.
     ///
-    /// The gallery clears its own cell's `isSource` before handing this over, so exactly one view
-    /// owns the geometry id at any moment.
-    var sharedZoomIndex: Int? = nil
+    /// The gallery clears the other view's `isSource` before handing this over, so exactly one
+    /// view owns the geometry id at any moment.
+    var sharedZoomID: String? = nil
 
     @EnvironmentObject var photoManager: PhotoManager
 
@@ -447,7 +449,7 @@ struct EditorView: View {
             // **Open leg only.** The close is left as the ordinary cross-fade: Idea 2's save
             // reveal gives the grid its own arrival animation, and a zoom back down would collide
             // with it. See FEATURE-VIEW-TRANSITIONS.md.
-            .modifier(SharedZoomModifier(index: sharedZoomIndex, namespace: namespace))
+            .modifier(SharedZoomModifier(id: sharedZoomID, namespace: namespace))
     }
 
     private var canvasContent: some View {
@@ -1610,19 +1612,21 @@ struct EditorView: View {
     }
 }
 
-/// Claims the tapped grid cell's geometry so the canvas grows out of it.
+/// Claims the originating view's geometry so the canvas grows out of it — a tapped grid cell,
+/// or the camera's frozen viewfinder.
 ///
 /// Gated behind a modifier rather than a conditional at the call site: applying
 /// `matchedGeometryEffect` conditionally changes the view's identity, and SwiftUI can drop the
-/// transition it is meant to drive. With `index == nil` this is a plain passthrough.
+/// transition it is meant to drive. With `id == nil` this is a plain passthrough.
 private struct SharedZoomModifier: ViewModifier {
-    let index: Int?
+    let id: String?
     let namespace: Namespace.ID
 
     func body(content: Content) -> some View {
-        if let index {
-            // Same id the gallery cell uses (`GifGridItem`), which is what pairs them.
-            content.matchedGeometryEffect(id: "gif\(index)", in: namespace)
+        if let id {
+            // Same id the source view uses (`GifGridItem` / `CameraOverlayView`), which is
+            // what pairs them.
+            content.matchedGeometryEffect(id: id, in: namespace)
         } else {
             content
         }

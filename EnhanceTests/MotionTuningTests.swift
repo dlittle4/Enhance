@@ -55,6 +55,12 @@ struct MotionTuningTests {
         #expect(decoded.globalCurve == MotionTuning.default.globalCurve)
         #expect(decoded.tilePressScale == MotionTuning.default.tilePressScale)
         #expect(decoded.entranceCurve == nil)
+        // The camera fields arrived after the editor ones; a pre-camera blob must keep the
+        // launch's designed feel — including its frozen curve, which unlike the editor curves
+        // falls back to the default rather than to inherit.
+        #expect(decoded.cameraScaleFrom == MotionTuning.default.cameraScaleFrom)
+        #expect(decoded.cameraCurve == MotionTuning.default.cameraCurve)
+        #expect(decoded.cameraBottomPadding == MotionTuning.default.cameraBottomPadding)
     }
 
     @Test

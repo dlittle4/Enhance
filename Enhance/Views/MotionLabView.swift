@@ -66,6 +66,8 @@ struct MotionLabView: View {
                         divider
                         gallerySection
                         divider
+                        cameraSection
+                        divider
                         actions
                     }
                     .padding(.horizontal, 16)
@@ -507,6 +509,68 @@ struct MotionLabView: View {
                 label: "TILT SMOOTHING",
                 value: normalized(tuning.parallaxSmoothing, in: 0...0.98),
                 valueText: String(format: "%.2f", store.tuning.parallaxSmoothing)
+            )
+        }
+    }
+
+    /// SPEED writes through to the camera curve's response, freezing an override on first
+    /// touch so a later global retune cannot silently reshape a dialled-in launch.
+    private var cameraSpeed: Binding<Double> {
+        Binding(
+            get: { store.tuning.cameraEffective.response },
+            set: { newValue in
+                var curve = store.tuning.cameraEffective
+                curve.response = newValue
+                store.tuning.cameraCurve = curve
+            }
+        )
+    }
+
+    /// The IN-APP CAMERA experiment's launch: the viewfinder scaling up out of the camera
+    /// button. Judged in the gallery like the section above — the preview stage is an editor
+    /// miniature and cannot show it.
+    private var cameraSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("CAMERA LAUNCH")
+                .font(.silkscreenSectionTitle)
+                .foregroundColor(.white)
+
+            Text("JUDGE IN THE GALLERY — OPEN THE CAMERA FROM THE BOTTOM BAR. NEEDS IN-APP CAMERA ON.")
+                .font(.silkscreenSmall)
+                .foregroundColor(.textInactive)
+
+            // 1 is the "no growth" position — the card just fades. The entrance reads it
+            // that way (`CameraOverlayView.restingScale`), same contract as the inert
+            // geometry knobs above.
+            ParameterSliderRow(
+                label: "START SCALE",
+                value: normalized(tuning.cameraScaleFrom, in: 0.02...1),
+                valueText: store.tuning.cameraScaleFrom > 0.995
+                    ? "FADE ONLY"
+                    : String(format: "%.2f×", store.tuning.cameraScaleFrom)
+            )
+
+            // The launch curve's response, surfaced as its own slider: "how fast does the
+            // camera open" should not require flipping the curve editor to CUSTOM first.
+            // Writing it freezes the curve (seeded from the effective one), so the two
+            // controls below stay one source of truth.
+            ParameterSliderRow(
+                label: "SPEED",
+                value: normalized(cameraSpeed, in: 0.1...2),
+                valueText: String(format: "%.2fS", store.tuning.cameraEffective.response)
+            )
+
+            // Where the card comes to rest, in points off the physical bottom edge.
+            ParameterSliderRow(
+                label: "VERTICAL POSITION",
+                value: normalized(tuning.cameraBottomPadding, in: 0...240),
+                allowsZero: true,
+                valueText: "\(Int(store.tuning.cameraBottomPadding))PT"
+            )
+
+            curveOverride(
+                override: tuning.cameraCurve,
+                effective: store.tuning.cameraEffective
             )
         }
     }
