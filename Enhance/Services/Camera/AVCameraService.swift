@@ -182,8 +182,7 @@ final class AVCameraService: NSObject, CameraServing {
 
         let captureAngle = coordinator.videoRotationAngleForHorizonLevelCapture
         let tapAngle = coordinator.videoRotationAngleForHorizonLevelPreview
-        // Refine the tap's target with the preview-layer coordinator's answer — configure
-        // time already seeded it from a device-only coordinator, before any frame flowed.
+        // The tap's one source of rotation truth: frames are dropped until this lands.
         core.setTapTargetAngle(tapAngle)
         sessionQueue.async { [core] in
             if let connection = core.photoOutput.connection(with: .video),
@@ -364,19 +363,11 @@ private final class CameraSessionCore: @unchecked Sendable {
                 connection.automaticallyAdjustsVideoMirroring = false
                 connection.isVideoMirrored = position == .front
             }
-            // Rotation, *before the session runs*: `applyRotation` fires only after
-            // `start()` returns, and frames flow the moment `startRunning` does — on
-            // device that gap shipped the whole intro in the sensor's native landscape.
-            // A device-only coordinator (no preview layer yet on this queue) still
-            // reports the horizon-level preview angle. The tap is told the target too,
-            // so any frame the hardware did not rotate is corrected — or dropped —
-            // rather than drawn sideways.
-            let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
-            let tapAngle = coordinator.videoRotationAngleForHorizonLevelPreview
-            if connection.isVideoRotationAngleSupported(tapAngle) {
-                connection.videoRotationAngle = tapAngle
-            }
-            setTapTargetAngle(tapAngle)
+            // Rotation is deliberately NOT set here. A device-only coordinator created on
+            // this queue reports a preview angle of 0 — measured on device — so seeding
+            // from it armed the wrong angle; only `applyRotation`'s preview-layer
+            // coordinator tells the truth. Until it has spoken, the tap has no target and
+            // *drops* frames rather than drawing the sensor's native landscape.
         }
 
         session.commitConfiguration()
@@ -483,8 +474,16 @@ private final class VideoFrameTap: NSObject, AVCaptureVideoDataOutputSampleBuffe
         else { return }
 
         var image = CIImage(cvPixelBuffer: pixelBuffer)
-        if let orientation = Self.correction(from: connection.videoRotationAngle, to: targetAngle) {
-            image = image.oriented(orientation)
+        // Judged from the buffer itself, not `connection.videoRotationAngle`: after the
+        // angle is set the connection *reports* it immediately, but buffers keep arriving
+        // sensor-native for a handful of frames before the rotation engages — measured on
+        // device. Aspect is the honest signal in a portrait-only app: a landscape buffer
+        // under a portrait target has not been rotated yet, whatever the connection claims.
+        if let correction = Self.correction(
+            bufferPortrait: image.extent.height > image.extent.width,
+            target: targetAngle
+        ) {
+            image = image.oriented(correction)
         }
         let shortSide = min(image.extent.width, image.extent.height)
         if shortSide > Self.maxShortSide {
@@ -500,16 +499,16 @@ private final class VideoFrameTap: NSObject, AVCaptureVideoDataOutputSampleBuffe
         }
     }
 
-    /// The orientation that carries a buffer from the angle its connection actually applied
-    /// to the angle the preview layer shows, or nil when they already agree.
+    /// The orientation that carries a still-sensor-native buffer to the target angle, or
+    /// nil when the buffer's aspect already agrees with the target's.
     ///
-    /// The anchor for the mapping: a buffer at angle 0 is the sensor's native landscape, and
-    /// hardware displays it upright as EXIF `.right` — the same fact `MockCameraService`
-    /// documents for captures ("landscape bytes tagged `.right`"). Each further 90° of
-    /// deficit steps once more around the EXIF rotations.
-    private static func correction(from actual: CGFloat, to target: CGFloat) -> CGImagePropertyOrientation? {
-        let delta = (target - actual).truncatingRemainder(dividingBy: 360)
-        switch delta < 0 ? delta + 360 : delta {
+    /// The anchor for the mapping: an unrotated buffer sits at angle 0 — the sensor's
+    /// native landscape — and displays upright as EXIF `.right`, the same fact
+    /// `MockCameraService` documents for captures ("landscape bytes tagged `.right`").
+    private static func correction(bufferPortrait: Bool, target: CGFloat) -> CGImagePropertyOrientation? {
+        let targetPortrait = target == 90 || target == 270
+        guard bufferPortrait != targetPortrait else { return nil }
+        switch target {
         case 90: return .right
         case 180: return .down
         case 270: return .left
