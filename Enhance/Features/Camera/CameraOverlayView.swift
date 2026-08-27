@@ -51,6 +51,15 @@ struct CameraOverlayView: View {
     /// to rest from `onAppear`.
     @State private var hasEntered = false
 
+    /// The feed's pixel-resolve intro. `waiting` covers the feed in black until the first
+    /// tapped frame lands; `running` is the sweep; `done` unmounts the overlay and hands
+    /// off to the live preview layer. One-way — the intro plays once per presentation.
+    private enum ResolvePhase { case waiting, running, done }
+    @State private var resolvePhase: ResolvePhase = .waiting
+
+    /// The overlay's closing fade, as explicit state for the same reason `hasEntered` is.
+    @State private var resolveVisible = true
+
     private var hasCaptured: Bool { viewModel.capturedImage != nil }
 
     /// Scale the card holds before the entrance runs — the MOTION LAB knob, inert under
@@ -105,18 +114,92 @@ struct CameraOverlayView: View {
             withAnimation(motionStore.tuning.cameraEffective.animation) {
                 hasEntered = true
             }
+            // Decided before the session starts so the tap can catch the very first frame.
+            // Reduce Motion and a zeroed REVEAL TIME never enable the tap at all — the feed
+            // keeps its plain fade and the real service's video path stays cold.
+            if reduceMotion || motionStore.tuning.cameraRevealTime <= 0 {
+                resolvePhase = .done
+            } else {
+                viewModel.beginIntroFrames()
+            }
+            startResolveIfReady()
         }
         .task { await viewModel.openCamera() }
         .onDisappear { viewModel.close() }
+        .onChange(of: hasEntered) { _, _ in startResolveIfReady() }
+        // Nil-to-frame is the start signal; the Bool keeps this from firing per frame.
+        .onChange(of: viewModel.previewFrame == nil) { _, _ in startResolveIfReady() }
+        .onChange(of: viewModel.sessionState) { _, newState in
+            switch newState {
+            case .failed:
+                // Immediately, not via the fade: the error text renders above the overlay,
+                // but a black square lingering under it reads as a hung feed.
+                finishResolve(fade: false)
+            case .running:
+                // The tap is optional hardware (`canAddOutput` may refuse it): if no frame
+                // arrives shortly after the session is live, degrade to exactly the plain
+                // fade this intro replaced.
+                guard resolvePhase == .waiting else { break }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                    if resolvePhase == .waiting { finishResolve(fade: true) }
+                }
+            default:
+                break
+            }
+        }
         .onChange(of: scenePhase) { _, newPhase in
             switch newPhase {
             case .active:
+                // Backgrounding tore the tap down (`sceneDidBackground` → `endIntroFrames`);
+                // an intro still waiting for its first frame needs it re-armed or the
+                // overlay would sit black forever.
+                if resolvePhase == .waiting { viewModel.beginIntroFrames() }
                 Task { await viewModel.sceneDidActivate() }
             case .background:
                 viewModel.sceneDidBackground()
             default:
                 break
             }
+        }
+    }
+
+    // MARK: - Resolve intro
+
+    /// Starts the sweep, once, and only when everything it needs has arrived — the entrance
+    /// underway and a first frame to draw. Idempotent and called from every trigger, so
+    /// whichever arrives last is the one that starts it (`GifGridItem` shape).
+    private func startResolveIfReady() {
+        guard resolvePhase == .waiting, hasEntered, !hasCaptured,
+              viewModel.previewFrame != nil else { return }
+
+        let duration = motionStore.tuning.cameraRevealTime
+        guard !reduceMotion, duration > 0 else {
+            finishResolve(fade: false)
+            return
+        }
+
+        resolvePhase = .running
+        // Ended by the clock rather than left to the timeline, so an interruption can never
+        // strand a half-resolved overlay across the feed.
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
+            finishResolve(fade: true)
+        }
+    }
+
+    /// Every terminal path funnels here: the sweep's own clock, a session failure, and the
+    /// no-frame fallback timeout. The fade hides the seam between the tapped frames and the
+    /// live layer; failure paths skip it.
+    private func finishResolve(fade: Bool) {
+        guard resolvePhase != .done else { return }
+        guard fade else {
+            resolvePhase = .done
+            viewModel.endIntroFrames()
+            return
+        }
+        withAnimation(.easeOut(duration: 0.12)) { resolveVisible = false }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            resolvePhase = .done
+            viewModel.endIntroFrames()
         }
     }
 
@@ -133,6 +216,19 @@ struct CameraOverlayView: View {
                 CameraPreviewView(makeView: viewModel.makePreviewUIView)
                     .opacity(viewModel.sessionState == .running ? 1 : 0)
                     .animation(.easeIn(duration: 0.25), value: viewModel.sessionState)
+
+                // The resolve intro, over the feed and under the controls. Before the first
+                // frame it is opaque black — indistinguishable from the card behind a
+                // not-yet-running feed, so a missing tap costs nothing visually.
+                if resolvePhase != .done {
+                    CameraResolveOverlay(
+                        frame: viewModel.previewFrame,
+                        cellSize: motionStore.tuning.cameraRevealCell,
+                        duration: motionStore.tuning.cameraRevealTime,
+                        running: resolvePhase == .running
+                    )
+                    .opacity(resolveVisible ? 1 : 0)
+                }
 
                 if case .failed(let message) = viewModel.sessionState {
                     Text(message)

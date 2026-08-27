@@ -27,6 +27,11 @@ final class CameraViewModel {
     /// starts the handoff into the editor.
     private(set) var capturedImage: UIImage?
 
+    /// The latest live frame, flowing only while the resolve intro has asked for frames
+    /// (`beginIntroFrames`). Its first non-nil value is the app's real "the feed has
+    /// rendered" signal — `sessionState == .running` only means the session started.
+    private(set) var previewFrame: CGImage?
+
     private let service: any CameraServing
     private let authorizationStatus: () -> AVAuthorizationStatus
     private let requestAccess: () async -> Bool
@@ -44,6 +49,22 @@ final class CameraViewModel {
         self.service.onStateChange = { [weak self] state in
             self?.sessionState = state
         }
+        self.service.onPreviewFrame = { [weak self] frame in
+            self?.previewFrame = frame
+        }
+    }
+
+    /// Start frame delivery for the resolve intro. Idempotent; the overlay calls it before
+    /// the session starts so the very first frame is caught.
+    func beginIntroFrames() {
+        service.setPreviewFrames(true)
+    }
+
+    /// The intro is over (or aborted): stop the tap and drop the held frame. Every terminal
+    /// path funnels here — the intro must never outlive the feed it covers.
+    func endIntroFrames() {
+        service.setPreviewFrames(false)
+        previewFrame = nil
     }
 
     func makePreviewUIView() -> UIView {
@@ -73,6 +94,7 @@ final class CameraViewModel {
         guard !isCapturing, capturedImage == nil, service.state == .running else { return }
         isCapturing = true
         defer { isCapturing = false }
+        endIntroFrames()
 
         do {
             let raw = try await service.capturePhoto()
@@ -101,6 +123,7 @@ final class CameraViewModel {
     }
 
     func close() {
+        endIntroFrames()
         service.stop()
     }
 
@@ -108,6 +131,7 @@ final class CameraViewModel {
     /// system tears interrupted sessions down anyway.
     func sceneDidBackground() {
         guard capturedImage == nil else { return }
+        endIntroFrames()
         service.stop()
         syncFromService()
     }

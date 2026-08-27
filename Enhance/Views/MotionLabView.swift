@@ -590,6 +590,23 @@ struct MotionLabView: View {
                 valueText: "\(Int(store.tuning.cameraBottomPadding))PT"
             )
 
+            // The feed's pixel-resolve intro: block size the sweep starts at, and how long
+            // it takes to sharpen. Zero time is the off switch — the feed keeps its plain
+            // fade — matching TILT DRIFT's "slider carries its own OFF" contract.
+            ParameterSliderRow(
+                label: "REVEAL CELL",
+                value: normalized(tuning.cameraRevealCell, in: 4...80),
+                valueText: "\(Int(store.tuning.cameraRevealCell))PT"
+            )
+            ParameterSliderRow(
+                label: "REVEAL TIME",
+                value: normalized(tuning.cameraRevealTime, in: 0...3),
+                allowsZero: true,
+                valueText: store.tuning.cameraRevealTime < 0.05
+                    ? "OFF"
+                    : String(format: "%.2fS", store.tuning.cameraRevealTime)
+            )
+
             curveOverride(
                 override: tuning.cameraCurve,
                 effective: store.tuning.cameraEffective

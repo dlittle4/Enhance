@@ -11,12 +11,23 @@ private final class StubCameraService: CameraServing {
     var zoomOptions: [CameraZoomOption] = CameraZoomLadder.make(switchOverFactors: [2, 6], maxZoomFactor: 16)
     var currentZoomIndex = 1
     var onStateChange: ((CameraSessionState) -> Void)?
+    var onPreviewFrame: ((CGImage) -> Void)?
 
     var startCallCount = 0
     var stopCallCount = 0
     var captureResult: UIImage?
+    var previewFramesEnabled = false
 
     func makePreviewUIView() -> UIView { UIView() }
+
+    func setPreviewFrames(_ enabled: Bool) {
+        previewFramesEnabled = enabled
+    }
+
+    /// Pushes one canned frame through the callback, the way the tap's main-queue hop does.
+    func deliverFrame(_ frame: CGImage) {
+        onPreviewFrame?(frame)
+    }
 
     func start() async {
         startCallCount += 1
@@ -182,5 +193,55 @@ struct CameraViewModelTests {
 
         #expect(vm.position == .front)
         #expect(vm.zoomLabel == "1X")
+    }
+
+    // MARK: - Resolve intro frames
+
+    private func cannedFrame() -> CGImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        return UIGraphicsImageRenderer(size: CGSize(width: 8, height: 8), format: format).image { context in
+            UIColor.red.setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 8, height: 8))
+        }.cgImage!
+    }
+
+    @Test func introFrames_flowIntoPreviewFrame_andEndClearsBoth() {
+        let stub = StubCameraService()
+        let vm = CameraViewModel(service: stub, authorizationStatus: { .authorized }, requestAccess: { false })
+
+        vm.beginIntroFrames()
+        #expect(stub.previewFramesEnabled)
+
+        stub.deliverFrame(cannedFrame())
+        #expect(vm.previewFrame != nil)
+
+        vm.endIntroFrames()
+        #expect(!stub.previewFramesEnabled)
+        #expect(vm.previewFrame == nil)
+    }
+
+    /// The intro must never outlive the feed it covers: every teardown disables the tap.
+    @Test func capture_close_andBackgrounding_allEndIntroFrames() async {
+        let stub = StubCameraService()
+        stub.state = .running
+        stub.captureResult = rawCapture()
+        let vm = CameraViewModel(service: stub, authorizationStatus: { .authorized }, requestAccess: { false })
+
+        vm.beginIntroFrames()
+        stub.deliverFrame(cannedFrame())
+        await vm.capture()
+        #expect(!stub.previewFramesEnabled)
+        #expect(vm.previewFrame == nil)
+
+        vm.beginIntroFrames()
+        vm.close()
+        #expect(!stub.previewFramesEnabled)
+
+        let second = CameraViewModel(service: stub, authorizationStatus: { .authorized }, requestAccess: { false })
+        second.beginIntroFrames()
+        second.sceneDidBackground()
+        #expect(!stub.previewFramesEnabled)
     }
 }

@@ -61,6 +61,10 @@ struct MotionTuningTests {
         #expect(decoded.cameraScaleFrom == MotionTuning.default.cameraScaleFrom)
         #expect(decoded.cameraCurve == MotionTuning.default.cameraCurve)
         #expect(decoded.cameraBottomPadding == MotionTuning.default.cameraBottomPadding)
+        // The resolve intro arrived after the launch knobs; a pre-resolve blob keeps the
+        // designed sweep rather than losing it to a decode failure.
+        #expect(decoded.cameraRevealCell == MotionTuning.default.cameraRevealCell)
+        #expect(decoded.cameraRevealTime == MotionTuning.default.cameraRevealTime)
         // The zoom flight follows the camera's rule: a blob from before the flight had its own
         // pacing must pick up the frozen default, not fall back to the fast chrome spring the
         // knob exists to escape.
@@ -131,6 +135,10 @@ struct MotionTuningTests {
         #expect(tuning.revealCellSize >= 2)
         #expect(tuning.revealDuration > 0)
         #expect(tuning.parallaxSmoothing > 0 && tuning.parallaxSmoothing < 1)
+        // The camera resolve's cell must stay a visible block; its time may legally be 0 —
+        // that is the knob's own OFF — but never negative.
+        #expect(tuning.cameraRevealCell >= 2)
+        #expect(tuning.cameraRevealTime >= 0)
     }
 
     // MARK: - Reveal identity
