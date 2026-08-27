@@ -218,8 +218,35 @@ slower.
 > The reveal is unanimated, in the same commit the flyer starts dissolving, so it lands under
 > an opaque cover; the flyer also flies its corner radius (card 16pt → the canvas's reported
 > clip) so the dissolve doesn't flash mismatched corners. The grid's `matchedGeometryEffect`
-> plumbing is gone — `sharedZoomID` now serves the camera pair alone. Camera, new-photo,
-> flag-off and Reduce Motion entrances are untouched.
+> plumbing is gone. New-photo, flag-off and Reduce Motion entrances are untouched.
+>
+> **Fourth finding (2026-08-26, camera pass):** the camera's matched-geometry flight had the
+> same disease from the other side — the freeze frame chased the canvas's *bordered* rect
+> (`SharedZoomModifier` wrapped border and all), landing the photo 6pt oversized with the
+> stroke animating in underneath it. The capture now flies on the same `ZoomFlight` overlay:
+> the freeze frame reports its rect and hides (`CameraOverlayView.onFreezeFrameChange` /
+> `photoInFlight`), the flyer carries the photo to the canvas's reported rect (radius 32 →
+> canvas clip), and the `.newImage` live canvas hides its picture beneath the cover like the
+> GIF branch does. `matchedGeometryEffect` is now fully retired from the app — no namespace,
+> no `sharedZoomID`, no `SharedZoomModifier`.
+>
+> **Fifth finding, same pass — the reveal must land on a *still* canvas.** Two mechanisms had
+> the picture moving after the flyer dissolved, both invisible on an SE:
+>
+> - The canvas rode the chrome cascade (index 1, scale 0.92 + 12pt rise on the ringing global
+>   spring, ~1s to true stillness) while the flyer dissolved on its own clock (~0.8s) — the
+>   crossfade could reveal a canvas mid-settle. The canvas now sits the cascade out whenever a
+>   flight is inbound (`shown: showControls || hidesPictureForZoomFlight`), held at the very
+>   rect the flyer aims at.
+> - `contentWidth` seeded at an SE-sized 345 literal gave wider phones a provisional first
+>   layout ~25pt narrow — and `ImageCanvasView` (a `UIScrollView`) sizes and centres its
+>   content **exactly once, at creation**, which happens in that provisional pass. On a 402pt
+>   phone the photo stayed fit to a 333pt viewport inside the real 358pt canvas: the flyer
+>   dissolved into a picture sitting up-left by the difference *(user's device pass,
+>   2026-08-26: "shifts up and to the left by 15-20pt")*. `contentWidth` is now seeded from
+>   `UIScreen`, so the first layout *is* the settled layout; the geometry reader and the
+>   flight's re-aim remain as backstops. Verified frame-by-frame on an iPhone 17 Pro
+>   simulator — the same width class the SE-based QA runs had been silently passing on.
 >
 > **Third finding, same day:** even a working flight is imperceptible on the chrome's 0.3s
 > spring — ~90% of its travel is over in ~130ms, which the eye files as a pop. The flight's

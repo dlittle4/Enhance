@@ -38,14 +38,20 @@ photo library only when the user saves a generated GIF.
 ## Decisions
 
 - **Overlay, not sheet.** Same presentation as the editor itself: the gallery stays mounted
-  underneath, which is what lets `matchedGeometryEffect` pair views across the two overlays.
-  The camera overlay sits *above* the editor overlay so the frozen capture flies over the
+  underneath, which is what lets one overlay's flight land on another overlay's canvas. The
+  flight overlay sits *above* the editor overlay so the captured photo flies over the
   incoming editor rather than under it.
-- **The flight is the shared-zoom pattern, generalized.** `SharedZoomModifier` took the grid
-  index; it now takes a `String?` id, and the camera's freeze frame is the `.newImage` source
-  that never existed (`CameraOverlayView.captureGeometryID`). Ownership handover copies
-  `selectGif(at:)`: yield `isSource` outside the animation, present inside it, tear down
-  without animation once the frames are pixel-identical.
+- **The flight is the gallery zoom's flyer, shared.** Originally a `matchedGeometryEffect`
+  pair (freeze frame ↔ canvas), rewritten 2026-08-26 when a device pass showed the photo
+  chasing the canvas's *bordered* rect — landing 6pt oversized with the stroke animating in
+  underneath it — plus the two measurement bugs the grid zoom had already hit (the
+  `contentWidth` placeholder and the chrome entrance's transform contaminating global
+  frames). The freeze frame now just reports its rect (`onFreezeFrameChange`) and hides
+  while `GalleryView`'s `ZoomFlight` — the same overlay the grid-cell zoom flies — carries
+  the photo to the canvas's *reported* rect, corner radius flown 32 → canvas clip, picture
+  covered beneath until the flyer dissolves. One flight implementation is also what makes
+  the two entrances feel the same, which is the point. See FEATURE-VIEW-TRANSITIONS.md,
+  Idea 1, for the full measured record.
 - **Not gated on `motionSharedZoom`.** Considered and rejected: that flag answers "should
   tapping an existing GIF zoom?", and requiring it here would make a camera user flip a second
   toggle to see this feature as designed. The flight is part of the camera experiment.

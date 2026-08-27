@@ -3,16 +3,6 @@ import SwiftUI
 struct EditorView: View {
     @Bindable var viewModel: EditorViewModel
     @Binding var isPresented: Bool
-    let namespace: Namespace.ID
-
-    /// The geometry id this editor's canvas claims on entry, or `nil` when there is nothing to
-    /// zoom from — a freshly picked photo has no originating view, and the experiment may simply
-    /// be off. `"gif<index>"` pairs with a grid cell; `CameraOverlayView.captureGeometryID`
-    /// pairs with the camera's frozen viewfinder.
-    ///
-    /// The gallery clears the other view's `isSource` before handing this over, so exactly one
-    /// view owns the geometry id at any moment.
-    var sharedZoomID: String? = nil
 
     /// Reports the canvas picture's frame in global coordinates whenever layout settles it,
     /// along with the corner radius it is clipped to — the gallery's zoom flight aims at both
@@ -112,7 +102,17 @@ struct EditorView: View {
     /// Measured at the top of `body`. Everything the margin governs is derived from it, so the
     /// same layout holds on a 375pt SE and a 440pt Pro Max instead of a fixed 335pt column
     /// floating in the middle of a wide screen.
-    @State private var contentWidth: CGFloat = 345
+    ///
+    /// **Seeded from the screen, not a literal.** This used to start at an SE-sized 345, which
+    /// gave every wider phone a provisional first layout ~25pt narrow. Most of the editor
+    /// shrugged that off one pass later — but the scroll-view canvas configures its content
+    /// exactly once (`ImageCanvasView.makeUIView`, deliberately never re-fit by
+    /// `updateUIView`), so a canvas born in the provisional pass kept a photo sized and
+    /// centred for the wrong viewport, revealed as an up-left jump when the capture flyer
+    /// dissolved over it *(user's device pass, 2026-08-26)*. The reader below still corrects
+    /// any real divergence; seeding honestly just makes the first layout the settled one.
+    /// 32 is `canvasInset * 2`, which an instance-property initialiser cannot reference.
+    @State private var contentWidth: CGFloat = UIScreen.main.bounds.width - 32
 
     /// The photo frame is the full content width; the photo is inset inside it by the border.
     private var borderedSize: CGFloat { contentWidth }
@@ -146,7 +146,20 @@ struct EditorView: View {
                 topBar
                     .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 0)
                 canvasSection
-                    .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 1)
+                    // The canvas sits the cascade out when a flight is inbound: the flyer
+                    // dissolves on its own clock, and a canvas still scaling and rising when
+                    // the cover lifts hands the picture a visible up-left settle *(user's
+                    // device pass, 2026-08-26: ~15-20pt)*. Held at its settled frame — the
+                    // very rect the flyer aims at — the reveal swaps identical pixels in
+                    // place, whatever the timing. `showControls` flips true (+0.3s) before
+                    // the cover lifts (~0.65s), so `shown` never dips back to false, and the
+                    // non-flight entrances keep the cascade exactly. `||` rather than a
+                    // conditional modifier, which would change identity mid-entrance.
+                    .chromeEntrance(
+                        entranceMotion,
+                        shown: viewModel.showControls || hidesPictureForZoomFlight,
+                        index: 1
+                    )
                     // Where the photo actually sits, for the gallery's flyer to aim at — inset
                     // from the bordered square to the inner content rect. **Outside the chrome
                     // entrance on purpose**: `frame(in: .global)` includes ancestors' projection
@@ -466,15 +479,6 @@ struct EditorView: View {
 
     private var canvasSection: some View {
         canvasContent
-            // The camera handoff's half of the pairing (`CameraOverlayView` yields to this).
-            // Applied to the whole canvas rather than to one branch of the switch below, so the
-            // geometry survives the canvas swapping between its live and preview forms
-            // mid-session.
-            //
-            // **Open leg only.** The close is left as the ordinary cross-fade: Idea 2's save
-            // reveal gives the grid its own arrival animation, and a zoom back down would collide
-            // with it. See FEATURE-VIEW-TRANSITIONS.md.
-            .modifier(SharedZoomModifier(id: sharedZoomID, namespace: namespace))
     }
 
     private var canvasContent: some View {
@@ -602,6 +606,10 @@ struct EditorView: View {
                 canvasSize: canvasSize
             )
             .frame(width: canvasSize, height: canvasSize)
+            // The picture only — the border stays visible as the flight's landing ring.
+            // This is the camera capture's branch of the cover (`.newImage` renders live
+            // immediately); the existing-GIF branch above carries the same gate.
+            .opacity(hidesPictureForZoomFlight ? 0 : 1)
         }
     }
 
@@ -1649,26 +1657,5 @@ struct EditorView: View {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(Color.black)
             )
-    }
-}
-
-/// Claims the originating view's geometry so the canvas grows out of it — a tapped grid cell,
-/// or the camera's frozen viewfinder.
-///
-/// Gated behind a modifier rather than a conditional at the call site: applying
-/// `matchedGeometryEffect` conditionally changes the view's identity, and SwiftUI can drop the
-/// transition it is meant to drive. With `id == nil` this is a plain passthrough.
-private struct SharedZoomModifier: ViewModifier {
-    let id: String?
-    let namespace: Namespace.ID
-
-    func body(content: Content) -> some View {
-        if let id {
-            // Same id the source view uses (`GifGridItem` / `CameraOverlayView`), which is
-            // what pairs them.
-            content.matchedGeometryEffect(id: id, in: namespace)
-        } else {
-            content
-        }
     }
 }

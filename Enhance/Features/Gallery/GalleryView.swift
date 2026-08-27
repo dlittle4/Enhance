@@ -25,7 +25,6 @@ struct GalleryView: View {
     @AppStorage("exportFormat") private var exportFormat = "gif"
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Namespace private var animation
 
     /// MOTION LAB's live values, and the flags deciding which of them the gallery reads.
     /// Scaffolding — see `MotionTuning` for what graduation looks like.
@@ -48,13 +47,15 @@ struct GalleryView: View {
     /// reports the canvas's on layout — so the flight interpolates `rect` between them and no
     /// frame of it is ever up to the geometry system.
     ///
-    /// Mounted at the tap over the hidden cell, launched when the canvas frame arrives, torn
-    /// down without animation once settled — by then it sits over a canvas showing the same
-    /// picture (`EditorViewModel.canvasPlaceholder`). The cell hides while this is non-nil:
-    /// a static copy left visible anchors the eye and the zoom reads as no growth *(user's
-    /// device pass, 2026-08-26)*.
+    /// Mounted over its hidden origin (a grid cell, or the camera's freeze frame), launched
+    /// when the canvas frame arrives, dissolved once settled — by then it sits over a canvas
+    /// showing the same picture. The origin hides while this is non-nil: a static copy left
+    /// visible anchors the eye and the zoom reads as no growth *(user's device pass,
+    /// 2026-08-26)*.
     private struct ZoomFlight {
-        let index: Int
+        /// The grid cell hidden beneath the flyer, or `nil` when the flight starts from the
+        /// camera's freeze frame (which hides via `CameraOverlayView.photoInFlight` instead).
+        let hiddenCellIndex: Int?
         let image: UIImage
         /// Where the flyer is right now, in global coordinates — the cell's frame at mount,
         /// animated to the canvas picture's frame at launch.
@@ -91,10 +92,10 @@ struct GalleryView: View {
     /// failure this forecloses.
     @State private var cameraLaunchToken = 0
 
-    /// True from the moment the captured photo's geometry id is handed to the editor until the
-    /// camera overlay is torn down — the freeze frame yields `isSource` on this, the same
-    /// one-owner rule `zoomingIndex` implements for grid cells.
-    @State private var cameraZoomHandoff = false
+    /// Where the camera's frozen capture sits, reported by the overlay on layout — the
+    /// launch pad for the capture flight, the way a tapped cell's frame is for the grid's.
+    /// Written only between a capture and the camera's teardown.
+    @State private var cameraFreezeRect: CGRect = .zero
 
     @StateObject private var deviceMotion = DeviceMotionService()
 
@@ -518,7 +519,7 @@ struct GalleryView: View {
                                     }
                                 },
                                 // Hidden only while the flyer covers it — see `zoomFlight`.
-                                isHiddenForZoomFlight: zoomFlight?.index == index
+                                isHiddenForZoomFlight: zoomFlight?.hiddenCellIndex == index
                             )
                             // The newcomer's arrival: the empty box scales in first (phase 1),
                             // then `GifGridItem`'s reveal fills it with pixels (phase 2).
@@ -673,11 +674,9 @@ struct GalleryView: View {
                 )
         }
         .buttonStyle(EnhancePressButtonStyle())
-        // No matched geometry here: the overlay's scale transition is anchored on this
-        // button's spot instead (`CameraOverlayView.launchAnchor`). The button stays mounted
-        // and visible under the scrim the whole time the camera is up — an extra
-        // always-mounted source in the shared namespace destabilized the other
-        // view-transition experiments, and hiding the button read as it vanishing.
+        // The overlay's scale transition is anchored on this button's spot
+        // (`CameraOverlayView.launchAnchor`). The button stays mounted and visible under the
+        // scrim the whole time the camera is up — hiding it read as it vanishing.
         .accessibilityLabel("Open camera")
         .accessibilityIdentifier("gallery-camera-button")
     }
@@ -742,11 +741,6 @@ struct GalleryView: View {
                 EditorView(
                     viewModel: vm,
                     isPresented: $isEditorPresented,
-                    namespace: animation,
-                    // The camera's freeze frame is the one remaining matched-geometry pair.
-                    // The gallery zoom flies its own overlay between measured rects instead —
-                    // see `ZoomFlight` for the record of why.
-                    sharedZoomID: cameraZoomHandoff ? CameraOverlayView.captureGeometryID : nil,
                     onCanvasFrameChange: canvasFrameDidChange,
                     hidesPictureForZoomFlight: zoomFlightCoversCanvas
                 )
@@ -837,12 +831,12 @@ struct GalleryView: View {
             if isCameraPresented, let vm = cameraViewModel {
                 CameraOverlayView(
                     viewModel: vm,
-                    namespace: animation,
-                    hasYieldedGeometry: cameraZoomHandoff,
+                    photoInFlight: zoomFlight != nil,
                     // Capture the birth token: this instance may ask to close after a
                     // reopen has already replaced it, and that request must die stale.
                     onClose: { [token = cameraLaunchToken] in closeCameraIfCurrent(token) },
-                    onCapture: presentEditorFromCamera
+                    onCapture: presentEditorFromCamera,
+                    onFreezeFrameChange: { cameraFreezeRect = $0 }
                 )
                 .id(cameraLaunchToken)
             }
@@ -897,9 +891,11 @@ struct GalleryView: View {
         }
     }
 
-    /// The captured photo's flight into the editor. Same destination as `selectPhoto(_:)`,
-    /// with the viewfinder's freeze frame as the geometry source the `.newImage` path never
-    /// had — see `FEATURE-CAMERA.md`.
+    /// The captured photo's flight into the editor — `selectGif(at:from:)`'s choreography
+    /// with the freeze frame as the launch pad: the flyer mounts over it (hiding it via
+    /// `CameraOverlayView.photoInFlight`), and `canvasFrameDidChange` flies it to the canvas
+    /// once the editor's layout says where. One flight implementation for both entrances is
+    /// what makes them feel the same — see `FEATURE-CAMERA.md`.
     private func presentEditorFromCamera(_ image: UIImage) {
         guard !isEditorPresented else { return }
 
@@ -910,15 +906,32 @@ struct GalleryView: View {
             return
         }
 
-        // The freeze frame mounted this runloop; it needs one rendered frame as `isSource`
-        // before yielding, or there is no established geometry to fly from. The short delay
-        // also lets the chrome/scrim fade read as its own beat.
+        // The freeze frame mounted this runloop; the short delay gives it a rendered frame
+        // to report its rect from, and lets the chrome/scrim fade read as its own beat.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             guard isCameraPresented else { return }
-            // Yield outside the animation, then present inside it — `selectGif(at:)`'s
-            // one-owner ordering, in the same two transactions.
-            cameraZoomHandoff = true
             editorViewModel = EditorViewModel(content: .newImage(image))
+            if cameraFreezeRect != .zero {
+                zoomFlight = ZoomFlight(
+                    hiddenCellIndex: nil,
+                    image: image,
+                    rect: cameraFreezeRect,
+                    cornerRadius: CameraOverlayView.freezeCornerRadius
+                )
+                zoomFlightCoversCanvas = true
+                // Same failsafe as the grid's flight: a launch that never happens must not
+                // leave the editor pictureless behind a stranded flyer.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    if let flight = zoomFlight, !flight.hasLaunched {
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) {
+                            zoomFlight = nil
+                        }
+                    }
+                    zoomFlightCoversCanvas = false
+                }
+            }
             withAnimation(.spring(response: AppConstants.Animation.standard, dampingFraction: 0.8)) {
                 isEditorPresented = true
             }
@@ -926,8 +939,8 @@ struct GalleryView: View {
         }
     }
 
-    /// Tears the camera down once the flight has settled — without animation, because by then
-    /// the freeze frame sits pixel-identical over the editor's own canvas.
+    /// Tears the camera down once the flight has settled — without animation: by then the
+    /// hidden freeze frame is under an opaque editor and the flyer above carries the photo.
     private func dismissCameraAfterHandoff() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             var transaction = Transaction()
@@ -935,7 +948,7 @@ struct GalleryView: View {
             withTransaction(transaction) {
                 isCameraPresented = false
                 cameraViewModel = nil
-                cameraZoomHandoff = false
+                cameraFreezeRect = .zero
             }
         }
     }
@@ -967,7 +980,7 @@ struct GalleryView: View {
             // Mounted over the cell in the same unanimated commit that hides it — the flyer
             // renders the identical pixels at the identical frame, so the swap is invisible.
             // `canvasFrameDidChange` launches it when the editor's layout says where to.
-            zoomFlight = ZoomFlight(index: index, image: image, rect: cellFrame)
+            zoomFlight = ZoomFlight(hiddenCellIndex: index, image: image, rect: cellFrame)
             zoomFlightCoversCanvas = true
             // Failsafe: if the canvas never reports (so the flight never launches and never
             // tears down), the editor must not sit pictureless behind a stranded flyer.

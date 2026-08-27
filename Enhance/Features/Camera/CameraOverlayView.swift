@@ -4,31 +4,36 @@ import SwiftUI
 ///
 /// A square viewfinder card low on the screen, over a scrim that keeps the gallery visible
 /// behind it. Once a photo is taken the live card's chrome fades and a frozen `Image` of the
-/// capture takes over as the `matchedGeometryEffect` source, ready to fly into the editor
-/// canvas when the gallery hands the id over (`hasYieldedGeometry`).
+/// capture holds its place, reporting where it sits (`onFreezeFrameChange`) so the gallery's
+/// flyer can take off from that exact rect — the same measured-rect flight the grid-cell zoom
+/// flies, replacing the matched-geometry pairing this overlay used to carry (see
+/// FEATURE-VIEW-TRANSITIONS.md, Idea 1's device-pass record, for why matched geometry cannot
+/// do this job: the photo chased the canvas's *bordered* rect and landed over the stroke).
 ///
 /// The frozen image is a **sibling** of the card, not a child: the card clips its content to
-/// the rounded square, and a flight clipped to its launchpad would vanish mid-air. The freeze
-/// carries its own matching clip instead.
+/// the rounded square, and the flyer that replaces it must never have been clipped to its
+/// launchpad. The freeze carries its own matching clip instead.
 struct CameraOverlayView: View {
 
-    /// Pairs the frozen capture with the editor canvas (`SharedZoomModifier`).
-    static let captureGeometryID = "cameraCapture"
+    /// The corner radius the frozen capture wears — the flight's starting clip, flown to the
+    /// canvas's radius by the gallery.
+    static let freezeCornerRadius: CGFloat = AppConstants.Spacing.large
 
     /// Where the camera button's center lands in the card's own coordinate space (the card
     /// overlays the bottom bar): the anchor the card scales up from on open, so the entrance
-    /// reads as growing out of the button. A transition anchor rather than matched geometry
-    /// on purpose — a second always-mounted source in the gallery's shared namespace
-    /// destabilized the other view-transition experiments, and the button never has to hide.
+    /// reads as growing out of the button. The button never has to hide.
     static let launchAnchor = UnitPoint(x: 0.10, y: 0.85)
 
     let viewModel: CameraViewModel
-    let namespace: Namespace.ID
-    /// True once the gallery has handed the geometry id to the editor — the freeze frame
-    /// yields `isSource` and follows the canvas from then on.
-    let hasYieldedGeometry: Bool
+    /// True while the gallery's flyer is carrying the captured photo — the freeze frame hides
+    /// beneath it, the same one-visible-copy rule the grid cell follows.
+    let photoInFlight: Bool
     let onClose: () -> Void
     let onCapture: (UIImage) -> Void
+    /// The frozen capture's frame in global coordinates, reported on layout — the flight's
+    /// launch pad. Measured on the freeze itself (which carries no entrance transform) rather
+    /// than the viewfinder card, whose launch morph scales it.
+    let onFreezeFrameChange: (CGRect) -> Void
 
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -77,15 +82,18 @@ struct CameraOverlayView: View {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: AppConstants.Spacing.large, style: .continuous))
-                    .matchedGeometryEffect(
-                        id: Self.captureGeometryID,
-                        in: namespace,
-                        isSource: !hasYieldedGeometry
-                    )
+                    .clipShape(RoundedRectangle(cornerRadius: Self.freezeCornerRadius, style: .continuous))
+                    .onGeometryChange(for: CGRect.self) { proxy in
+                        proxy.frame(in: .global)
+                    } action: { frame in
+                        onFreezeFrameChange(frame)
+                    }
                     .cameraCardLayout(bottomPadding: motionStore.tuning.cameraBottomPadding)
-                    // Purely visual: while it flies over the incoming editor it must never
-                    // swallow taps meant for the chrome underneath.
+                    // Hidden the moment the flyer mounts over it — same picture, same rect,
+                    // so the swap is invisible and only one copy is ever on screen.
+                    .opacity(photoInFlight ? 0 : 1)
+                    // Purely visual: it must never swallow taps meant for the chrome
+                    // underneath.
                     .allowsHitTesting(false)
             }
         }
