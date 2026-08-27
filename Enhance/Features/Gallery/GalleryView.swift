@@ -34,10 +34,52 @@ struct GalleryView: View {
     @AppStorage(FeatureFlags.motionParallaxKey) private var motionParallax = false
     @AppStorage(FeatureFlags.motionSharedZoomKey) private var motionSharedZoom = false
 
-    /// Which grid index the editor is currently showing, so that cell can hand over its
-    /// `matchedGeometryEffect` source for the duration. `nil` whenever the editor is closed or
-    /// was opened on a newly-picked photo, which has no originating cell.
-    @State private var zoomingIndex: Int?
+    /// The picture currently flying from a tapped cell into the editor, or `nil`.
+    ///
+    /// The flight is a dedicated overlay *above* the editor — the camera's freeze-frame
+    /// layering — but flown **manually between two measured rects** rather than by
+    /// `matchedGeometryEffect`. The measured record (2026-08-26): as the inserted source the
+    /// canvas never animates, whatever the insertion transition — sources do not fly, and
+    /// `.identity` / `.scale(0.998)` / both spring paces all popped; as a non-source chasing
+    /// the handover, the flyer ballooned through its natural full-screen layout, because for
+    /// one frame of the handoff the id has *no* source (the cell has yielded, the canvas has
+    /// not laid out) and the animation retargets through wherever layout puts the flyer. Both
+    /// endpoints are directly knowable — the cell reports its frame with the tap, the editor
+    /// reports the canvas's on layout — so the flight interpolates `rect` between them and no
+    /// frame of it is ever up to the geometry system.
+    ///
+    /// Mounted at the tap over the hidden cell, launched when the canvas frame arrives, torn
+    /// down without animation once settled — by then it sits over a canvas showing the same
+    /// picture (`EditorViewModel.canvasPlaceholder`). The cell hides while this is non-nil:
+    /// a static copy left visible anchors the eye and the zoom reads as no growth *(user's
+    /// device pass, 2026-08-26)*.
+    private struct ZoomFlight {
+        let index: Int
+        let image: UIImage
+        /// Where the flyer is right now, in global coordinates — the cell's frame at mount,
+        /// animated to the canvas picture's frame at launch.
+        var rect: CGRect
+        /// The clip the flyer wears — the grid card's 16pt at mount, flown to the canvas's
+        /// reported radius so the landed corners match what the dissolve reveals.
+        var cornerRadius: CGFloat = AppConstants.CornerRadius.card
+        /// Launch happens once: the canvas re-reports its frame on any later layout pass, and
+        /// a second `withAnimation` mid-flight would restart the spring.
+        var hasLaunched = false
+        /// Faded to 0 at teardown rather than unmounted cold: unlike the camera's freeze
+        /// frame, this picture is not pixel-identical to the canvas beneath it — the thumbnail
+        /// is the GIF's last frame, the canvas plays from wherever decode landed — so an
+        /// instant removal reads as the picture blinking.
+        var opacity: Double = 1
+    }
+
+    @State private var zoomFlight: ZoomFlight?
+
+    /// True from the flyer's mount until it starts dissolving. Passed to the editor as
+    /// `hidesPictureForZoomFlight`: while the flyer carries the picture, the canvas showing
+    /// its own copy beneath — mid chrome-entrance scale and rise — reads as two images
+    /// *(user's device pass, 2026-08-26)*. Cleared in the same commit the dissolve starts,
+    /// so the reveal happens under the still-opaque flyer.
+    @State private var zoomFlightCoversCanvas = false
 
     /// The in-app camera experiment. Scaffolding — see `FeatureFlags.cameraCapture`.
     @AppStorage(FeatureFlags.cameraCaptureKey) private var cameraCapture = false
@@ -91,6 +133,9 @@ struct GalleryView: View {
         // Above the editor on purpose: after a capture the frozen photo flies from the
         // viewfinder to the canvas, and it must pass *over* the incoming editor.
         .overlay { cameraOverlay }
+        // Same rule as the camera: the tapped cell's picture flies over the incoming editor.
+        // The two flights can never coexist — one starts from a cell, the other from a capture.
+        .overlay { zoomFlightOverlay }
         .overlay { loadingOverlay }
         .overlay(alignment: .top) {
             if showCopiedToast {
@@ -454,13 +499,12 @@ struct GalleryView: View {
                         if let url = photoManager.myGifURLs[safe: index] {
                             GifGridItem(
                                 url: url, index: index,
-                                namespace: animation,
-                                onTap: {
+                                onTap: { cellFrame in
                                     guard !isPinching else { return }
                                     if isSelectMode {
                                         toggleSelection(at: index)
                                     } else {
-                                        selectGif(at: index)
+                                        selectGif(at: index, from: cellFrame)
                                     }
                                 },
                                 isSelected: selectedIndices.contains(index),
@@ -473,9 +517,8 @@ struct GalleryView: View {
                                         photoManager.clearJustSaved(id)
                                     }
                                 },
-                                // Handed to the editor while it is showing this cell, so only one
-                                // view claims the geometry id at a time.
-                                isMatchedGeometrySource: zoomingIndex != index
+                                // Hidden only while the flyer covers it — see `zoomFlight`.
+                                isHiddenForZoomFlight: zoomFlight?.index == index
                             )
                             // The newcomer's arrival: the empty box scales in first (phase 1),
                             // then `GifGridItem`'s reveal fills it with pixels (phase 2).
@@ -698,17 +741,89 @@ struct GalleryView: View {
                     viewModel: vm,
                     isPresented: $isEditorPresented,
                     namespace: animation,
-                    sharedZoomID: zoomingIndex.map { "gif\($0)" }
-                        ?? (cameraZoomHandoff ? CameraOverlayView.captureGeometryID : nil)
+                    // The camera's freeze frame is the one remaining matched-geometry pair.
+                    // The gallery zoom flies its own overlay between measured rects instead —
+                    // see `ZoomFlight` for the record of why.
+                    sharedZoomID: cameraZoomHandoff ? CameraOverlayView.captureGeometryID : nil,
+                    onCanvasFrameChange: canvasFrameDidChange,
+                    hidesPictureForZoomFlight: zoomFlightCoversCanvas
                 )
                     .environmentObject(photoManager)
                     .onDisappear {
                         editorViewModel = nil
-                        // Returned only once the editor is fully gone. Releasing it earlier would
-                        // put the source back on a grid cell while the editor's copy still
-                        // existed — the same two-owner problem, in the other direction.
-                        zoomingIndex = nil
                     }
+            }
+        }
+    }
+
+    // MARK: - Zoom Flight Overlay
+
+    /// The tapped cell's picture in flight — see `ZoomFlight`. Above the editor for the same
+    /// reason the camera overlay is: the hero must pass *over* the incoming chrome, fully
+    /// opaque, while the editor fades in beneath it.
+    private var zoomFlightOverlay: some View {
+        GeometryReader { proxy in
+            if let flight = zoomFlight {
+                // Both rects are global; the overlay may not start at the global origin, so
+                // its own global frame converts them. Fill-and-clip reproduces how
+                // `GifGridItem` draws the same thumbnail, making the mount over the cell
+                // invisible; the GIF is square, so at the canvas the fill matches the
+                // canvas's fit as well.
+                let origin = proxy.frame(in: .global).origin
+                Image(uiImage: flight.image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: flight.rect.width, height: flight.rect.height)
+                    .clipShape(RoundedRectangle(cornerRadius: flight.cornerRadius, style: .continuous))
+                    .position(
+                        x: flight.rect.midX - origin.x,
+                        y: flight.rect.midY - origin.y
+                    )
+                    .opacity(flight.opacity)
+                    .allowsHitTesting(false)
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    /// The canvas picture's frame and clip, straight from the editor's layout — the flight's
+    /// destination. The first report launches; later reports **re-aim** the flight, because
+    /// the first layout is provisional: the editor's `contentWidth` starts as a placeholder
+    /// and lands a pass later, and locking onto the provisional rect left the flyer 25pt
+    /// short of the border on a Pro-width screen *(user's device pass, 2026-08-26)*. A spring
+    /// retarget one frame into the flight is imperceptible.
+    private func canvasFrameDidChange(_ frame: CGRect, _ cornerRadius: CGFloat) {
+        guard var flight = zoomFlight else { return }
+
+        if flight.hasLaunched {
+            guard flight.rect != frame || flight.cornerRadius != cornerRadius else { return }
+            withAnimation(motionStore.tuning.zoomFlightEffective.animation) {
+                zoomFlight?.rect = frame
+                zoomFlight?.cornerRadius = cornerRadius
+            }
+            return
+        }
+
+        flight.hasLaunched = true
+        zoomFlight = flight
+        withAnimation(motionStore.tuning.zoomFlightEffective.animation) {
+            zoomFlight?.rect = frame
+            zoomFlight?.cornerRadius = cornerRadius
+        }
+        // Once settled: uncover the canvas in the same commit the dissolve starts — the reveal
+        // lands beneath the still-opaque flyer, after the chrome entrance has finished moving
+        // the picture around — then unmount invisibly. See `ZoomFlight.opacity`.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.65) {
+            zoomFlightCoversCanvas = false
+            withAnimation(.easeOut(duration: 0.2)) {
+                zoomFlight?.opacity = 0
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    zoomFlight = nil
+                }
             }
         }
     }
@@ -830,18 +945,40 @@ struct GalleryView: View {
         }
     }
     
-    private func selectGif(at index: Int) {
+    private func selectGif(at index: Int, from cellFrame: CGRect) {
         guard let url = photoManager.myGifURLs[safe: index] else {
             return
         }
-        
+
         let assetId = photoManager.myGifAssetIdentifiers[safe: index] ?? ""
-        editorViewModel = EditorViewModel(content: .existingGif(url, index, assetId))
-        // Set *before* the animation so the grid cell has already yielded its geometry source
-        // when the editor's matching view is inserted — handing over in the same transaction
-        // leaves both live for a frame, which is exactly the ambiguity the handover avoids.
-        if motionSharedZoom, !reduceMotion {
-            zoomingIndex = index
+        let placeholder = ThumbnailCache.shared.get(for: url)
+        editorViewModel = EditorViewModel(
+            content: .existingGif(url, index, assetId),
+            // The image the tapped cell is showing, so the canvas isn't an empty black card
+            // while the GIF decodes — and the picture the settling flyer is torn down over.
+            canvasPlaceholder: placeholder
+        )
+
+        // No flight without a picture to fly (the thumbnail is still generating) or a launch
+        // pad to fly from — the plain fade is better than an empty rectangle zooming.
+        if motionSharedZoom, !reduceMotion, let image = placeholder, cellFrame != .zero {
+            // Mounted over the cell in the same unanimated commit that hides it — the flyer
+            // renders the identical pixels at the identical frame, so the swap is invisible.
+            // `canvasFrameDidChange` launches it when the editor's layout says where to.
+            zoomFlight = ZoomFlight(index: index, image: image, rect: cellFrame)
+            zoomFlightCoversCanvas = true
+            // Failsafe: if the canvas never reports (so the flight never launches and never
+            // tears down), the editor must not sit pictureless behind a stranded flyer.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                if let flight = zoomFlight, !flight.hasLaunched {
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        zoomFlight = nil
+                    }
+                }
+                zoomFlightCoversCanvas = false
+            }
         }
         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
             isEditorPresented = true

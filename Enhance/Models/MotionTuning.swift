@@ -150,6 +150,17 @@ struct MotionTuning: Codable, Equatable {
     /// Seconds for the canvas to finish building in.
     var canvasRevealTime: Double
 
+    // MARK: - Gallery zoom (Idea 1's flight)
+
+    /// The flight of a tapped gallery cell's picture into the canvas — the pace
+    /// `GalleryView.ZoomFlight` interpolates its measured rects on.
+    ///
+    /// `nil` inherits `globalCurve`, but the default freezes its own: the flight shipped on the
+    /// chrome's 0.3s spring and read as an instant appear on device *(user's call, 2026-08-26)* —
+    /// 90% of that spring's travel is over in ~130ms. A hero transition needs to be *watched*,
+    /// not just not-noticed, which is the opposite of what chrome timing optimises for.
+    var zoomFlightCurve: MotionCurve?
+
     // MARK: - Category switch (Idea 4)
 
     /// Scale the incoming card gallery grows from. 1 is a plain cross-fade.
@@ -263,6 +274,7 @@ struct MotionTuning: Codable, Equatable {
         canvasPixelEntrance: false,
         canvasRevealCell: 18,
         canvasRevealTime: 1.2,
+        zoomFlightCurve: MotionCurve(response: 0.5, dampingFraction: 0.8),
         categorySwitchScale: 1,
         categorySwitchCurve: MotionCurve(response: 0.22, dampingFraction: 0.82),
         cascadeStagger: 0.06,
@@ -295,6 +307,7 @@ struct MotionTuning: Codable, Equatable {
         canvasPixelEntrance: true,
         canvasRevealCell: 18,
         canvasRevealTime: 1.2,
+        zoomFlightCurve: MotionCurve(response: 0.5, dampingFraction: 0.8),
         categorySwitchScale: 0.96,
         categorySwitchCurve: MotionCurve(response: 0.22, dampingFraction: 0.82),
         cascadeStagger: 0.06,
@@ -322,6 +335,7 @@ struct MotionTuning: Codable, Equatable {
     func effectiveCurve(_ override: MotionCurve?) -> MotionCurve { override ?? globalCurve }
 
     var entranceEffective: MotionCurve { effectiveCurve(entranceCurve) }
+    var zoomFlightEffective: MotionCurve { effectiveCurve(zoomFlightCurve) }
     var categorySwitchEffective: MotionCurve { effectiveCurve(categorySwitchCurve) }
     var tabEffective: MotionCurve { effectiveCurve(tabCurve) }
     var tilePressEffective: MotionCurve { effectiveCurve(tilePressCurve) }
@@ -348,6 +362,7 @@ struct MotionTuning: Codable, Equatable {
             canvasPixelEntrance: \(canvasPixelEntrance),
             canvasRevealCell: \(Self.number(canvasRevealCell)),
             canvasRevealTime: \(Self.number(canvasRevealTime)),
+            zoomFlightCurve: \(Self.curve(zoomFlightCurve)),
             categorySwitchScale: \(Self.number(categorySwitchScale)),
             categorySwitchCurve: \(Self.curve(categorySwitchCurve)),
             cascadeStagger: \(Self.number(cascadeStagger)),
@@ -419,6 +434,11 @@ extension MotionTuning {
             canvasPixelEntrance: flag(.canvasPixelEntrance, fallback.canvasPixelEntrance),
             canvasRevealCell: number(.canvasRevealCell, fallback.canvasRevealCell),
             canvasRevealTime: number(.canvasRevealTime, fallback.canvasRevealTime),
+            // The camera's rule, not the editor curves': absent means "the default's frozen
+            // curve" rather than inherit. A blob written before this field existed predates the
+            // flight having any pacing of its own, and reverting those installs to the global
+            // chrome spring would re-create the instant-appear this knob was added to fix.
+            zoomFlightCurve: curve(.zoomFlightCurve) ?? fallback.zoomFlightCurve,
             categorySwitchScale: number(.categorySwitchScale, fallback.categorySwitchScale),
             categorySwitchCurve: curve(.categorySwitchCurve),
             cascadeStagger: number(.cascadeStagger, fallback.cascadeStagger),

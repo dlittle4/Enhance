@@ -1345,6 +1345,14 @@ class EditorViewModel {
     
     /// For existing GIFs: the first frame extracted for re-editing
     var sourceImage: UIImage?
+
+    /// The tapped grid cell's already-decoded thumbnail, handed over so the canvas has pixels
+    /// during the open. An existing GIF reaches the screen only after `AnimatedGifView` decodes
+    /// every frame off the main thread — a window that covers the entire shared zoom, which
+    /// used to fly an empty black card. Display-only: it is drawn *under* the GIF preview and
+    /// never feeds generation, detection, or `sourceImage`, whose full-resolution extraction
+    /// stays the one authority.
+    let canvasPlaceholder: UIImage?
     
     var image: UIImage? {
         if case .newImage(let img) = content { return img }
@@ -1387,10 +1395,12 @@ class EditorViewModel {
     
     init(
         content: DetailContent,
+        canvasPlaceholder: UIImage? = nil,
         gifGenerator: GIFGenerating = GIFGenerator(),
         allowsGenerationWithoutZoom: Bool = FeatureFlags.zoomOptional
     ) {
         self.content = content
+        self.canvasPlaceholder = canvasPlaceholder
         self.gifGenerator = gifGenerator
         self.allowsGenerationWithoutZoom = allowsGenerationWithoutZoom
         // After the stored property above, which `defaultAnimatorType` reads.

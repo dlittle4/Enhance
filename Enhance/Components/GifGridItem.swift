@@ -14,8 +14,11 @@ private struct GifGridItemButtonStyle: ButtonStyle {
 struct GifGridItem: View {
     let url: URL
     let index: Int
-    let namespace: Namespace.ID
-    let onTap: () -> Void
+
+    /// Handed this cell's current frame in global coordinates — the launch pad for the
+    /// zoom flight (`GalleryView.ZoomFlight`), measured at the moment of the tap.
+    let onTap: (CGRect) -> Void
+
     var isSelected: Bool = false
     var autoPlay: Bool = true
     var lowQuality: Bool = true
@@ -28,13 +31,12 @@ struct GifGridItem: View {
     /// Called when the reveal finishes, so the gallery can clear the pending identifier.
     var onRevealComplete: (() -> Void)? = nil
 
-    /// False while the editor is showing this same GIF.
-    ///
-    /// The editor is an overlay, so the gallery stays in the hierarchy underneath it — and two
-    /// live views claiming one `matchedGeometryEffect` id makes SwiftUI warn about multiple
-    /// matching views and pick one arbitrarily, which breaks the zoom. Handing the source over to
-    /// the editor for the duration is what keeps exactly one owner.
-    var isMatchedGeometrySource: Bool = true
+    /// True only while this cell's picture is flying into the editor. The gallery's flyer
+    /// (`GalleryView.zoomFlightOverlay`) mounts pixel-exact on top of this cell and departs as
+    /// it grows; a static copy left showing underneath anchors the eye and the zoom reads as
+    /// no growth. Hidden with no animation — the flip happens under the opaque flyer, so there
+    /// is nothing to animate.
+    var isHiddenForZoomFlight: Bool = false
 
     /// What the pixel-dissolve needs to know.
     struct RevealMotion: Equatable {
@@ -48,6 +50,9 @@ struct GifGridItem: View {
     @State private var isVisible: Bool = false
     @State private var thumbnail: UIImage? = nil
     @State private var longPressTriggered: Bool = false
+
+    /// Where this cell sits on screen, kept current by layout so the tap can report it.
+    @State private var globalFrame: CGRect = .zero
 
     /// 0 while the cell is still building in, 1 once it has arrived.
     @State private var revealProgress: Double = 1
@@ -76,7 +81,7 @@ struct GifGridItem: View {
                 return
             }
             HapticService.light()
-            onTap()
+            onTap(globalFrame)
         } label: {
             ZStack {
                 if let thumbnail = thumbnail {
@@ -104,11 +109,15 @@ struct GifGridItem: View {
                      // Held back until the still image has finished assembling, so the two never
                      // show at once and the GIF appears to start the moment the cell completes.
                      .opacity(isVisible && autoPlay && !isRevealing ? 1 : 0)
-                     .matchedGeometryEffect(id: "gif\(index)", in: namespace, isSource: isMatchedGeometrySource)
             }
             .aspectRatio(1, contentMode: .fit)
             .background(Color.black.opacity(0.2))
             .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
+            .onGeometryChange(for: CGRect.self) { proxy in
+                proxy.frame(in: .global)
+            } action: { frame in
+                globalFrame = frame
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous)
                     .strokeBorder(Color.enhanceMint, lineWidth: 4)
@@ -116,6 +125,7 @@ struct GifGridItem: View {
             )
             .shadow(color: Color.shadow, radius: 22, x: 0, y: 22)
             .contentShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
+            .opacity(isHiddenForZoomFlight ? 0 : 1)
         }
         .buttonStyle(GifGridItemButtonStyle())
         .simultaneousGesture(

@@ -61,6 +61,10 @@ struct MotionTuningTests {
         #expect(decoded.cameraScaleFrom == MotionTuning.default.cameraScaleFrom)
         #expect(decoded.cameraCurve == MotionTuning.default.cameraCurve)
         #expect(decoded.cameraBottomPadding == MotionTuning.default.cameraBottomPadding)
+        // The zoom flight follows the camera's rule: a blob from before the flight had its own
+        // pacing must pick up the frozen default, not fall back to the fast chrome spring the
+        // knob exists to escape.
+        #expect(decoded.zoomFlightCurve == MotionTuning.default.zoomFlightCurve)
     }
 
     /// A stored blob with no curve keys decodes those curves as *inherit*, not as the
@@ -104,6 +108,18 @@ struct MotionTuningTests {
     @Test
     func defaultGlobalCurve_matchesTheAppsChromeCurve() {
         #expect(MotionTuning.default.globalCurve == MotionCurve(response: 0.3, dampingFraction: 0.6))
+    }
+
+    /// The flight's default is frozen, and *slower* than the chrome — on the chrome's spring the
+    /// zoom finished its travel in ~130ms and read as the editor simply appearing *(user's device
+    /// pass, 2026-08-26)*. Inheriting the global, or drifting back under it, would re-create
+    /// exactly that.
+    @Test
+    func defaultZoomFlight_isFrozenAndSlowerThanTheChrome() throws {
+        let tuning = MotionTuning.default
+        let flight = try #require(tuning.zoomFlightCurve)
+        #expect(flight.response > tuning.globalCurve.response)
+        #expect(tuning.zoomFlightEffective == flight)
     }
 
     /// The gallery knobs have no inert value the way a scale of 1 is inert — their flags are what

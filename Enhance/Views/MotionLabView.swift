@@ -56,6 +56,8 @@ struct MotionLabView: View {
                         divider
                         entranceSection
                         divider
+                        zoomFlightSection
+                        divider
                         categorySwitchSection
                         divider
                         tabSection
@@ -339,6 +341,26 @@ struct MotionLabView: View {
             curveOverride(
                 override: tuning.entranceCurve,
                 effective: store.tuning.entranceEffective
+            )
+        }
+    }
+
+    /// The tapped cell's flight into the canvas. No preview stage: the flight spans two real
+    /// screens and cannot be miniaturised honestly — a lookalike would be tuning something the
+    /// app does not ship. Judge this one in the gallery itself, one sheet-dismiss away.
+    private var zoomFlightSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("GALLERY ZOOM")
+                .font(.silkscreenSectionTitle)
+                .foregroundColor(.white)
+
+            Text("PACES THE TAPPED CELL'S FLIGHT INTO THE EDITOR.")
+                .font(.silkscreenSmall)
+                .foregroundColor(.textInactive)
+
+            curveOverride(
+                override: tuning.zoomFlightCurve,
+                effective: store.tuning.zoomFlightEffective
             )
         }
     }

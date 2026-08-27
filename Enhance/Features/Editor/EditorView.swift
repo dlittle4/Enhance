@@ -14,6 +14,19 @@ struct EditorView: View {
     /// view owns the geometry id at any moment.
     var sharedZoomID: String? = nil
 
+    /// Reports the canvas picture's frame in global coordinates whenever layout settles it,
+    /// along with the corner radius it is clipped to — the gallery's zoom flight aims at both
+    /// (`GalleryView.canvasFrameDidChange`). A callback rather than a preference because the
+    /// reader lives *outside* this view's tree, up in the overlay that presents it.
+    var onCanvasFrameChange: ((CGRect, CGFloat) -> Void)? = nil
+
+    /// True while the gallery's zoom flight is inbound. The flyer *is* the picture for that
+    /// span, so the canvas keeps its own copy hidden: a second copy fading in beneath — and
+    /// riding the chrome entrance's scale and rise while it settles — reads as two images
+    /// *(user's device pass, 2026-08-26)*. The gallery clears this, unanimated, in the same
+    /// commit the flyer starts dissolving, so the reveal happens under an opaque cover.
+    var hidesPictureForZoomFlight: Bool = false
+
     @EnvironmentObject var photoManager: PhotoManager
 
     /// Looping card previews are decorative motion, so they hold on their settled frame when the
@@ -134,6 +147,17 @@ struct EditorView: View {
                     .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 0)
                 canvasSection
                     .chromeEntrance(entranceMotion, shown: viewModel.showControls, index: 1)
+                    // Where the photo actually sits, for the gallery's flyer to aim at — inset
+                    // from the bordered square to the inner content rect. **Outside the chrome
+                    // entrance on purpose**: `frame(in: .global)` includes ancestors' projection
+                    // transforms, so a reader inside the cascade reports the canvas 0.92-scaled
+                    // and 12pt low until `showControls` settles. Layout is what the flyer must
+                    // aim at, and layout is what this measures.
+                    .onGeometryChange(for: CGRect.self) { proxy in
+                        proxy.frame(in: .global).insetBy(dx: borderInset, dy: borderInset)
+                    } action: { frame in
+                        onCanvasFrameChange?(frame, innerRadius)
+                    }
 
                 // Removed from the hierarchy rather than faded, so the panel can grow
                 // into the space the tabs and card gallery were using.
@@ -442,9 +466,10 @@ struct EditorView: View {
 
     private var canvasSection: some View {
         canvasContent
-            // The other half of the handover the gallery starts. Applied to the whole canvas
-            // rather than to one branch of the switch below, so the geometry survives the canvas
-            // swapping between its live and preview forms mid-session.
+            // The camera handoff's half of the pairing (`CameraOverlayView` yields to this).
+            // Applied to the whole canvas rather than to one branch of the switch below, so the
+            // geometry survives the canvas swapping between its live and preview forms
+            // mid-session.
             //
             // **Open leg only.** The close is left as the ordinary cross-fade: Idea 2's save
             // reveal gives the grid its own arrival animation, and a zoom back down would collide
@@ -461,8 +486,23 @@ struct EditorView: View {
                 } else {
                     borderedCanvas {
                         let displayURL = viewModel.generatedGifURL ?? url
-                        GIFPreviewView(url: displayURL, isPlaying: viewModel.isPlaying, playbackSpeed: viewModel.playbackSpeed)
-                            .frame(width: canvasSize, height: canvasSize)
+                        ZStack {
+                            // Beneath the GIF, and left mounted: `AnimatedGifView` renders
+                            // nothing until its background decode lands, and the first frame it
+                            // does render is opaque and simply covers this. Fitted like the GIF
+                            // above it, so the picture the zoom carries sits exactly where the
+                            // playing GIF will.
+                            if let placeholder = viewModel.canvasPlaceholder {
+                                Image(uiImage: placeholder)
+                                    .resizable()
+                                    .aspectRatio(contentMode: .fit)
+                            }
+                            GIFPreviewView(url: displayURL, isPlaying: viewModel.isPlaying, playbackSpeed: viewModel.playbackSpeed)
+                        }
+                        .frame(width: canvasSize, height: canvasSize)
+                        // The picture only — the border stays visible as the flight's
+                        // landing ring. See `hidesPictureForZoomFlight`.
+                        .opacity(hidesPictureForZoomFlight ? 0 : 1)
                     }
                 }
 

@@ -179,6 +179,56 @@ slower.
 
 ## Idea 1 — Gallery → Editor: staged open
 
+> **Update 2026-08-26 — the canvas is seeded so the zoom carries the picture.** An existing
+> GIF reaches the canvas only after `AnimatedGifView` decodes every frame off the main thread,
+> and that window covers the whole flight — the A/B against the pre-camera build proved the
+> morph had *always* flown an empty black card, which the eye reads as "gallery fades to black,
+> editor pops in". `GalleryView.selectGif` now hands the tapped cell's `ThumbnailCache` image to
+> `EditorViewModel.canvasPlaceholder`, and the canvas draws it *under* `GIFPreviewView` until
+> the first decoded frame covers it. Display-only by design: the placeholder never feeds
+> generation, detection, or `sourceImage`. The pixel-entrance overlay deliberately still ignores
+> it — `PixelBuildOverlay` keeps its "nil renders nothing" contract.
+>
+> **Second finding, same day (device pass): the matched-geometry open leg never actually flew,
+> and was rebuilt as a manual overlay.** What shipped as "the shared zoom" read on device as the
+> editor simply appearing. The measured record, frame by frame in the simulator:
+>
+> - The whole editor fades in on the flight's own spring, **and** the canvas sits at index 1 of
+>   the chrome cascade (opacity 0 until `showControls`) — so whatever the geometry did, the
+>   hero was invisible for most of the flight and the static grid cell anchored the eye.
+> - As the id's inserted **source**, the canvas never interpolates — sources do not fly, and
+>   `.identity`, `.scale(0.998)` and both spring paces all popped it to full size in one frame.
+> - A flyer chasing the handover as a **non-source** ballooned through its natural full-screen
+>   layout: for one frame of the handoff the id has *no* source (the cell has yielded, the
+>   canvas has not laid out), and the animation retargets through wherever layout puts it. The
+>   camera flight never shows this only because its freeze frame's natural layout *is* its
+>   starting spot.
+>
+> The rebuilt open leg (`GalleryView.ZoomFlight`) keeps the camera's layering but none of its
+> geometry: the tapped cell reports its global frame with the tap (`GifGridItem.onTap`), the
+> editor reports the canvas's inner rect on layout (`EditorView.onCanvasFrameChange`) — from
+> *outside* the chrome entrance, whose scale would contaminate `frame(in: .global)`, and with
+> later reports re-aiming the flight because the first layout runs on `contentWidth`'s
+> placeholder and lands the flyer short of the border on wider devices — and a
+> dedicated overlay above the editor flies the cell's thumbnail between the two measured rects
+> while the editor makes its ordinary fade beneath. **One copy of the picture, ever:** the cell
+> hides under the flyer (`isHiddenForZoomFlight`), and the canvas keeps its own picture hidden
+> too (`hidesPictureForZoomFlight`) — with it visible, the incoming copy rode the chrome
+> entrance's scale-and-rise behind the flyer and read as two images *(user's device pass)*.
+> The reveal is unanimated, in the same commit the flyer starts dissolving, so it lands under
+> an opaque cover; the flyer also flies its corner radius (card 16pt → the canvas's reported
+> clip) so the dissolve doesn't flash mismatched corners. The grid's `matchedGeometryEffect`
+> plumbing is gone — `sharedZoomID` now serves the camera pair alone. Camera, new-photo,
+> flag-off and Reduce Motion entrances are untouched.
+>
+> **Third finding, same day:** even a working flight is imperceptible on the chrome's 0.3s
+> spring — ~90% of its travel is over in ~130ms, which the eye files as a pop. The flight's
+> pace is a MOTION LAB knob (`MotionTuning.zoomFlightCurve`, GALLERY ZOOM section), frozen by
+> default at 0.5/0.8 rather than inheriting the global — a hero transition wants to be
+> *watched*, which is the opposite of what chrome timing optimises for. Decodes by the camera's
+> rule (absent = frozen default, not inherit), so pre-knob installs pick the new pace up on
+> next launch.
+
 ### Behavior
 
 1. **Image first.** The canvas/photo appears immediately — for `.existingGif` content, as a real
