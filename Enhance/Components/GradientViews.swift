@@ -57,6 +57,10 @@ struct ButtonGradientBackground: View {
     /// identical one at 0.85 opacity each.
     var showsBorder: Bool = true
 
+    /// Which pole set to wear. The two camera buttons pass `.camera`; everything else keeps the
+    /// default and is untouched by the fork.
+    var role: GradientTuning.ButtonRole = .primary
+
     @AppStorage(FeatureFlags.staticGradientKey) private var staticOn = false
     @AppStorage(FeatureFlags.ditherGradientKey) private var ditherOn = false
     @AppStorage(FeatureFlags.staticBorderKey) private var borderOn = false
@@ -65,7 +69,8 @@ struct ButtonGradientBackground: View {
     var body: some View {
         SimpleGradientBackground(
             style: .resolve(staticOn: staticOn, ditherOn: ditherOn, tuning: store.tuning),
-            tuning: store.tuning
+            tuning: store.tuning,
+            role: role
         )
         .overlay {
             // The ring rides on the background rather than living only on `CircleButton`,
@@ -73,7 +78,7 @@ struct ButtonGradientBackground: View {
             // effect is invisible in the running app cannot be evaluated, which is the one job
             // a flag has.
             if borderOn && showsBorder {
-                ButtonGradientBorder(cornerRadius: cornerRadius, lineWidth: borderWidth)
+                ButtonGradientBorder(cornerRadius: cornerRadius, lineWidth: borderWidth, role: role)
             }
         }
     }
@@ -83,6 +88,7 @@ struct ButtonGradientBackground: View {
 struct ButtonGradientBorder: View {
     var cornerRadius: CGFloat = 8
     var lineWidth: CGFloat = 6
+    var role: GradientTuning.ButtonRole = .primary
 
     @AppStorage(FeatureFlags.staticBorderKey) private var staticBorderOn = false
     @ObservedObject private var store = GradientTuningStore.shared
@@ -94,7 +100,8 @@ struct ButtonGradientBorder: View {
             style: staticBorderOn
                 ? ButtonGradientStyle(noiseAmount: store.tuning.noiseAmount, orderedAmount: 0)
                 : .mesh,
-            tuning: store.tuning
+            tuning: store.tuning,
+            role: role
         )
     }
 }
@@ -111,6 +118,10 @@ struct ButtonGradientBorder: View {
 /// A modifier rather than a colour constant because the answer depends on `GradientTuning`, and a
 /// `static var` could not observe the store.
 struct GradientButtonLabel: ViewModifier {
+    /// Must match the role of the background the label sits on — the whole point of the modifier
+    /// is measuring the ground actually behind the glyph.
+    var role: GradientTuning.ButtonRole = .primary
+
     @AppStorage(FeatureFlags.staticGradientKey) private var staticOn = false
     @AppStorage(FeatureFlags.ditherGradientKey) private var ditherOn = false
     @ObservedObject private var store = GradientTuningStore.shared
@@ -131,7 +142,8 @@ struct GradientButtonLabel: ViewModifier {
         // timeline on every button label to re-derive a constant would be silly.
         if quantized && store.tuning.labelMode == .auto {
             TimelineView(.periodic(from: .now, by: 1 / Self.samplesPerSecond)) { timeline in
-                let color = store.tuning.labelColor(at: timeline.date.timeIntervalSinceReferenceDate)
+                let color = store.tuning.labelColor(at: timeline.date.timeIntervalSinceReferenceDate,
+                                                    role: role)
                 content
                     .foregroundColor(color)
                     // Black and white have no midpoint, so the flip is a step. Crossfading it is
@@ -139,14 +151,16 @@ struct GradientButtonLabel: ViewModifier {
                     .animation(.easeInOut(duration: 0.35), value: color)
             }
         } else {
-            content.foregroundColor(quantized ? store.tuning.labelColor(at: 0) : .textOnGradient)
+            content.foregroundColor(quantized ? store.tuning.labelColor(at: 0, role: role) : .textOnGradient)
         }
     }
 }
 
 extension View {
-    /// For text drawn over `ButtonGradientBackground`.
-    func gradientButtonLabel() -> some View { modifier(GradientButtonLabel()) }
+    /// For text drawn over `ButtonGradientBackground` — pass the same `role` the background wears.
+    func gradientButtonLabel(role: GradientTuning.ButtonRole = .primary) -> some View {
+        modifier(GradientButtonLabel(role: role))
+    }
 }
 
 // MARK: - Canvas frame
@@ -279,6 +293,10 @@ struct SimpleGradientBackground: View {
     var style: ButtonGradientStyle = .mesh
     var tuning: GradientTuning = .default
 
+    /// Selects which of the tuning's pole sets the quantized path resolves to. The mesh path
+    /// ignores it — with the flags off there is one hardcoded palette, and that invariant holds.
+    var role: GradientTuning.ButtonRole = .primary
+
     @State private var isAnimating = false
     @State private var isColorToggled = false
 
@@ -314,7 +332,7 @@ struct SimpleGradientBackground: View {
     private var quantized: some View {
         TimelineView(.periodic(from: .now, by: 1 / max(1, tuning.staticFrameRate))) { timeline in
             let now = timeline.date.timeIntervalSinceReferenceDate
-            let poles = tuning.poles(at: now)
+            let poles = tuning.poles(at: now, role: role)
             GeometryReader { geo in
                 meshGradient(colors: tuning.meshPalette(swapped: isColorToggled))
                     .layerEffect(
@@ -376,6 +394,10 @@ struct SimpleGradientBorder: View {
     var style: ButtonGradientStyle = .mesh
     var tuning: GradientTuning = .default
 
+    /// The ring around a camera button quantizes to the camera poles, so button and ring stay
+    /// one object. The border's own gradient stops (`borderStartA`…) remain shared across roles.
+    var role: GradientTuning.ButtonRole = .primary
+
     /// Animation state
     @State private var isColorToggled = false
 
@@ -416,7 +438,7 @@ struct SimpleGradientBorder: View {
 
             Group {
                 if style.isQuantized {
-                    let poles = tuning.poles(at: now)
+                    let poles = tuning.poles(at: now, role: role)
                     base.layerEffect(
                         ShaderLibrary.staticDither(
                             .float(tuning.cellSize),

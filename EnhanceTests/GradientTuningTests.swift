@@ -484,6 +484,84 @@ struct GradientTuningTests {
         #expect(decoded.labelMode == GradientTuning.default.labelMode)
     }
 
+    // MARK: - Camera role
+
+    /// The fork's ground state: until the lab pulls them apart, the camera button renders
+    /// pixel-identically to the primary — an untouched install cannot tell the fork happened.
+    @Test func cameraPoles_defaultToThePrimaryPoles() {
+        let tuning = GradientTuning.default
+        let primary = tuning.polesRGB(at: 1.7)
+        let camera = tuning.polesRGB(at: 1.7, role: .camera)
+        #expect(primary.light == camera.light)
+        #expect(primary.mid == camera.mid)
+        #expect(primary.dark == camera.dark)
+    }
+
+    /// The feature itself: each role reads its own poles, and touching one leaves the other alone.
+    @Test func poles_followTheirRole() {
+        var tuning = GradientTuning.default
+        let red = RGBColor(r: 1, g: 0, b: 0)
+        tuning.cameraPoleLightA = red
+        tuning.cameraPoleLightB = red
+
+        #expect(tuning.polesRGB(at: 0, role: .camera).light == red)
+        // The primary is untouched, so it must still lerp exactly as the stock tuning does —
+        // compared against the same instant, since t=0 already sits mid-pulse.
+        #expect(tuning.polesRGB(at: 0, role: .primary).light == GradientTuning.default.polesRGB(at: 0).light)
+    }
+
+    /// The camera icon is a glyph on a ground like any other: its colour must answer to the
+    /// camera poles, not to whatever the primary button happens to be wearing.
+    @Test func labelColor_auto_readsTheCameraGroundForTheCameraRole() {
+        var tuning = GradientTuning.default
+        let nearBlack = RGBColor(r: 0.08, g: 0.05, b: 0.14)
+        tuning.cameraPoleLightA = nearBlack; tuning.cameraPoleLightB = nearBlack
+        tuning.cameraPoleDarkA = nearBlack; tuning.cameraPoleDarkB = nearBlack
+
+        #expect(tuning.labelColor(at: 0, role: .camera) == .white)
+        #expect(tuning.labelColor(at: 0) == .black)
+    }
+
+    /// A blob from before the fork carries tuned primary poles and no camera keys. The camera
+    /// poles must inherit the *stored* primary values — falling back to the stock defaults would
+    /// snap the camera button to stock greens while every other button kept the user's palette.
+    @Test func decoding_fillsMissingCameraPolesFromTheStoredPrimary() throws {
+        let legacy = """
+        {"poleLightA":{"r":0.1,"g":0.2,"b":0.3},
+         "poleDarkA":{"r":0.4,"g":0.5,"b":0.6},
+         "poleLightB":{"r":0.15,"g":0.25,"b":0.35},
+         "poleDarkB":{"r":0.45,"g":0.55,"b":0.65},
+         "cellSize":5}
+        """.data(using: .utf8)!
+
+        let decoded = try JSONDecoder().decode(GradientTuning.self, from: legacy)
+        #expect(decoded.cameraPoleLightA == RGBColor(r: 0.1, g: 0.2, b: 0.3))
+        #expect(decoded.cameraPoleDarkA == RGBColor(r: 0.4, g: 0.5, b: 0.6))
+        #expect(decoded.cameraPoleLightB == RGBColor(r: 0.15, g: 0.25, b: 0.35))
+        #expect(decoded.cameraPoleDarkB == RGBColor(r: 0.45, g: 0.55, b: 0.65))
+        // Mid poles were absent too, so they inherit the (defaulted) primary mids.
+        #expect(decoded.cameraPoleMidA == decoded.poleMidA)
+    }
+
+    /// A camera key that *is* stored wins over the inheritance.
+    @Test func decoding_storedCameraPolesBeatTheInheritance() throws {
+        var tuning = GradientTuning.default
+        tuning.poleLightA = RGBColor(r: 0.1, g: 0.2, b: 0.3)
+        tuning.cameraPoleLightA = RGBColor(r: 0.9, g: 0.1, b: 0.1)
+
+        let data = try JSONEncoder().encode(tuning)
+        let decoded = try JSONDecoder().decode(GradientTuning.self, from: data)
+        #expect(decoded.cameraPoleLightA == RGBColor(r: 0.9, g: 0.1, b: 0.1))
+        #expect(decoded == tuning)
+    }
+
+    @Test func swiftSnippet_carriesTheCameraValues() {
+        var tuning = GradientTuning.default
+        tuning.cameraPoleDarkB = RGBColor(r: 0.625, g: 0.125, b: 0.25)
+
+        #expect(tuning.swiftSnippet.contains("cameraPoleDarkB: RGBColor(r: 0.625, g: 0.125, b: 0.250)"))
+    }
+
     // MARK: - Colour bridging
 
     /// `ColorPicker` can hand back Display P3 components outside 0–1, which reach a shader as
