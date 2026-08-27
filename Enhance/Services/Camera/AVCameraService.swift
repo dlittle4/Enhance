@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage
 import UIKit
 
 /// The hardware implementation of `CameraServing`.
@@ -17,10 +18,18 @@ final class AVCameraService: NSObject, CameraServing {
     private(set) var zoomOptions: [CameraZoomOption] = []
     private(set) var currentZoomIndex: Int = 0
     var onStateChange: ((CameraSessionState) -> Void)?
+    var onPreviewFrame: ((CGImage) -> Void)?
 
     private let session = AVCaptureSession()
     private let photoOutput = AVCapturePhotoOutput()
     private let sessionQueue = DispatchQueue(label: "com.enhance.camera.session")
+
+    /// The resolve intro's frame source. The output stays attached for the session's whole
+    /// life — no mid-run reconfiguration — and `VideoFrameTap.enabled` is the switch: off,
+    /// each delivered buffer costs one guard-return on `videoQueue`.
+    private let videoOutput = AVCaptureVideoDataOutput()
+    private let videoQueue = DispatchQueue(label: "com.enhance.camera.video")
+    private let frameTap: VideoFrameTap
 
     /// Touched only on `sessionQueue`.
     private var currentInput: AVCaptureDeviceInput?
@@ -42,7 +51,13 @@ final class AVCameraService: NSObject, CameraServing {
     private static let failureMessage = "CAMERA UNAVAILABLE"
 
     override init() {
+        frameTap = VideoFrameTap(clearQueue: videoQueue)
         super.init()
+        // The tap hops to main before calling this, matching the delegate hops elsewhere in
+        // this file.
+        frameTap.onFrame = { [weak self] frame in
+            self?.onPreviewFrame?(frame)
+        }
         let center = NotificationCenter.default
         center.addObserver(
             self, selector: #selector(sessionRuntimeError),
@@ -113,6 +128,10 @@ final class AVCameraService: NSObject, CameraServing {
         sessionQueue.async { [self] in
             if session.isRunning { session.stopRunning() }
         }
+    }
+
+    func setPreviewFrames(_ enabled: Bool) {
+        videoQueue.async { [self] in frameTap.enabled = enabled }
     }
 
     func cycleZoom() {
@@ -220,6 +239,26 @@ final class AVCameraService: NSObject, CameraServing {
             }
         }
 
+        // The resolve intro's frame tap. A session that cannot take a data output still
+        // runs the camera — the overlay's fallback timeout degrades the intro to the plain
+        // fade, so this never fails the configure.
+        if !session.outputs.contains(videoOutput), session.canAddOutput(videoOutput) {
+            videoOutput.videoSettings = [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+            ]
+            videoOutput.alwaysDiscardsLateVideoFrames = true
+            videoOutput.setSampleBufferDelegate(frameTap, queue: videoQueue)
+            session.addOutput(videoOutput)
+        }
+        if let connection = videoOutput.connection(with: .video),
+           connection.isVideoMirroringSupported {
+            // Tapped frames stand in for the preview layer, which auto-mirrors the front
+            // camera — mirror to match or the intro would flip at handoff. Outside the
+            // add-once guard: an input swap recreates the connection.
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = position == .front
+        }
+
         session.commitConfiguration()
 
         let ladder = ladder(for: device)
@@ -287,10 +326,17 @@ final class AVCameraService: NSObject, CameraServing {
         rotationCoordinator = coordinator
 
         let captureAngle = coordinator.videoRotationAngleForHorizonLevelCapture
+        let tapAngle = coordinator.videoRotationAngleForHorizonLevelPreview
         sessionQueue.async { [self] in
             if let connection = photoOutput.connection(with: .video),
                connection.isVideoRotationAngleSupported(captureAngle) {
                 connection.videoRotationAngle = captureAngle
+            }
+            // The tapped frames take the *preview* angle, not the capture's — during the
+            // resolve intro they are drawn where the preview layer shows.
+            if let connection = videoOutput.connection(with: .video),
+               connection.isVideoRotationAngleSupported(tapAngle) {
+                connection.videoRotationAngle = tapAngle
             }
         }
 
@@ -339,6 +385,57 @@ final class CameraPreviewUIView: UIView {
     // angles via `RotationCoordinator`, per device. A hardcoded 90° fallback in
     // `layoutSubviews` would silently clobber the coordinator's answer on every layout —
     // exactly wrong for a front sensor whose angle differs.
+}
+
+/// Converts tapped video buffers to `CGImage`s for the resolve intro, coalesced to the main
+/// thread's own pace: no new conversion starts until main has consumed the previous frame,
+/// so a slow main thread drops frames instead of queueing them.
+///
+/// `enabled` and `awaitingMain` are touched only on the video queue — the delegate's queue,
+/// which is also `clearQueue` — so neither needs a lock.
+private final class VideoFrameTap: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+
+    var enabled = false
+
+    /// Invoked on the main queue with the converted frame.
+    var onFrame: ((CGImage) -> Void)?
+
+    private var awaitingMain = false
+    private let clearQueue: DispatchQueue
+    private let ciContext = CIContext(options: [.cacheIntermediates: false])
+
+    /// The frames feed a mosaic that only approaches full sharpness in its last beats, and
+    /// the handoff to the real preview layer is a cross-fade — a short side of 640 is
+    /// indistinguishable there and keeps each conversion trivial.
+    private static let maxShortSide: CGFloat = 640
+
+    init(clearQueue: DispatchQueue) {
+        self.clearQueue = clearQueue
+    }
+
+    func captureOutput(
+        _ output: AVCaptureOutput,
+        didOutput sampleBuffer: CMSampleBuffer,
+        from connection: AVCaptureConnection
+    ) {
+        guard enabled, !awaitingMain,
+              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
+        else { return }
+
+        var image = CIImage(cvPixelBuffer: pixelBuffer)
+        let shortSide = min(image.extent.width, image.extent.height)
+        if shortSide > Self.maxShortSide {
+            let scale = Self.maxShortSide / shortSide
+            image = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+        }
+        guard let frame = ciContext.createCGImage(image, from: image.extent) else { return }
+
+        awaitingMain = true
+        DispatchQueue.main.async { [weak self] in
+            self?.onFrame?(frame)
+            self?.clearQueue.async { self?.awaitingMain = false }
+        }
+    }
 }
 
 /// Bridges one `capturePhoto` call to a completion. AVFoundation calls back on an arbitrary

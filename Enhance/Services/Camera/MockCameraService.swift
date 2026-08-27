@@ -18,8 +18,13 @@ final class MockCameraService: CameraServing {
     private(set) var zoomOptions: [CameraZoomOption]
     private(set) var currentZoomIndex: Int
     var onStateChange: ((CameraSessionState) -> Void)?
+    var onPreviewFrame: ((CGImage) -> Void)?
 
     private let previewView = UIImageView()
+
+    /// Mirrors the real tap's resting-off contract; the placeholder only flows while the
+    /// resolve intro has asked for frames.
+    private var previewFramesEnabled = false
 
     init() {
         let options = CameraZoomLadder.make(switchOverFactors: [2, 6], maxZoomFactor: 16)
@@ -43,6 +48,11 @@ final class MockCameraService: CameraServing {
 
     func stop() {
         state = .idle
+    }
+
+    func setPreviewFrames(_ enabled: Bool) {
+        previewFramesEnabled = enabled
+        deliverFrameIfEnabled()
     }
 
     func cycleZoom() {
@@ -84,6 +94,17 @@ final class MockCameraService: CameraServing {
             position: position,
             zoomLabel: zoomOptions[currentZoomIndex].label
         )
+        deliverFrameIfEnabled()
+    }
+
+    /// The placeholder as a "live frame" — a static image resolves fine, since the overlay's
+    /// clock does the animating. Gated on `.running` so the real ordering (running first,
+    /// then a frame) is what simulator QA exercises.
+    private func deliverFrameIfEnabled() {
+        guard previewFramesEnabled, state == .running,
+              let frame = previewView.image?.cgImage
+        else { return }
+        onPreviewFrame?(frame)
     }
 
     /// A gradient card with a watermark, standing in for the live feed. The zoom label is

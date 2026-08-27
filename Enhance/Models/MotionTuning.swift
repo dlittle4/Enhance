@@ -251,6 +251,16 @@ struct MotionTuning: Codable, Equatable {
     /// edge, below the safe area.
     var cameraBottomPadding: Double
 
+    /// Block edge in points the camera feed's resolve starts at. The feed's first frames are
+    /// drawn through `Pixellate.metal` at this cell size and swept to sharp — the ENHANCE
+    /// treatment as the camera's own loading state. Bolder than the canvas's 18 because the
+    /// viewfinder is a full-width card and coarse blocks are the whole read.
+    var cameraRevealCell: Double
+
+    /// Seconds for the feed to sweep from `cameraRevealCell` to sharp. 0 turns the resolve
+    /// off entirely — the feed fades in plainly, exactly the pre-resolve behaviour.
+    var cameraRevealTime: Double
+
     // MARK: - Defaults
 
     /// **The adopted profile** *(user's call, 2026-08-26)*: the values dialled in on device and
@@ -293,7 +303,9 @@ struct MotionTuning: Codable, Equatable {
         parallaxSmoothing: 0.882,
         cameraScaleFrom: 0.461,
         cameraCurve: MotionCurve(response: 0.385, dampingFraction: 0.595),
-        cameraBottomPadding: 48
+        cameraBottomPadding: 48,
+        cameraRevealCell: 40,
+        cameraRevealTime: 0.9
     )
 
     /// The plan's proposed starting point — what the ideas describe, before anyone has judged
@@ -326,7 +338,9 @@ struct MotionTuning: Codable, Equatable {
         parallaxSmoothing: 0.9,
         cameraScaleFrom: 0.05,
         cameraCurve: MotionCurve(response: 0.38, dampingFraction: 0.8),
-        cameraBottomPadding: 18
+        cameraBottomPadding: 18,
+        cameraRevealCell: 40,
+        cameraRevealTime: 0.9
     )
 
     // MARK: - Derived
@@ -381,7 +395,9 @@ struct MotionTuning: Codable, Equatable {
             parallaxSmoothing: \(Self.number(parallaxSmoothing)),
             cameraScaleFrom: \(Self.number(cameraScaleFrom)),
             cameraCurve: \(Self.curve(cameraCurve)),
-            cameraBottomPadding: \(Self.number(cameraBottomPadding))
+            cameraBottomPadding: \(Self.number(cameraBottomPadding)),
+            cameraRevealCell: \(Self.number(cameraRevealCell)),
+            cameraRevealTime: \(Self.number(cameraRevealTime))
         )
         """
     }
@@ -460,7 +476,9 @@ extension MotionTuning {
             // inherit — a blob written before this field existed should keep the camera's
             // designed feel, not pick up whatever the global happens to be.
             cameraCurve: curve(.cameraCurve) ?? fallback.cameraCurve,
-            cameraBottomPadding: number(.cameraBottomPadding, fallback.cameraBottomPadding)
+            cameraBottomPadding: number(.cameraBottomPadding, fallback.cameraBottomPadding),
+            cameraRevealCell: number(.cameraRevealCell, fallback.cameraRevealCell),
+            cameraRevealTime: number(.cameraRevealTime, fallback.cameraRevealTime)
         )
     }
 }

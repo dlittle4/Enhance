@@ -38,6 +38,15 @@ protocol CameraServing: AnyObject {
     /// one observation path covers both.
     var onStateChange: ((CameraSessionState) -> Void)? { get set }
 
+    /// Fired on the main actor with the latest live frame while frame delivery is enabled
+    /// (`setPreviewFrames(true)`). This is also the app's only genuine "a frame exists"
+    /// signal — `.running` means `startRunning()` returned, not that anything has rendered.
+    var onPreviewFrame: ((CGImage) -> Void)? { get set }
+
+    /// Turns per-frame delivery on or off. Off is the resting state: the resolve intro is
+    /// the only consumer, and outside that window the real service's tap must cost nothing.
+    func setPreviewFrames(_ enabled: Bool)
+
     /// The live preview, sized by the caller. Real: a view backed by
     /// `AVCaptureVideoPreviewLayer`. Mock: a `UIImageView` placeholder.
     func makePreviewUIView() -> UIView
