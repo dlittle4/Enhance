@@ -5,8 +5,9 @@ import UIKit
 ///
 /// Threading: every touch of the session — configuration, `startRunning`, input swaps, zoom
 /// ramps — happens on `sessionQueue`, because `startRunning` blocks and AVFoundation wants
-/// configuration serialized. The published properties (`state`, `position`, the ladder) are
-/// only ever written back on the main actor.
+/// configuration serialized. That queue-confined world lives in `CameraSessionCore`, off the
+/// main actor, so the queue closures never reach into main-actor state. The published
+/// properties (`state`, `position`, the ladder) are only ever written back on the main actor.
 @MainActor
 final class AVCameraService: NSObject, CameraServing {
 
@@ -18,13 +19,8 @@ final class AVCameraService: NSObject, CameraServing {
     private(set) var currentZoomIndex: Int = 0
     var onStateChange: ((CameraSessionState) -> Void)?
 
-    private let session = AVCaptureSession()
-    private let photoOutput = AVCapturePhotoOutput()
+    private let core = CameraSessionCore()
     private let sessionQueue = DispatchQueue(label: "com.enhance.camera.session")
-
-    /// Touched only on `sessionQueue`.
-    private var currentInput: AVCaptureDeviceInput?
-    private var isSessionConfigured = false
 
     /// The live preview view, if one is mounted. Weak: the overlay owns it.
     private weak var attachedPreviewView: CameraPreviewUIView?
@@ -46,15 +42,15 @@ final class AVCameraService: NSObject, CameraServing {
         let center = NotificationCenter.default
         center.addObserver(
             self, selector: #selector(sessionRuntimeError),
-            name: .AVCaptureSessionRuntimeError, object: session
+            name: AVCaptureSession.runtimeErrorNotification, object: core.session
         )
         center.addObserver(
             self, selector: #selector(sessionWasInterrupted),
-            name: .AVCaptureSessionWasInterrupted, object: session
+            name: AVCaptureSession.wasInterruptedNotification, object: core.session
         )
         center.addObserver(
             self, selector: #selector(sessionInterruptionEnded),
-            name: .AVCaptureSessionInterruptionEnded, object: session
+            name: AVCaptureSession.interruptionEndedNotification, object: core.session
         )
     }
 
@@ -62,7 +58,7 @@ final class AVCameraService: NSObject, CameraServing {
 
     func makePreviewUIView() -> UIView {
         let view = CameraPreviewUIView()
-        view.previewLayer.session = session
+        view.previewLayer.session = core.session
         view.previewLayer.videoGravity = .resizeAspectFill
         // Held weakly so rotation can be re-applied the moment a (re)configure creates a new
         // preview connection — the passive layout/update hooks alone raced that async creation
@@ -79,27 +75,14 @@ final class AVCameraService: NSObject, CameraServing {
         state = .starting
 
         let restartPosition = position
-        let configured: (ladder: [CameraZoomOption], ok: Bool) = await onSessionQueue { [self] in
-            if !isSessionConfigured {
-                guard let ladder = configureSession(for: restartPosition) else { return ([], false) }
-                isSessionConfigured = true
-                if !session.isRunning { session.startRunning() }
-                return (ladder, session.isRunning)
-            }
-            if !session.isRunning { session.startRunning() }
-            let ladder = currentLadder()
-            // A restart keeps the device, but the pill resets to its default stop below —
-            // snap the hardware with it so label and lens agree.
-            if let device = currentInput?.device {
-                applyDefaultZoom(ladder, to: device)
-            }
-            return (ladder, session.isRunning)
+        let configured = await onSessionQueue { [core] in
+            core.start(for: restartPosition)
         }
 
         if configured.ok {
             zoomOptions = configured.ladder
             currentZoomIndex = CameraZoomLadder.defaultIndex(in: configured.ladder)
-            if let device = await onSessionQueue({ [self] in currentInput?.device }) {
+            if let device = await onSessionQueue({ [core] in core.currentDevice }) {
                 applyRotation(for: device)
             }
             state = .running
@@ -110,8 +93,8 @@ final class AVCameraService: NSObject, CameraServing {
 
     func stop() {
         state = .idle
-        sessionQueue.async { [self] in
-            if session.isRunning { session.stopRunning() }
+        sessionQueue.async { [core] in
+            core.stopRunning()
         }
     }
 
@@ -119,18 +102,8 @@ final class AVCameraService: NSObject, CameraServing {
         guard !zoomOptions.isEmpty else { return }
         currentZoomIndex = (currentZoomIndex + 1) % zoomOptions.count
         let factor = zoomOptions[currentZoomIndex].videoZoomFactor
-        sessionQueue.async { [self] in
-            guard let device = currentInput?.device else { return }
-            do {
-                try device.lockForConfiguration()
-                // Rate tuned to feel like a lens, not a cut; optical switchovers on virtual
-                // devices happen inside the ramp.
-                device.ramp(toVideoZoomFactor: factor, withRate: 8)
-                device.unlockForConfiguration()
-            } catch {
-                // A failed ramp leaves the previous factor — harmless, the label still names
-                // the intent and the next tap re-applies.
-            }
+        sessionQueue.async { [core] in
+            core.rampZoom(to: factor)
         }
     }
 
@@ -138,8 +111,8 @@ final class AVCameraService: NSObject, CameraServing {
         guard state == .running else { return }
         let newPosition: CameraPosition = position == .back ? .front : .back
 
-        let ladder: [CameraZoomOption]? = await onSessionQueue { [self] in
-            configureSession(for: newPosition)
+        let ladder: [CameraZoomOption]? = await onSessionQueue { [core] in
+            core.configureSession(for: newPosition)
         }
 
         if let ladder {
@@ -148,7 +121,7 @@ final class AVCameraService: NSObject, CameraServing {
             currentZoomIndex = CameraZoomLadder.defaultIndex(in: ladder)
             // The input swap tore down the old preview connection and made a new one, which
             // comes up in the sensor's native landscape again — same fix as `start()`.
-            if let device = await onSessionQueue({ [self] in currentInput?.device }) {
+            if let device = await onSessionQueue({ [core] in core.currentDevice }) {
                 applyRotation(for: device)
             }
         } else {
@@ -173,16 +146,126 @@ final class AVCameraService: NSObject, CameraServing {
                 }
                 delegate = capture
                 DispatchQueue.main.async { [self] in inFlightCaptures.append(capture) }
-                photoOutput.capturePhoto(with: settings, delegate: capture)
+                core.photoOutput.capturePhoto(with: settings, delegate: capture)
             }
         }
     }
 
-    // MARK: - Session configuration (sessionQueue only)
+    private func onSessionQueue<T>(_ work: @escaping () -> T) async -> T {
+        await withCheckedContinuation { continuation in
+            sessionQueue.async { continuation.resume(returning: work()) }
+        }
+    }
+
+    /// Rotates the preview and photo connections for the given device using the angles the
+    /// system derives (`RotationCoordinator`) — hardcoding 90 left the front camera sideways
+    /// on hardware whose front sensor wants a different compensation. The preview connection
+    /// is recreated *asynchronously* after a configure and there is no layout pass on a
+    /// static card to catch it, so this polls briefly until it exists.
+    private func applyRotation(for device: AVCaptureDevice, attempt: Int = 0) {
+        let coordinator = AVCaptureDevice.RotationCoordinator(
+            device: device,
+            previewLayer: attachedPreviewView?.previewLayer
+        )
+        rotationCoordinator = coordinator
+
+        let captureAngle = coordinator.videoRotationAngleForHorizonLevelCapture
+        sessionQueue.async { [core] in
+            if let connection = core.photoOutput.connection(with: .video),
+               connection.isVideoRotationAngleSupported(captureAngle) {
+                connection.videoRotationAngle = captureAngle
+            }
+        }
+
+        let previewAngle = coordinator.videoRotationAngleForHorizonLevelPreview
+        if let connection = attachedPreviewView?.previewLayer.connection {
+            if connection.isVideoRotationAngleSupported(previewAngle) {
+                connection.videoRotationAngle = previewAngle
+            }
+        } else if attempt < 20 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.applyRotation(for: device, attempt: attempt + 1)
+            }
+        }
+    }
+
+    // MARK: - Session notifications
+
+    @objc private func sessionRuntimeError(_ notification: Notification) {
+        DispatchQueue.main.async { [self] in
+            if state == .running || state == .starting {
+                state = .failed(Self.failureMessage)
+            }
+        }
+    }
+
+    @objc private func sessionWasInterrupted(_ notification: Notification) {
+        DispatchQueue.main.async { [self] in
+            if state == .running { state = .starting }
+        }
+    }
+
+    @objc private func sessionInterruptionEnded(_ notification: Notification) {
+        DispatchQueue.main.async { [self] in
+            if state == .starting { state = .running }
+        }
+    }
+}
+
+/// The queue-confined half of `AVCameraService`: the capture session and everything
+/// AVFoundation wants serialized. Members are touched only on the service's `sessionQueue`
+/// once the session is live (the main actor reads `session` during setup, before anything
+/// runs). `@unchecked Sendable` states that discipline to the compiler — nothing here is
+/// thread-safe on its own.
+private final class CameraSessionCore: @unchecked Sendable {
+
+    let session = AVCaptureSession()
+    let photoOutput = AVCapturePhotoOutput()
+
+    private var currentInput: AVCaptureDeviceInput?
+    private var isSessionConfigured = false
+
+    var currentDevice: AVCaptureDevice? { currentInput?.device }
+
+    /// First call configures the session; later calls just spin it back up.
+    func start(for position: CameraPosition) -> (ladder: [CameraZoomOption], ok: Bool) {
+        if !isSessionConfigured {
+            guard let ladder = configureSession(for: position) else { return ([], false) }
+            isSessionConfigured = true
+            if !session.isRunning { session.startRunning() }
+            return (ladder, session.isRunning)
+        }
+        if !session.isRunning { session.startRunning() }
+        let ladder = currentLadder()
+        // A restart keeps the device, but the pill resets to its default stop —
+        // snap the hardware with it so label and lens agree.
+        if let device = currentInput?.device {
+            applyDefaultZoom(ladder, to: device)
+        }
+        return (ladder, session.isRunning)
+    }
+
+    func stopRunning() {
+        if session.isRunning { session.stopRunning() }
+    }
+
+    func rampZoom(to factor: CGFloat) {
+        guard let device = currentInput?.device else { return }
+        do {
+            try device.lockForConfiguration()
+            // Rate tuned to feel like a lens, not a cut; optical switchovers on virtual
+            // devices happen inside the ramp.
+            device.ramp(toVideoZoomFactor: factor, withRate: 8)
+            device.unlockForConfiguration()
+        } catch {
+            // A failed ramp leaves the previous factor — harmless, the label still names
+            // the intent and the next tap re-applies.
+        }
+    }
 
     /// Builds or rebuilds the session around the given position's device. Returns the zoom
     /// ladder for that device, or nil when no usable device/input exists.
-    private func configureSession(for position: CameraPosition) -> [CameraZoomOption]? {
+    func configureSession(for position: CameraPosition) -> [CameraZoomOption]? {
         guard let device = Self.bestDevice(for: position),
               let input = try? AVCaptureDeviceInput(device: device)
         else { return nil }
@@ -264,67 +347,6 @@ final class AVCameraService: NSObject, CameraServing {
             ).devices.first
         case .front:
             AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .front)
-        }
-    }
-
-    private func onSessionQueue<T>(_ work: @escaping () -> T) async -> T {
-        await withCheckedContinuation { continuation in
-            sessionQueue.async { continuation.resume(returning: work()) }
-        }
-    }
-
-
-    /// Rotates the preview and photo connections for the given device using the angles the
-    /// system derives (`RotationCoordinator`) — hardcoding 90 left the front camera sideways
-    /// on hardware whose front sensor wants a different compensation. The preview connection
-    /// is recreated *asynchronously* after a configure and there is no layout pass on a
-    /// static card to catch it, so this polls briefly until it exists.
-    private func applyRotation(for device: AVCaptureDevice, attempt: Int = 0) {
-        let coordinator = AVCaptureDevice.RotationCoordinator(
-            device: device,
-            previewLayer: attachedPreviewView?.previewLayer
-        )
-        rotationCoordinator = coordinator
-
-        let captureAngle = coordinator.videoRotationAngleForHorizonLevelCapture
-        sessionQueue.async { [self] in
-            if let connection = photoOutput.connection(with: .video),
-               connection.isVideoRotationAngleSupported(captureAngle) {
-                connection.videoRotationAngle = captureAngle
-            }
-        }
-
-        let previewAngle = coordinator.videoRotationAngleForHorizonLevelPreview
-        if let connection = attachedPreviewView?.previewLayer.connection {
-            if connection.isVideoRotationAngleSupported(previewAngle) {
-                connection.videoRotationAngle = previewAngle
-            }
-        } else if attempt < 20 {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                self?.applyRotation(for: device, attempt: attempt + 1)
-            }
-        }
-    }
-
-    // MARK: - Session notifications
-
-    @objc private func sessionRuntimeError(_ notification: Notification) {
-        DispatchQueue.main.async { [self] in
-            if state == .running || state == .starting {
-                state = .failed(Self.failureMessage)
-            }
-        }
-    }
-
-    @objc private func sessionWasInterrupted(_ notification: Notification) {
-        DispatchQueue.main.async { [self] in
-            if state == .running { state = .starting }
-        }
-    }
-
-    @objc private func sessionInterruptionEnded(_ notification: Notification) {
-        DispatchQueue.main.async { [self] in
-            if state == .starting { state = .running }
         }
     }
 }
