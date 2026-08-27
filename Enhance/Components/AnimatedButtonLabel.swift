@@ -114,9 +114,6 @@ struct AnimatedButtonLabel: View {
     private func draw(context: GraphicsContext, size: CGSize, overlay: TextOverlay,
                       raster: RasterizedText, phase: ButtonLabelPhase) {
         guard phase.alpha > 0.001 else { return }
-        // `withCGContext` is mutating; a local copy of the value-type context keeps this helper's
-        // signature honest about not changing the caller's.
-        var context = context
 
         // The pipeline lays out against a square; the button is a wide band. The square's side is
         // the button's long side, centred on the short one, so `fontSize` and every travel
