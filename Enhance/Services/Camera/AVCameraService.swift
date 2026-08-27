@@ -182,6 +182,9 @@ final class AVCameraService: NSObject, CameraServing {
 
         let captureAngle = coordinator.videoRotationAngleForHorizonLevelCapture
         let tapAngle = coordinator.videoRotationAngleForHorizonLevelPreview
+        // Refine the tap's target with the preview-layer coordinator's answer — configure
+        // time already seeded it from a device-only coordinator, before any frame flowed.
+        core.setTapTargetAngle(tapAngle)
         sessionQueue.async { [core] in
             if let connection = core.photoOutput.connection(with: .video),
                connection.isVideoRotationAngleSupported(captureAngle) {
@@ -256,6 +259,12 @@ private final class CameraSessionCore: @unchecked Sendable {
 
     func setPreviewFrames(_ enabled: Bool) {
         videoQueue.async { [frameTap] in frameTap.enabled = enabled }
+    }
+
+    /// The angle tapped frames must present at to match the preview layer. Callable from
+    /// any queue; the tap reads it only on the video queue.
+    func setTapTargetAngle(_ angle: CGFloat) {
+        videoQueue.async { [frameTap] in frameTap.targetAngle = angle }
     }
 
     var currentDevice: AVCaptureDevice? { currentInput?.device }
@@ -347,13 +356,27 @@ private final class CameraSessionCore: @unchecked Sendable {
             videoOutput.setSampleBufferDelegate(frameTap, queue: videoQueue)
             session.addOutput(videoOutput)
         }
-        if let connection = videoOutput.connection(with: .video),
-           connection.isVideoMirroringSupported {
+        if let connection = videoOutput.connection(with: .video) {
             // Tapped frames stand in for the preview layer, which auto-mirrors the front
             // camera — mirror to match or the intro would flip at handoff. Outside the
             // add-once guard: an input swap recreates the connection.
-            connection.automaticallyAdjustsVideoMirroring = false
-            connection.isVideoMirrored = position == .front
+            if connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = position == .front
+            }
+            // Rotation, *before the session runs*: `applyRotation` fires only after
+            // `start()` returns, and frames flow the moment `startRunning` does — on
+            // device that gap shipped the whole intro in the sensor's native landscape.
+            // A device-only coordinator (no preview layer yet on this queue) still
+            // reports the horizon-level preview angle. The tap is told the target too,
+            // so any frame the hardware did not rotate is corrected — or dropped —
+            // rather than drawn sideways.
+            let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: nil)
+            let tapAngle = coordinator.videoRotationAngleForHorizonLevelPreview
+            if connection.isVideoRotationAngleSupported(tapAngle) {
+                connection.videoRotationAngle = tapAngle
+            }
+            setTapTargetAngle(tapAngle)
         }
 
         session.commitConfiguration()
@@ -426,6 +449,14 @@ private final class VideoFrameTap: NSObject, AVCaptureVideoDataOutputSampleBuffe
 
     var enabled = false
 
+    /// The angle frames must present at to match the preview layer — the coordinator's
+    /// horizon-level preview angle. Frames whose connection already carries this angle
+    /// pass through untouched; ones the hardware left in another orientation are rotated
+    /// here, and frames arriving before the target is known are dropped rather than drawn
+    /// sideways. On device the first frames shipped in the sensor's native landscape and
+    /// the whole intro played rotated — this is what makes that impossible.
+    var targetAngle: CGFloat?
+
     /// Invoked on the main queue with the converted frame.
     var onFrame: ((CGImage) -> Void)?
 
@@ -447,11 +478,14 @@ private final class VideoFrameTap: NSObject, AVCaptureVideoDataOutputSampleBuffe
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
-        guard enabled, !awaitingMain,
+        guard enabled, !awaitingMain, let targetAngle,
               let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer)
         else { return }
 
         var image = CIImage(cvPixelBuffer: pixelBuffer)
+        if let orientation = Self.correction(from: connection.videoRotationAngle, to: targetAngle) {
+            image = image.oriented(orientation)
+        }
         let shortSide = min(image.extent.width, image.extent.height)
         if shortSide > Self.maxShortSide {
             let scale = Self.maxShortSide / shortSide
@@ -463,6 +497,23 @@ private final class VideoFrameTap: NSObject, AVCaptureVideoDataOutputSampleBuffe
         DispatchQueue.main.async { [weak self] in
             self?.onFrame?(frame)
             self?.clearQueue.async { self?.awaitingMain = false }
+        }
+    }
+
+    /// The orientation that carries a buffer from the angle its connection actually applied
+    /// to the angle the preview layer shows, or nil when they already agree.
+    ///
+    /// The anchor for the mapping: a buffer at angle 0 is the sensor's native landscape, and
+    /// hardware displays it upright as EXIF `.right` — the same fact `MockCameraService`
+    /// documents for captures ("landscape bytes tagged `.right`"). Each further 90° of
+    /// deficit steps once more around the EXIF rotations.
+    private static func correction(from actual: CGFloat, to target: CGFloat) -> CGImagePropertyOrientation? {
+        let delta = (target - actual).truncatingRemainder(dividingBy: 360)
+        switch delta < 0 ? delta + 360 : delta {
+        case 90: return .right
+        case 180: return .down
+        case 270: return .left
+        default: return nil
         }
     }
 }
