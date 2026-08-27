@@ -4,6 +4,32 @@ import Testing
 import UIKit
 @testable import Enhance
 
+/// The head-detection corpus: real camera-roll photos, verified against known face counts.
+///
+/// The photos are personal and deliberately not committed, so they exist only in app bundles
+/// built on a machine that has them. Every test that reads one is gated on its presence with
+/// `.enabled(if:)` — the suite stays green on a fresh checkout, and the full corpus checks
+/// still run wherever the photos are bundled. Gate new fixture tests the same way.
+private enum SemanticHeadFixtures {
+    static func isBundled(_ name: String, _ ext: String) -> Bool {
+        Bundle.main.url(forResource: name, withExtension: ext) != nil
+    }
+
+    /// Every bundled fixture photo — the app's own art (showcase strips, icons) filtered out.
+    static var corpus: [URL] {
+        let photoExtensions = Set(["jpg", "jpeg", "png", "heic"])
+        return (Bundle.main.urls(forResourcesWithExtension: nil, subdirectory: nil) ?? [])
+            .filter { photoExtensions.contains($0.pathExtension.lowercased()) }
+            .filter { !$0.lastPathComponent.hasPrefix("showcase-") }
+            .filter { !$0.lastPathComponent.hasPrefix("AppIcon") }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
+
+    /// The corpus tests assert aggregate minimums that only hold on the full set, so a partial
+    /// bundle (or the icons alone) must read as "not bundled", not as a smaller corpus.
+    static var corpusIsBundled: Bool { corpus.count >= 10 }
+}
+
 @Suite(.serialized)
 struct SemanticHeadMaskTests {
 
@@ -36,7 +62,12 @@ struct SemanticHeadMaskTests {
         #expect(digest == "3698b18f063835bc609069ef052228fbe86d9c9a6dc8dcb7c7c2d69aed2b181b")
     }
 
-    @Test func portraitExifFixtures_produceOneSemanticV2HeadEach() async throws {
+    @Test(.enabled(
+        if: SemanticHeadFixtures.isBundled("IMG_0911", "jpeg")
+            && SemanticHeadFixtures.isBundled("IMG_0914", "jpeg"),
+        "The portrait-EXIF fixtures are local-only — see SemanticHeadFixtures."
+    ))
+    func portraitExifFixtures_produceOneSemanticV2HeadEach() async throws {
         for name in ["IMG_0911", "IMG_0914"] {
             let url = try #require(Bundle.main.url(forResource: name, withExtension: "jpeg"))
             let data = try Data(contentsOf: url)
@@ -59,7 +90,11 @@ struct SemanticHeadMaskTests {
         }
     }
 
-    @Test func distantEdgeFace_isRecoveredByFullRangeTiling() async throws {
+    @Test(.enabled(
+        if: SemanticHeadFixtures.isBundled("80888671014__DB387F63-6499-4937-9F4F-1FADDFDB02C7", "jpeg"),
+        "The group-photo fixture is local-only — see SemanticHeadFixtures."
+    ))
+    func distantEdgeFace_isRecoveredByFullRangeTiling() async throws {
         let name = "80888671014__DB387F63-6499-4937-9F4F-1FADDFDB02C7"
         let url = try #require(Bundle.main.url(forResource: name, withExtension: "jpeg"))
         let image = try #require(UIImage(data: Data(contentsOf: url)))
@@ -73,7 +108,11 @@ struct SemanticHeadMaskTests {
         )
     }
 
-    @Test func offCentreCloseupStillFindsItsSmallBackgroundFace() async throws {
+    @Test(.enabled(
+        if: SemanticHeadFixtures.isBundled("IMG_3228 Edited", "jpg"),
+        "The off-centre closeup fixture is local-only — see SemanticHeadFixtures."
+    ))
+    func offCentreCloseupStillFindsItsSmallBackgroundFace() async throws {
         let name = "IMG_3228 Edited"
         let url = try #require(Bundle.main.url(forResource: name, withExtension: "jpg"))
         let image = try #require(UIImage(data: Data(contentsOf: url)))
@@ -82,7 +121,11 @@ struct SemanticHeadMaskTests {
         #expect(faces.count >= 2, "Adaptive tiling must retain the small background face.")
     }
 
-    @Test func fullRangeDetector_meetsFixtureCoverageMinimums() async throws {
+    @Test(.enabled(
+        if: SemanticHeadFixtures.corpusIsBundled,
+        "The fixture corpus is local-only — see SemanticHeadFixtures."
+    ))
+    func fullRangeDetector_meetsFixtureCoverageMinimums() async throws {
         let minimumFaces = [
             "6": 7,
             "80888671014__DB387F63-6499-4937-9F4F-1FADDFDB02C7": 2,
@@ -96,12 +139,7 @@ struct SemanticHeadMaskTests {
             "IMG_2334": 3,
             "IMG_3228 Edited": 2
         ]
-        let photoExtensions = Set(["jpg", "jpeg", "png", "heic"])
-        let photos = (Bundle.main.urls(forResourcesWithExtension: nil, subdirectory: nil) ?? [])
-            .filter { photoExtensions.contains($0.pathExtension.lowercased()) }
-            .filter { !$0.lastPathComponent.hasPrefix("showcase-") }
-            .filter { !$0.lastPathComponent.hasPrefix("AppIcon") }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let photos = SemanticHeadFixtures.corpus
         #expect(photos.count >= 10)
 
         for url in photos {
@@ -135,15 +173,27 @@ struct SemanticHeadMaskTests {
     /// successful row records a mask overlay and final render for inspection. V2 also has a
     /// structural gate: every distinct detector result must receive either a semantic matte or
     /// the conservative small-face fallback. A group member may not silently disappear.
-    @Test func fixtureCorpus_rendersSemanticHeadComparisons() async throws {
+    @Test(.enabled(
+        if: SemanticHeadFixtures.corpusIsBundled,
+        "The fixture corpus is local-only — see SemanticHeadFixtures."
+    ))
+    func fixtureCorpus_rendersSemanticHeadComparisons() async throws {
         try await runFixtureCorpus(version: .v1)
     }
 
-    @Test func fixtureCorpus_v2RendersEveryTestImage() async throws {
+    @Test(.enabled(
+        if: SemanticHeadFixtures.corpusIsBundled,
+        "The fixture corpus is local-only — see SemanticHeadFixtures."
+    ))
+    func fixtureCorpus_v2RendersEveryTestImage() async throws {
         try await runFixtureCorpus(version: .v2)
     }
 
-    @Test func crowdedV2_ignoresSharedTranslucentPersonInstances() async throws {
+    @Test(.enabled(
+        if: SemanticHeadFixtures.isBundled("IMG_0677", "jpeg"),
+        "The crowded-group fixture is local-only — see SemanticHeadFixtures."
+    ))
+    func crowdedV2_ignoresSharedTranslucentPersonInstances() async throws {
         let url = try #require(Bundle.main.url(forResource: "IMG_0677", withExtension: "jpeg"))
         let image = try #require(UIImage(data: Data(contentsOf: url)))
         let source = try #require(normalizedSource(from: image))
@@ -186,12 +236,7 @@ struct SemanticHeadMaskTests {
     }
 
     private func runFixtureCorpus(version: FixtureVersion) async throws {
-        let photoExtensions = Set(["jpg", "jpeg", "png", "heic"])
-        let photos = (Bundle.main.urls(forResourcesWithExtension: nil, subdirectory: nil) ?? [])
-            .filter { photoExtensions.contains($0.pathExtension.lowercased()) }
-            .filter { !$0.lastPathComponent.hasPrefix("showcase-") }
-            .filter { !$0.lastPathComponent.hasPrefix("AppIcon") }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        let photos = SemanticHeadFixtures.corpus
         #expect(photos.count >= 10, "The local BIG HEAD fixture corpus was not bundled.")
 
         let semanticService = SemanticHeadMaskService()
