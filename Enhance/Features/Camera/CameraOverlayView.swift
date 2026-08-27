@@ -55,14 +55,20 @@ struct CameraOverlayView: View {
     /// to rest from `onAppear`.
     @State private var hasEntered = false
 
-    /// The feed's pixel-resolve intro. `waiting` covers the feed in black until the first
-    /// tapped frame lands; `running` is the sweep; `done` unmounts the overlay and hands
-    /// off to the live preview layer. One-way — the intro plays once per presentation.
+    /// The feed's pixel-resolve intro. `waiting` covers the feed until the first tapped
+    /// frame lands; `running` is the sweep; `done` unmounts the overlay and hands off to
+    /// the live preview layer. Not one-way: a camera flip re-arms it to `waiting`, and the
+    /// unmount-remount across `done` is what resets the overlay's own clock.
     private enum ResolvePhase { case waiting, running, done }
     @State private var resolvePhase: ResolvePhase = .waiting
 
     /// The overlay's closing fade, as explicit state for the same reason `hasEntered` is.
     @State private var resolveVisible = true
+
+    /// The sweep only starts on a frame numbered past this — 0 accepts any frame (the
+    /// entrance), and the flip parks it at `.max` until the swap completes so old-camera
+    /// frames cannot start a sweep that would dissolve to the wrong feed.
+    @State private var requiredFrameID = 0
 
     private var hasCaptured: Bool { viewModel.capturedImage != nil }
 
@@ -132,8 +138,9 @@ struct CameraOverlayView: View {
         .task { await viewModel.openCamera() }
         .onDisappear { viewModel.close() }
         .onChange(of: hasEntered) { _, _ in startResolveIfReady() }
-        // Nil-to-frame is the start signal; the Bool keeps this from firing per frame.
-        .onChange(of: viewModel.previewFrame == nil) { _, _ in startResolveIfReady() }
+        // Every delivered frame knocks; the guards inside decide which one starts the
+        // sweep (the first, for the entrance; the first past the swap, for a flip).
+        .onChange(of: viewModel.previewFrameID) { _, _ in startResolveIfReady() }
         .onChange(of: viewModel.sessionState) { _, newState in
             switch newState {
             case .failed:
@@ -178,7 +185,8 @@ struct CameraOverlayView: View {
     /// whichever arrives last is the one that starts it (`GifGridItem` shape).
     private func startResolveIfReady() {
         guard resolvePhase == .waiting, hasEntered, !hasCaptured,
-              viewModel.previewFrame != nil else { return }
+              viewModel.previewFrame != nil,
+              viewModel.previewFrameID > requiredFrameID else { return }
 
         let duration = motionStore.tuning.cameraRevealTime
         guard cameraReveal, !reduceMotion, duration > 0 else {
@@ -219,6 +227,40 @@ struct CameraOverlayView: View {
     /// How long the overlay spends dissolving over the live feed at the sweep's tail,
     /// capped at half the sweep so a short REVEAL TIME keeps a visible coarse phase.
     private static let handoffFade: Double = 0.45
+
+    /// The flip wrapped in a second pass of the resolve: the old feed pixelates coarse the
+    /// moment the tap re-arms, holds through the input swap, and sweeps to sharp on the
+    /// first frame the *new* camera delivers — the swap's raw cut hidden inside the same
+    /// treatment as the entrance. `requiredFrameID` is what keeps the sweep honest about
+    /// which camera it is revealing.
+    private func flipCamera() async {
+        let wantsResolve = cameraReveal && !reduceMotion
+            && motionStore.tuning.cameraRevealTime > 0
+            && viewModel.sessionState == .running && !hasCaptured
+        if wantsResolve {
+            requiredFrameID = .max
+            resolveVisible = true
+            resolvePhase = .waiting
+            viewModel.beginIntroFrames()
+        }
+
+        await viewModel.flip()
+
+        guard wantsResolve else { return }
+        guard viewModel.sessionState == .running else {
+            finishResolve()
+            return
+        }
+        requiredFrameID = viewModel.previewFrameID
+        startResolveIfReady()
+        // The flip's own no-frame fallback — the running-state timeout only arms on a
+        // state *change*, and a successful flip never leaves `.running`.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            guard resolvePhase == .waiting else { return }
+            withAnimation(.easeOut(duration: 0.2)) { resolveVisible = false }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { finishResolve() }
+        }
+    }
 
     // MARK: - Card
 
@@ -382,7 +424,7 @@ struct CameraOverlayView: View {
     private var flipButton: some View {
         Button {
             HapticService.selection()
-            Task { await viewModel.flip() }
+            Task { await flipCamera() }
         } label: {
             controlWell {
                 // `switch-camera-sharp` over the spec's `more-horizontal-sharp` — a glyph

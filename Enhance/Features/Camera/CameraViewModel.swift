@@ -32,6 +32,11 @@ final class CameraViewModel {
     /// rendered" signal — `sessionState == .running` only means the session started.
     private(set) var previewFrame: CGImage?
 
+    /// Monotonic count of delivered frames, never reset. The overlay compares against a
+    /// snapshot of it to wait for a frame that *postdates* a camera flip — frames arriving
+    /// mid-swap are the old camera's, and sweeping those would dissolve to the wrong feed.
+    private(set) var previewFrameID = 0
+
     private let service: any CameraServing
     private let authorizationStatus: () -> AVAuthorizationStatus
     private let requestAccess: () async -> Bool
@@ -51,6 +56,7 @@ final class CameraViewModel {
         }
         self.service.onPreviewFrame = { [weak self] frame in
             self?.previewFrame = frame
+            self?.previewFrameID += 1
         }
     }
 

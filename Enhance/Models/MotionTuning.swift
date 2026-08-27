@@ -304,8 +304,11 @@ struct MotionTuning: Codable, Equatable {
         cameraScaleFrom: 0.461,
         cameraCurve: MotionCurve(response: 0.385, dampingFraction: 0.595),
         cameraBottomPadding: 48,
-        cameraRevealCell: 40,
-        cameraRevealTime: 0.9
+        // Dialled in on device (user's call, 2026-08-27): bolder blocks and a quicker
+        // sweep than the 40 / 0.9 first proposed — the slider's whole ceiling, so the
+        // range may deserve to grow if the feel drifts chunkier.
+        cameraRevealCell: 80,
+        cameraRevealTime: 0.48
     )
 
     /// The plan's proposed starting point — what the ideas describe, before anyone has judged
