@@ -171,6 +171,20 @@ enum FeatureFlags {
     static let motionSharedZoomKey = "featureMotionSharedZoom"
     static var motionSharedZoom: Bool { UserDefaults.standard.bool(forKey: motionSharedZoomKey) }
 
+    // MARK: - Button label text effects
+
+    /// Animated, rotating text on the gallery's MAKE A GIF button.
+    ///
+    /// The label plays one of the photo text-effect entrances (`TextAnimationType`) and cycles
+    /// through a set of phrases; which preset, which phrases and what rhythm are
+    /// `ButtonLabelTuning`, edited live in BUTTON TEXT LAB. This flag only decides whether the
+    /// gallery button reads that tuning — off, the button renders the plain `Text` label exactly
+    /// as it always has, and the lab's preview keeps animating either way so the experiment can
+    /// be judged without turning it on for the whole app.
+    static let buttonTextEffectsKey = "featureButtonTextEffects"
+
+    static var buttonTextEffects: Bool { UserDefaults.standard.bool(forKey: buttonTextEffectsKey) }
+
     // MARK: - Camera
 
     /// An in-app camera for shooting the photo a GIF starts from, instead of picking one.

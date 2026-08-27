@@ -84,6 +84,10 @@ struct GalleryView: View {
 
     /// The in-app camera experiment. Scaffolding — see `FeatureFlags.cameraCapture`.
     @AppStorage(FeatureFlags.cameraCaptureKey) private var cameraCapture = false
+
+    /// The animated MAKE A GIF label experiment. Scaffolding — see
+    /// `FeatureFlags.buttonTextEffects`; BUTTON TEXT LAB owns the values.
+    @AppStorage(FeatureFlags.buttonTextEffectsKey) private var buttonTextEffects = false
     @State private var isCameraPresented = false
     @State private var cameraViewModel: CameraViewModel?
 
@@ -638,15 +642,25 @@ struct GalleryView: View {
             }
 
             PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                Text("MAKE A GIF")
-                    .font(.silkscreenButtonLabel)
-                    .gradientButtonLabel()
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 60)
-                    .background(
-                        ButtonGradientBackground()
-                            .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
-                    )
+                Group {
+                    if buttonTextEffects {
+                        // The rotating text-effect label. Whatever phrase is showing, the
+                        // button's *name* stays MAKE A GIF — VoiceOver and the UI tests address
+                        // what it does, not what it happens to be saying.
+                        AnimatedButtonLabel()
+                            .accessibilityLabel("MAKE A GIF")
+                    } else {
+                        Text("MAKE A GIF")
+                            .font(.silkscreenButtonLabel)
+                            .gradientButtonLabel()
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 60)
+                .background(
+                    ButtonGradientBackground()
+                        .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
+                )
             }
             .buttonStyle(EnhancePressButtonStyle())
         }

@@ -47,6 +47,13 @@ struct SettingsView: View {
     @State private var showMotionLab = false
     @State private var showHeadMaskLab = false
 
+    /// Read by `GalleryView` (the MAKE A GIF label) — `@AppStorage` on both ends republishes, so
+    /// toggling here swaps the label live under this sheet. `ButtonTextLabView` edits the values;
+    /// this only decides whether the button reads them.
+    @AppStorage(FeatureFlags.buttonTextEffectsKey) private var buttonTextEffects: Bool = false
+
+    @State private var showButtonTextLab = false
+
     /// Read by `GalleryView` (the camera button) — `@AppStorage` on both ends republishes, so
     /// toggling here repaints the bottom bar under this sheet with no plumbing between the two.
     @AppStorage(FeatureFlags.cameraCaptureKey) private var cameraCapture: Bool = false
@@ -99,6 +106,9 @@ struct SettingsView: View {
         .sheet(isPresented: $showHeadMaskLab) {
             HeadMaskLabView(isPresented: $showHeadMaskLab)
         }
+        .sheet(isPresented: $showButtonTextLab) {
+            ButtonTextLabView(isPresented: $showButtonTextLab)
+        }
     }
 
     // MARK: - Auto-Play
@@ -134,6 +144,7 @@ struct SettingsView: View {
             experimentRow("DITHERED BUTTON GRADIENT", isOn: $ditherGradient)
             experimentRow("STATIC BUTTON BORDER", isOn: $staticBorder)
             experimentRow("IN-APP CAMERA", isOn: $cameraCapture)
+            experimentRow("ANIMATED BUTTON TEXT", isOn: $buttonTextEffects)
         }
     }
 
@@ -185,6 +196,7 @@ struct SettingsView: View {
             labRow("FACE MARKER LAB →") { showFaceMarkerLab = true }
             labRow("MOTION LAB →") { showMotionLab = true }
             labRow("HEAD MASK LAB →") { showHeadMaskLab = true }
+            labRow("BUTTON TEXT LAB →") { showButtonTextLab = true }
         }
     }
 

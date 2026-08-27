@@ -77,8 +77,12 @@ enum TextTileCompositor {
     /// gap sweeping past; GRID gets both axes so the text becomes a texture. Both cover the frame
     /// plus a margin, since the block is drawn from its centre and a copy straddling the edge still
     /// has to appear.
-    private static func repeatOffsets(for overlay: TextOverlay, raster: RasterizedText,
-                                      outputSide: CGFloat) -> [(offset: CGPoint, row: CGFloat)] {
+    ///
+    /// Internal rather than private because `AnimatedButtonLabel` draws the same presets live on
+    /// the MAKE A GIF button — a second copy of this choreography is exactly the divergence the
+    /// one-transform rule above exists to prevent.
+    static func repeatOffsets(for overlay: TextOverlay, raster: RasterizedText,
+                              outputSide: CGFloat) -> [(offset: CGPoint, row: CGFloat)] {
         let animation = overlay.animation
         guard animation.tiling != .single else { return [(.zero, 0)] }
 
