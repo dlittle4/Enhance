@@ -22,6 +22,7 @@ struct EnhanceApp: App {
             FeatureFlags.motionSharedZoomKey: true,
             FeatureFlags.motionSaveRevealKey: true,
             FeatureFlags.cameraCaptureKey: true,
+            FeatureFlags.cameraRevealKey: true,
         ])
 
         FontRegistration.registerCustomFonts()

@@ -42,6 +42,10 @@ struct CameraOverlayView: View {
     /// other observer of this store; see `MotionTuning`.
     @ObservedObject private var motionStore = MotionTuningStore.shared
 
+    /// The pixel-resolve intro's own experiment flag, separate from the camera's: off, the
+    /// feed keeps its plain fade and the frame tap is never enabled.
+    @AppStorage(FeatureFlags.cameraRevealKey) private var cameraReveal = false
+
     /// The entrance, as explicit state rather than an insertion `.transition`. Every
     /// transition variant tried on this overlay's insertion refused to animate (frame
     /// captures showed single-frame pops through three attempts — subtree `.animation`
@@ -115,9 +119,10 @@ struct CameraOverlayView: View {
                 hasEntered = true
             }
             // Decided before the session starts so the tap can catch the very first frame.
-            // Reduce Motion and a zeroed REVEAL TIME never enable the tap at all — the feed
-            // keeps its plain fade and the real service's video path stays cold.
-            if reduceMotion || motionStore.tuning.cameraRevealTime <= 0 {
+            // The flag off, Reduce Motion, and a zeroed REVEAL TIME never enable the tap at
+            // all — the feed keeps its plain fade and the real service's video path stays
+            // cold.
+            if !cameraReveal || reduceMotion || motionStore.tuning.cameraRevealTime <= 0 {
                 resolvePhase = .done
             } else {
                 viewModel.beginIntroFrames()
@@ -173,7 +178,7 @@ struct CameraOverlayView: View {
               viewModel.previewFrame != nil else { return }
 
         let duration = motionStore.tuning.cameraRevealTime
-        guard !reduceMotion, duration > 0 else {
+        guard cameraReveal, !reduceMotion, duration > 0 else {
             finishResolve(fade: false)
             return
         }

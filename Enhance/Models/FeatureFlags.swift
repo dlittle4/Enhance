@@ -197,4 +197,16 @@ enum FeatureFlags {
     static let cameraCaptureKey = "featureCameraCapture"
 
     static var cameraCapture: Bool { UserDefaults.standard.bool(forKey: cameraCaptureKey) }
+
+    /// The camera feed's pixel-resolve intro: the viewfinder arrives coarsely pixelated and
+    /// sharpens to the live feed — the ENHANCE treatment as the feed's own loading state.
+    ///
+    /// Off, the feed keeps its plain opacity fade, and the frame tap that feeds the effect is
+    /// never enabled — the video-data pipeline stays cold, so the flag removes the cost along
+    /// with the look. The effect's two knobs (PIXEL SIZE, REVEAL TIME) live under this row in
+    /// settings and write `MotionTuning.cameraRevealCell` / `.cameraRevealTime` — the same
+    /// values MOTION LAB's camera section edits, one source of truth between the two.
+    static let cameraRevealKey = "featureCameraReveal"
+
+    static var cameraReveal: Bool { UserDefaults.standard.bool(forKey: cameraRevealKey) }
 }

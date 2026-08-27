@@ -58,6 +58,13 @@ struct SettingsView: View {
     /// toggling here repaints the bottom bar under this sheet with no plumbing between the two.
     @AppStorage(FeatureFlags.cameraCaptureKey) private var cameraCapture: Bool = false
 
+    /// The camera feed's pixel-resolve intro, read by `CameraOverlayView`. Its two sliders
+    /// below the row write `MotionTuningStore` — the same values MOTION LAB's camera section
+    /// edits, so the two surfaces cannot disagree.
+    @AppStorage(FeatureFlags.cameraRevealKey) private var cameraReveal: Bool = false
+
+    @ObservedObject private var motionStore = MotionTuningStore.shared
+
     private let mintGreen = Color.enhanceMint
     private let themes = ["PIXEL", "THEME 2", "THEME 3"]
     private let appIcons: [(name: String, preview: String, identifier: String?)] = [
@@ -144,8 +151,47 @@ struct SettingsView: View {
             experimentRow("DITHERED BUTTON GRADIENT", isOn: $ditherGradient)
             experimentRow("STATIC BUTTON BORDER", isOn: $staticBorder)
             experimentRow("IN-APP CAMERA", isOn: $cameraCapture)
+            experimentRow("CAMERA PIXEL REVEAL", isOn: $cameraReveal)
+            if cameraReveal {
+                cameraRevealControls
+            }
             experimentRow("ANIMATED BUTTON TEXT", isOn: $buttonTextEffects)
         }
+    }
+
+    /// The reveal's two knobs, shown only while its experiment is on — a slider for an effect
+    /// that will not play is a broken-looking control. Indented to the toggles' label edge so
+    /// they read as the row's children.
+    ///
+    /// REVEAL TIME has no zero here: the toggle above is this experiment's off switch, unlike
+    /// MOTION LAB's copy of the row, where a zeroed time is the lab's own way to disable the
+    /// sweep without leaving the bench.
+    private var cameraRevealControls: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ParameterSliderRow(
+                label: "PIXEL SIZE",
+                value: normalized($motionStore.tuning.cameraRevealCell, in: 4...80),
+                valueText: "\(Int(motionStore.tuning.cameraRevealCell))PT"
+            )
+            ParameterSliderRow(
+                label: "REVEAL TIME",
+                value: normalized($motionStore.tuning.cameraRevealTime, in: 0.2...3),
+                valueText: String(format: "%.2fS", motionStore.tuning.cameraRevealTime)
+            )
+        }
+        .padding(.leading, 34)
+        .padding(.top, 2)
+        .padding(.bottom, 10)
+    }
+
+    /// Maps a real range onto the 0…1 lattice `ParameterSliderRow` binds to — the same
+    /// bridge MOTION LAB uses, for the same rows.
+    private func normalized(_ source: Binding<Double>, in range: ClosedRange<Double>) -> Binding<Double> {
+        let span = range.upperBound - range.lowerBound
+        return Binding(
+            get: { (source.wrappedValue - range.lowerBound) / span },
+            set: { source.wrappedValue = range.lowerBound + max(0, min(1, $0)) * span }
+        )
     }
 
     // MARK: - View transitions
