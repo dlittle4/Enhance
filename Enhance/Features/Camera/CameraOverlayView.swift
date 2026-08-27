@@ -137,16 +137,19 @@ struct CameraOverlayView: View {
         .onChange(of: viewModel.sessionState) { _, newState in
             switch newState {
             case .failed:
-                // Immediately, not via the fade: the error text renders above the overlay,
-                // but a black square lingering under it reads as a hung feed.
-                finishResolve(fade: false)
+                // Immediately: the error text renders above the overlay, but a black
+                // square lingering under it reads as a hung feed.
+                finishResolve()
             case .running:
                 // The tap is optional hardware (`canAddOutput` may refuse it): if no frame
                 // arrives shortly after the session is live, degrade to exactly the plain
-                // fade this intro replaced.
+                // fade this intro replaced — a short fade, since the overlay here is black
+                // over an already-live feed.
                 guard resolvePhase == .waiting else { break }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                    if resolvePhase == .waiting { finishResolve(fade: true) }
+                    guard resolvePhase == .waiting else { return }
+                    withAnimation(.easeOut(duration: 0.2)) { resolveVisible = false }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { finishResolve() }
                 }
             default:
                 break
@@ -179,34 +182,43 @@ struct CameraOverlayView: View {
 
         let duration = motionStore.tuning.cameraRevealTime
         guard cameraReveal, !reduceMotion, duration > 0 else {
-            finishResolve(fade: false)
+            finishResolve()
             return
         }
 
         resolvePhase = .running
+        // The fade OVERLAPS the sweep's tail instead of following it. The preview layer
+        // tone-maps in real time and the tapped data-output frames do not — measured on
+        // device: a fade placed after the sweep ramped that brightness difference in
+        // plain view and the feed visibly dimmed at handoff. Dissolving the overlay while
+        // its blocks are still resolving hides the ramp inside the motion, and the moment
+        // the sweep lands there is nothing left on top — the "finished" state IS the live
+        // layer, so there is no seam left to flash.
+        let fade = min(Self.handoffFade, duration / 2)
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration - fade) {
+            guard resolvePhase == .running else { return }
+            withAnimation(.easeInOut(duration: fade)) { resolveVisible = false }
+        }
         // Ended by the clock rather than left to the timeline, so an interruption can never
         // strand a half-resolved overlay across the feed.
         DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-            finishResolve(fade: true)
+            finishResolve()
         }
     }
 
-    /// Every terminal path funnels here: the sweep's own clock, a session failure, and the
-    /// no-frame fallback timeout. The fade hides the seam between the tapped frames and the
-    /// live layer; failure paths skip it.
-    private func finishResolve(fade: Bool) {
+    /// Every terminal path funnels here: the sweep's own clock, a session failure, the
+    /// no-frame fallback timeout. Idempotent and instant — the sweep's own fade has already
+    /// run by the time its clock lands here.
+    private func finishResolve() {
         guard resolvePhase != .done else { return }
-        guard fade else {
-            resolvePhase = .done
-            viewModel.endIntroFrames()
-            return
-        }
-        withAnimation(.easeOut(duration: 0.12)) { resolveVisible = false }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
-            resolvePhase = .done
-            viewModel.endIntroFrames()
-        }
+        resolvePhase = .done
+        resolveVisible = false
+        viewModel.endIntroFrames()
     }
+
+    /// How long the overlay spends dissolving over the live feed at the sweep's tail,
+    /// capped at half the sweep so a short REVEAL TIME keeps a visible coarse phase.
+    private static let handoffFade: Double = 0.45
 
     // MARK: - Card
 

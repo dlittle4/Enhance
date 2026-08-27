@@ -455,10 +455,12 @@ private final class VideoFrameTap: NSObject, AVCaptureVideoDataOutputSampleBuffe
     private let clearQueue: DispatchQueue
     private let ciContext = CIContext(options: [.cacheIntermediates: false])
 
-    /// The frames feed a mosaic that only approaches full sharpness in its last beats, and
-    /// the handoff to the real preview layer is a cross-fade — a short side of 640 is
-    /// indistinguishable there and keeps each conversion trivial.
-    private static let maxShortSide: CGFloat = 640
+    /// The frames feed a mosaic for most of the sweep, but its sharp end is what the
+    /// closing cross-fade holds against the real preview layer — at 640 the overlay was
+    /// visibly softer than the feed and the handoff read as a focus pop. 1080 on the short
+    /// side is indistinguishable in a ~370pt card, and the conversions only run for the
+    /// intro's second.
+    private static let maxShortSide: CGFloat = 1080
 
     init(clearQueue: DispatchQueue) {
         self.clearQueue = clearQueue
@@ -490,7 +492,16 @@ private final class VideoFrameTap: NSObject, AVCaptureVideoDataOutputSampleBuffe
             let scale = Self.maxShortSide / shortSide
             image = image.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
         }
-        guard let frame = ciContext.createCGImage(image, from: image.extent) else { return }
+        // Rendered in the buffer's own color space, not the context's sRGB default. The
+        // session runs wide color (P3) on modern hardware, and an sRGB conversion left the
+        // overlay a step off the preview layer — the closing cross-fade showed it as a
+        // brief flash at handoff.
+        guard let frame = ciContext.createCGImage(
+            image,
+            from: image.extent,
+            format: .BGRA8,
+            colorSpace: image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)
+        ) else { return }
 
         awaitingMain = true
         DispatchQueue.main.async { [weak self] in
