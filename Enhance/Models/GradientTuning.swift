@@ -37,6 +37,26 @@ struct GradientTuning: Codable, Equatable {
     var poleMidA: RGBColor
     var poleMidB: RGBColor
 
+    // MARK: Camera pole colours
+
+    /// The same six poles again, for the camera buttons — the launcher beside MAKE A GIF and the
+    /// in-camera shutter. They exist so the camera CTA can wear a different colour than the
+    /// primary CTA *(user's call, 2026-08-26)*. Only the poles fork: texture, timing and the
+    /// border stay shared, so the two buttons read as siblings in different shirts rather than
+    /// as strangers.
+    var cameraPoleLightA: RGBColor
+    var cameraPoleDarkA: RGBColor
+    var cameraPoleLightB: RGBColor
+    var cameraPoleDarkB: RGBColor
+    var cameraPoleMidA: RGBColor
+    var cameraPoleMidB: RGBColor
+
+    /// Which pole set a gradient view reads. Everything defaults to `.primary`; the two camera
+    /// buttons are the only call sites that say otherwise.
+    enum ButtonRole {
+        case primary, camera
+    }
+
     // MARK: Density field
 
     /// Three stops that build the 3×3 `MeshGradient` the quantized styles read as their density
@@ -156,6 +176,14 @@ struct GradientTuning: Codable, Equatable {
         poleDarkB: RGBColor(r: 0.0, g: 0.7623, b: 0.4731),
         poleMidA: RGBColor(r: 0.122, g: 0.773, b: 0.580),
         poleMidB: RGBColor(r: 0.988, g: 0.388, b: 1.0),
+        // The primary poles again, verbatim: until the lab pulls them apart, the camera button
+        // is dressed identically and an untouched install cannot tell this fork ever happened.
+        cameraPoleLightA: RGBColor(r: 0.231, g: 1.0, b: 0.988),
+        cameraPoleDarkA: RGBColor(r: 0.0, g: 0.9367, b: 0.3347),
+        cameraPoleLightB: RGBColor(r: 0.157, g: 0.851, b: 0.714),
+        cameraPoleDarkB: RGBColor(r: 0.0, g: 0.7623, b: 0.4731),
+        cameraPoleMidA: RGBColor(r: 0.122, g: 0.773, b: 0.580),
+        cameraPoleMidB: RGBColor(r: 0.988, g: 0.388, b: 1.0),
         meshLight: RGBColor(r: 0.231, g: 1.0, b: 0.988),
         meshMid: RGBColor(r: 0.196, g: 0.659, b: 0.514),
         meshDark: RGBColor(r: 0.400, g: 0.220, b: 0.500),
@@ -207,20 +235,29 @@ struct GradientTuning: Codable, Equatable {
     ///
     /// A sine rather than a sawtooth so the turn at each end is smooth, and pure so the lab's
     /// preview, the buttons and the tests all agree on what a given instant looks like.
-    func poles(at time: TimeInterval) -> (light: Color, mid: Color, dark: Color) {
-        let rgb = polesRGB(at: time)
+    func poles(at time: TimeInterval, role: ButtonRole = .primary) -> (light: Color, mid: Color, dark: Color) {
+        let rgb = polesRGB(at: time, role: role)
         return (light: rgb.light.color, mid: rgb.mid.color, dark: rgb.dark.color)
     }
 
     /// The same lerp before the conversion to `Color`, whose components cannot be read back
     /// without a round trip through `UIColor`. The contrast maths wants the numbers.
-    func polesRGB(at time: TimeInterval) -> (light: RGBColor, mid: RGBColor, dark: RGBColor) {
+    func polesRGB(at time: TimeInterval, role: ButtonRole = .primary) -> (light: RGBColor, mid: RGBColor, dark: RGBColor) {
         let t = pulsePhase(at: time)
-        return (
-            light: poleLightA.lerp(to: poleLightB, t: t),
-            mid: poleMidA.lerp(to: poleMidB, t: t),
-            dark: poleDarkA.lerp(to: poleDarkB, t: t)
-        )
+        switch role {
+        case .primary:
+            return (
+                light: poleLightA.lerp(to: poleLightB, t: t),
+                mid: poleMidA.lerp(to: poleMidB, t: t),
+                dark: poleDarkA.lerp(to: poleDarkB, t: t)
+            )
+        case .camera:
+            return (
+                light: cameraPoleLightA.lerp(to: cameraPoleLightB, t: t),
+                mid: cameraPoleMidA.lerp(to: cameraPoleMidB, t: t),
+                dark: cameraPoleDarkA.lerp(to: cameraPoleDarkB, t: t)
+            )
+        }
     }
 
     private func pulsePhase(at time: TimeInterval) -> Double {
@@ -266,12 +303,12 @@ struct GradientTuning: Codable, Equatable {
     /// that runs from mint to deep violet has no single label colour that is right for both ends,
     /// so the label tracks it and flips when the ground crosses over. Callers crossfade that flip
     /// rather than cutting it; see `GradientButtonLabel`.
-    func labelColor(at time: TimeInterval) -> Color {
+    func labelColor(at time: TimeInterval, role: ButtonRole = .primary) -> Color {
         switch labelMode {
         case .black: return .black
         case .white: return .white
         case .auto:
-            let ground = self.ground(at: time)
+            let ground = self.ground(at: time, role: role)
             return Self.contrastRatio(of: .white, on: ground) >=
                    Self.contrastRatio(of: .black, on: ground) ? .white : .black
         }
@@ -282,8 +319,8 @@ struct GradientTuning: Codable, Equatable {
     /// A dither is roughly half one pole and half the other at any point, so their mean is a fair
     /// stand-in for what a glyph sits on. At two levels the mid poles are not rendered, so
     /// including them would drag the ground toward a colour that is not there.
-    func ground(at time: TimeInterval) -> RGBColor {
-        let poles = polesRGB(at: time)
+    func ground(at time: TimeInterval, role: ButtonRole = .primary) -> RGBColor {
+        let poles = polesRGB(at: time, role: role)
         var swatches = [poles.light, poles.dark]
         if levels >= 2.5 { swatches.append(poles.mid) }
 
@@ -298,8 +335,8 @@ struct GradientTuning: Codable, Equatable {
     /// The contrast ratio the label actually achieves at `time`. Surfaced in the lab so a duotone
     /// that has drifted into unreadable territory says so, rather than waiting to be noticed on a
     /// real button.
-    func labelContrast(at time: TimeInterval) -> Double {
-        Self.contrastRatio(of: labelColor(at: time), on: ground(at: time))
+    func labelContrast(at time: TimeInterval, role: ButtonRole = .primary) -> Double {
+        Self.contrastRatio(of: labelColor(at: time, role: role), on: ground(at: time, role: role))
     }
 
     /// The worst ratio the label hits anywhere in the pulse.
@@ -308,11 +345,11 @@ struct GradientTuning: Codable, Equatable {
     /// at one end of the cycle and turns to mud at the other is a look that fails, and an instant
     /// reading taken at the wrong moment would not say so. Sampled rather than solved — the
     /// crossover is a step function, so there is nothing to differentiate.
-    func worstLabelContrast(samples: Int = 24) -> Double {
-        guard pulseDuration > 0 else { return labelContrast(at: 0) }
+    func worstLabelContrast(samples: Int = 24, role: ButtonRole = .primary) -> Double {
+        guard pulseDuration > 0 else { return labelContrast(at: 0, role: role) }
         return (0..<samples)
-            .map { labelContrast(at: pulseDuration * Double($0) / Double(samples)) }
-            .min() ?? labelContrast(at: 0)
+            .map { labelContrast(at: pulseDuration * Double($0) / Double(samples), role: role) }
+            .min() ?? labelContrast(at: 0, role: role)
     }
 
     /// WCAG 2.1 contrast ratio, 1 (identical) to 21 (black on white).
@@ -348,6 +385,12 @@ struct GradientTuning: Codable, Equatable {
             poleDarkB: \(poleDarkB.swiftLiteral),
             poleMidA: \(poleMidA.swiftLiteral),
             poleMidB: \(poleMidB.swiftLiteral),
+            cameraPoleLightA: \(cameraPoleLightA.swiftLiteral),
+            cameraPoleDarkA: \(cameraPoleDarkA.swiftLiteral),
+            cameraPoleLightB: \(cameraPoleLightB.swiftLiteral),
+            cameraPoleDarkB: \(cameraPoleDarkB.swiftLiteral),
+            cameraPoleMidA: \(cameraPoleMidA.swiftLiteral),
+            cameraPoleMidB: \(cameraPoleMidB.swiftLiteral),
             meshLight: \(meshLight.swiftLiteral),
             meshMid: \(meshMid.swiftLiteral),
             meshDark: \(meshDark.swiftLiteral),
@@ -403,13 +446,31 @@ extension GradientTuning {
             ((try? container.decodeIfPresent(Double.self, forKey: key)) ?? nil) ?? or
         }
 
+        // Decoded ahead of the big call because the camera poles fall back to *these*, not to the
+        // stock defaults: a blob from before the camera fork was tuned with one set of poles, and
+        // the honest reading is that its camera button wore them too. Falling back to `fallback`
+        // instead would snap the camera button to stock greens while every other button kept the
+        // user's palette.
+        let poleLightA = color(.poleLightA, fallback.poleLightA)
+        let poleDarkA = color(.poleDarkA, fallback.poleDarkA)
+        let poleLightB = color(.poleLightB, fallback.poleLightB)
+        let poleDarkB = color(.poleDarkB, fallback.poleDarkB)
+        let poleMidA = color(.poleMidA, fallback.poleMidA)
+        let poleMidB = color(.poleMidB, fallback.poleMidB)
+
         self.init(
-            poleLightA: color(.poleLightA, fallback.poleLightA),
-            poleDarkA: color(.poleDarkA, fallback.poleDarkA),
-            poleLightB: color(.poleLightB, fallback.poleLightB),
-            poleDarkB: color(.poleDarkB, fallback.poleDarkB),
-            poleMidA: color(.poleMidA, fallback.poleMidA),
-            poleMidB: color(.poleMidB, fallback.poleMidB),
+            poleLightA: poleLightA,
+            poleDarkA: poleDarkA,
+            poleLightB: poleLightB,
+            poleDarkB: poleDarkB,
+            poleMidA: poleMidA,
+            poleMidB: poleMidB,
+            cameraPoleLightA: color(.cameraPoleLightA, poleLightA),
+            cameraPoleDarkA: color(.cameraPoleDarkA, poleDarkA),
+            cameraPoleLightB: color(.cameraPoleLightB, poleLightB),
+            cameraPoleDarkB: color(.cameraPoleDarkB, poleDarkB),
+            cameraPoleMidA: color(.cameraPoleMidA, poleMidA),
+            cameraPoleMidB: color(.cameraPoleMidB, poleMidB),
             meshLight: color(.meshLight, fallback.meshLight),
             meshMid: color(.meshMid, fallback.meshMid),
             meshDark: color(.meshDark, fallback.meshDark),

@@ -50,6 +50,17 @@ struct GradientLabView: View {
                         colorSection("POLES B", isThreeLevel
                             ? [("LIGHT", tuning.poleLightB), ("MID", tuning.poleMidB), ("DARK", tuning.poleDarkB)]
                             : [("LIGHT", tuning.poleLightB), ("DARK", tuning.poleDarkB)])
+
+                        // The camera buttons' own poles — the gallery launcher and the shutter.
+                        // Everything below these sections (density, border, sliders) stays shared.
+                        colorSection("CAMERA A", isThreeLevel
+                            ? [("LIGHT", tuning.cameraPoleLightA), ("MID", tuning.cameraPoleMidA), ("DARK", tuning.cameraPoleDarkA)]
+                            : [("LIGHT", tuning.cameraPoleLightA), ("DARK", tuning.cameraPoleDarkA)])
+                        colorSection("CAMERA B", isThreeLevel
+                            ? [("LIGHT", tuning.cameraPoleLightB), ("MID", tuning.cameraPoleMidB), ("DARK", tuning.cameraPoleDarkB)]
+                            : [("LIGHT", tuning.cameraPoleLightB), ("DARK", tuning.cameraPoleDarkB)])
+                        matchPrimaryButton
+
                         labelSection
                         colorSection("DENSITY FIELD", [
                             ("LIGHT", tuning.meshLight),
@@ -194,6 +205,31 @@ struct GradientLabView: View {
         .padding(.bottom, 16)
     }
 
+    // MARK: - Camera poles
+
+    /// One tap back to "same as the primary" — which is both the shipped default and the safe
+    /// state. Dragging six wells back into equality by eye is not something anyone can do.
+    private var matchPrimaryButton: some View {
+        Button {
+            HapticService.selection()
+            // One assignment, one persist, one repaint — not six of each.
+            var t = store.tuning
+            t.cameraPoleLightA = t.poleLightA
+            t.cameraPoleDarkA = t.poleDarkA
+            t.cameraPoleLightB = t.poleLightB
+            t.cameraPoleDarkB = t.poleDarkB
+            t.cameraPoleMidA = t.poleMidA
+            t.cameraPoleMidB = t.poleMidB
+            store.tuning = t
+        } label: {
+            Text("MATCH CAMERA TO POLES")
+                .font(.silkscreenSmall)
+                .foregroundColor(.textInactive)
+                .padding(.vertical, 2)
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: - Label
 
     private var labelSection: some View {
@@ -216,16 +252,24 @@ struct GradientLabView: View {
             //
             // Reports the *worst* moment in the pulse rather than this one. An instant reading
             // would sit comfortably in the green for most of a cycle that dips into mud at one
-            // end, which is precisely the failure worth being warned about.
+            // end, which is precisely the failure worth being warned about. Both roles get a
+            // number, and either failing turns the line red — the camera icon is a glyph on a
+            // ground like any other.
             Text(contrastReadout)
                 .font(.silkscreenSmall)
-                .foregroundColor(store.tuning.worstLabelContrast() >= 3 ? mintGreen : Color(hex: 0xFF6B6B))
+                .foregroundColor(
+                    min(store.tuning.worstLabelContrast(),
+                        store.tuning.worstLabelContrast(role: .camera)) >= 3
+                        ? mintGreen : Color(hex: 0xFF6B6B))
         }
     }
 
     private var contrastReadout: String {
         let mode = store.tuning.labelMode == .auto ? "AUTO" : store.tuning.labelMode.title
-        return String(format: "%@ · WORST CONTRAST %.1f:1", mode, store.tuning.worstLabelContrast())
+        return String(format: "%@ · WORST %.1f:1 · CAM %.1f:1",
+                      mode,
+                      store.tuning.worstLabelContrast(),
+                      store.tuning.worstLabelContrast(role: .camera))
     }
 
     // MARK: - Preview
@@ -238,6 +282,25 @@ struct GradientLabView: View {
             }
 
             HStack(spacing: 12) {
+                // The camera button's stand-in, left of the primary exactly as the gallery lays
+                // them out — the question this row answers is now "do these two sit well
+                // *together*", which needs them side by side.
+                TimelineView(.periodic(from: .now, by: 1.0 / 6.0)) { timeline in
+                    let color = store.tuning.labelColor(
+                        at: timeline.date.timeIntervalSinceReferenceDate, role: .camera)
+                    Image("icon-camera-sharp")
+                        .renderingMode(.template)
+                        .resizable()
+                        .frame(width: 24, height: 24)
+                        .foregroundColor(color)
+                        .animation(.easeInOut(duration: 0.35), value: color)
+                        .frame(width: 60, height: 60)
+                }
+                .background(
+                    SimpleGradientBackground(style: previewStyle, tuning: store.tuning, role: .camera)
+                )
+                .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
+
                 // Reads the tuning directly rather than through `gradientButtonLabel()`, which
                 // resolves against the *flags* — in here the preview chips decide. Same clock and
                 // crossfade as the real thing, so what you judge here is what ships.
@@ -257,13 +320,14 @@ struct GradientLabView: View {
 
                 // The ring gets its own swatch because it has its own flag, and because at a
                 // button's 4pt line width a dithered border is easy to misread as a plain one.
+                // Narrower than it was, to make room for the camera swatch.
                 SimpleGradientBorder(
                     cornerRadius: AppConstants.CornerRadius.card,
                     lineWidth: 6,
                     style: previewStyle,
                     tuning: store.tuning
                 )
-                .frame(width: 88, height: 60)
+                .frame(width: 60, height: 60)
             }
         }
     }

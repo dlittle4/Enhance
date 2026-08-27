@@ -663,10 +663,12 @@ struct GalleryView: View {
                 .renderingMode(.template)
                 .resizable()
                 .frame(width: 24, height: 24)
-                .gradientButtonLabel()
+                .gradientButtonLabel(role: .camera)
                 .frame(width: 60, height: 60)
                 .background(
-                    ButtonGradientBackground()
+                    // The camera role: GRADIENT LAB can dress this button apart from MAKE A GIF
+                    // beside it. Same texture, its own poles.
+                    ButtonGradientBackground(role: .camera)
                         .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous))
                 )
         }

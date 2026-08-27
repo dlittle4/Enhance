@@ -222,18 +222,18 @@ struct CameraOverlayView: View {
                 }
             }
         } label: {
-            // The camera's primary CTA wears what the other primary CTAs wear — the living
-            // gradient — inside a transparent Liquid Glass rim *(user's call, 2026-08-26,
-            // superseding the spec's flat mint)*.
+            // The living gradient inside a transparent Liquid Glass rim *(user's call,
+            // 2026-08-26, superseding the spec's flat mint)* — in the camera role, so it wears
+            // GRADIENT LAB's camera poles and matches the gallery button it grew out of.
             ZStack {
-                ButtonGradientBackground()
+                ButtonGradientBackground(role: .camera)
                     .clipShape(RoundedRectangle(cornerRadius: AppConstants.Spacing.grid, style: .continuous))
                     .frame(width: 55, height: 55)
                 Image("icon-camera-sharp")
                     .renderingMode(.template)
                     .resizable()
                     .frame(width: 24, height: 24)
-                    .gradientButtonLabel()
+                    .gradientButtonLabel(role: .camera)
             }
             .frame(width: 62, height: 62)
             .modifier(GlassSquare(cornerRadius: AppConstants.Spacing.grid + 3))
