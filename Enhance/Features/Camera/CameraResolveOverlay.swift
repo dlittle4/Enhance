@@ -49,14 +49,7 @@ struct CameraResolveOverlay: View {
             }
         }
         .onChange(of: running) { _, isRunning in
-            if isRunning {
-                if startDate == nil { startDate = Date() }
-            } else {
-                // Re-armed mid-sweep (a second flip in quick succession): back to the
-                // coarse hold, so the next pass starts from blocks rather than picking
-                // up this pass's spent clock.
-                startDate = nil
-            }
+            if isRunning, startDate == nil { startDate = Date() }
         }
         .allowsHitTesting(false)
     }

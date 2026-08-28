@@ -67,13 +67,6 @@ final class MockCameraService: CameraServing {
             : CameraZoomLadder.make(switchOverFactors: [], maxZoomFactor: 4)
         currentZoomIndex = CameraZoomLadder.defaultIndex(in: zoomOptions)
         updatePreview()
-        // One more frame after the caller resumes, mirroring real hardware, whose tap
-        // keeps delivering past the swap. The flip resolve snapshots the frame count
-        // *after* `flip()` returns and waits for a frame numbered past it — without this
-        // late delivery the mock's resolve would always ride the fallback timeout.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-            self?.deliverFrameIfEnabled()
-        }
     }
 
     func capturePhoto() async throws -> UIImage {

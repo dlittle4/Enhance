@@ -216,14 +216,10 @@ struct CameraViewModelTests {
 
         stub.deliverFrame(cannedFrame())
         #expect(vm.previewFrame != nil)
-        #expect(vm.previewFrameID == 1)
 
         vm.endIntroFrames()
         #expect(!stub.previewFramesEnabled)
         #expect(vm.previewFrame == nil)
-        // The counter is monotonic and survives teardown — the flip resolve compares
-        // snapshots of it across the swap, and a reset would break that ordering.
-        #expect(vm.previewFrameID == 1)
     }
 
     /// The intro must never outlive the feed it covers: every teardown disables the tap.
