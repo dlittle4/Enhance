@@ -65,6 +65,9 @@ struct CameraOverlayView: View {
     /// The overlay's closing fade, as explicit state for the same reason `hasEntered` is.
     @State private var resolveVisible = true
 
+    /// The flip's lens blur — up while the input swap happens beneath it.
+    @State private var flipBlurActive = false
+
     private var hasCaptured: Bool { viewModel.capturedImage != nil }
 
     /// Scale the card holds before the entrance runs — the MOTION LAB knob, inert under
@@ -221,6 +224,26 @@ struct CameraOverlayView: View {
     /// capped at half the sweep so a short REVEAL TIME keeps a visible coarse phase.
     private static let handoffFade: Double = 0.45
 
+    /// The flip wrapped in a lens blur, the system camera's own treatment: the feed frosts
+    /// over, the input swap's freeze and cut happen underneath, and the new camera fades in
+    /// already sharp. The holds are what make it read — the blur must *land* before the cut
+    /// (or the cut shows), and the new connection needs a beat to deliver frames after
+    /// `flip()` returns (or the unblur reveals the gap it exists to hide).
+    private func flipCamera() async {
+        guard !reduceMotion else {
+            await viewModel.flip()
+            return
+        }
+        flipBlurActive = true
+        try? await Task.sleep(for: .milliseconds(150))
+
+        await viewModel.flip()
+
+        // Unconditional, so a failed flip cannot strand a frosted card over its error text.
+        try? await Task.sleep(for: .milliseconds(200))
+        flipBlurActive = false
+    }
+
     // MARK: - Card
 
     private var viewfinderCard: some View {
@@ -247,6 +270,15 @@ struct CameraOverlayView: View {
                     )
                     .opacity(resolveVisible ? 1 : 0)
                 }
+
+                // The flip's lens blur, frosting the swap's raw cut. Permanently mounted
+                // (insertion transitions refuse to animate on this overlay — see
+                // `hasEntered`); UIKit animates the effect itself, see `LiveBlurView`.
+                LiveBlurView(
+                    blurred: flipBlurActive,
+                    duration: flipBlurActive ? 0.15 : 0.3
+                )
+                .allowsHitTesting(false)
 
                 if case .failed(let message) = viewModel.sessionState {
                     Text(message)
@@ -383,7 +415,7 @@ struct CameraOverlayView: View {
     private var flipButton: some View {
         Button {
             HapticService.selection()
-            Task { await viewModel.flip() }
+            Task { await flipCamera() }
         } label: {
             controlWell {
                 // `switch-camera-sharp` over the spec's `more-horizontal-sharp` — a glyph
@@ -483,5 +515,35 @@ private struct CameraCardLayout: ViewModifier {
 private extension View {
     func cameraCardLayout(bottomPadding: CGFloat) -> some View {
         modifier(CameraCardLayout(bottomPadding: bottomPadding))
+    }
+}
+
+/// UIKit's real-time backdrop blur, for frosting the live feed during a camera flip.
+///
+/// A `UIVisualEffectView` rather than any SwiftUI blur, and that is forced: SwiftUI's own
+/// effects cannot sample UIKit-backed content (the `PixelBuildOverlay` rule), but a visual
+/// effect view composites *in front of* the preview layer and blurs whatever it currently
+/// shows — the live feed, the swap's frozen last frame, the cut — with no frame tap needed.
+///
+/// Driven by animating the `effect` property inside `UIView.animate`, never by opacity:
+/// alpha-fading a visual effect view silently disables its blur and leaves only the tint —
+/// measured on the simulator as a flip with razor-sharp text under a "full" blur.
+private struct LiveBlurView: UIViewRepresentable {
+    /// Whether the frost is up. Changing it animates the effect over `duration`.
+    var blurred: Bool
+    var duration: Double
+
+    func makeUIView(context: Context) -> UIVisualEffectView {
+        UIVisualEffectView(effect: nil)
+    }
+
+    func updateUIView(_ view: UIVisualEffectView, context: Context) {
+        let wantsBlur = blurred
+        // SwiftUI re-runs updates for unrelated state; only animate a real change, or
+        // every repaint mid-ramp restarts the animation from wherever it is.
+        guard wantsBlur != (view.effect != nil) else { return }
+        UIView.animate(withDuration: duration) {
+            view.effect = wantsBlur ? UIBlurEffect(style: .dark) : nil
+        }
     }
 }
