@@ -17,3 +17,13 @@ https://developers.google.com/edge/mediapipe/solutions/vision/image_segmenter
 
 Bundled model SHA-256:
 `c6748b1253a99067ef71f7e26ca71096cd449baefa8f101900ea23016507e0e0`
+
+## SwiftUIShaders
+
+Copyright (c) 2026 Kris Puckett.
+
+`Enhance/Shaders/ShaderPack.metal` and `Enhance/Components/ShaderPackEffects.swift` are vendored
+from SwiftUIShaders and distributed under the MIT License:
+https://github.com/krispuckett/SwiftUIShaders/blob/main/LICENSE
+
+Vendored from commit `6b644a8bd4f3131401bd6765990e476352d3cdef`.
