@@ -46,6 +46,7 @@ struct SettingsView: View {
 
     @State private var showMotionLab = false
     @State private var showHeadMaskLab = false
+    @State private var showShaderLab = false
 
     /// Read by `GalleryView` (the MAKE A GIF label) — `@AppStorage` on both ends republishes, so
     /// toggling here swaps the label live under this sheet. `ButtonTextLabView` edits the values;
@@ -115,6 +116,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showButtonTextLab) {
             ButtonTextLabView(isPresented: $showButtonTextLab)
+        }
+        .sheet(isPresented: $showShaderLab) {
+            ShaderLabView(isPresented: $showShaderLab)
         }
     }
 
@@ -243,6 +247,7 @@ struct SettingsView: View {
             labRow("MOTION LAB →") { showMotionLab = true }
             labRow("HEAD MASK LAB →") { showHeadMaskLab = true }
             labRow("BUTTON TEXT LAB →") { showButtonTextLab = true }
+            labRow("SHADER LAB →") { showShaderLab = true }
         }
     }
 
