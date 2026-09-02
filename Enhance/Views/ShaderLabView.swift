@@ -369,6 +369,11 @@ struct ShaderLabView: View {
     }
 }
 
+/// The wrappers' default, matched so the bench shows what a pasted modifier will ship. A file
+/// global rather than a static on the modifier: `visualEffect`'s closure is `Sendable`, and a
+/// static on a main-actor view type cannot be read from one without a warning.
+private let labMaxSampleOffset = CGSize(width: 64, height: 64)
+
 /// Applies the selected shader generically, one `layerEffect` per frame.
 ///
 /// Routed through a `ViewModifier` for the reason `ShaderPackEffects.swift` documents on its
@@ -379,8 +384,6 @@ private struct LabShaderEffect: ViewModifier {
     let shader: ShaderLabShader
     let values: [Double]
 
-    private static let maxSampleOffset = CGSize(width: 64, height: 64)
-
     @ViewBuilder
     func body(content: Content) -> some View {
         if shader.animated {
@@ -390,7 +393,7 @@ private struct LabShaderEffect: ViewModifier {
                 content.visualEffect { view, proxy in
                     view.layerEffect(
                         shader.shader(size: proxy.size, time: t, values: values),
-                        maxSampleOffset: Self.maxSampleOffset
+                        maxSampleOffset: labMaxSampleOffset
                     )
                 }
             }
@@ -398,7 +401,7 @@ private struct LabShaderEffect: ViewModifier {
             content.visualEffect { view, proxy in
                 view.layerEffect(
                     shader.shader(size: proxy.size, time: 0, values: values),
-                    maxSampleOffset: Self.maxSampleOffset
+                    maxSampleOffset: labMaxSampleOffset
                 )
             }
         }
