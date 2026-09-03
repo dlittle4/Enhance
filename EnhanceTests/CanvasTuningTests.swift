@@ -43,14 +43,25 @@ struct CanvasTuningTests {
         #expect(tuning.burstFPS == CanvasTuning.default.burstFPS)
     }
 
-    @Test func filmstripCentresTheCurrentThumb() {
-        // Thumb 40, gap 2: index 0 sits with its centre at width/2.
+    @Test func filmstripCentresTheCurrentThumbLargestAndShrinksOutward() {
+        // The centred thumb is full size; each step away shrinks to a floor.
+        #expect(ScrubFilmstripView.scale(forDistance: 0) == 1)
+        #expect(ScrubFilmstripView.scale(forDistance: 1) < 1)
+        #expect(ScrubFilmstripView.scale(forDistance: -1) == ScrubFilmstripView.scale(forDistance: 1))
+        #expect(ScrubFilmstripView.scale(forDistance: 3) < ScrubFilmstripView.scale(forDistance: 2))
+        #expect(ScrubFilmstripView.scale(forDistance: 40) == ScrubFilmstripView.minimumScale)
+
+        // Index 3 of 9 sits at width/2; neighbours abut at their scaled widths, so the pitch
+        // shrinks with distance and the row is symmetric about the centre.
         let width: CGFloat = 300
-        let x0 = ScrubFilmstripView.contentOffset(forIndex: 0, thumb: 40, width: width)
-        #expect(abs((x0 + 20) - 150) < 1e-9)
-        // Each further index slides the strip one pitch (42pt) to the left.
-        let x5 = ScrubFilmstripView.contentOffset(forIndex: 5, thumb: 40, width: width)
-        #expect(abs((x0 - x5) - 5 * 42) < 1e-9)
+        let centres = ScrubFilmstripView.centres(count: 9, index: 3, thumb: 40, width: width)
+        #expect(centres.count == 9)
+        #expect(abs(centres[3] - 150) < 1e-9)
+        let step1 = centres[4] - centres[3]
+        let step2 = centres[5] - centres[4]
+        #expect(step1 > step2, "pitch tightens toward the edges")
+        #expect(abs((centres[3] - centres[2]) - step1) < 1e-9, "symmetric")
+        #expect(ScrubFilmstripView.centres(count: 0, index: 0, thumb: 40, width: width).isEmpty)
     }
 
     @Test func snippetNamesEveryKnob() {
