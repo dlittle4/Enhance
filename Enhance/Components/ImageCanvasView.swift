@@ -32,6 +32,14 @@ struct ImageCanvasView: View {
     var onTextGestureEnded: (() -> Void)? = nil
     var onRequestTextEditing: (() -> Void)? = nil
 
+    /// Whether a one-finger touch on the photo aims the lazers, and where they currently point.
+    /// Inert by default so every other call site is unchanged. While this is on, the photo pans
+    /// with **two** fingers — one finger is the aim — and pinch-to-zoom is untouched.
+    var isLaserAimInteractive: Bool = false
+    var laserAim: Binding<LaserAim?> = .constant(nil)
+    var onLaserAimBegan: (() -> Void)? = nil
+    var onLaserAimEnded: (() -> Void)? = nil
+
     /// Fired the first time — and every time — the user works the canvas by hand.
     ///
     /// Driven from the scroll view's `willBegin` delegate callbacks rather than from
@@ -68,6 +76,10 @@ struct ImageCanvasView: View {
                 onTextGestureBegan: onTextGestureBegan,
                 onTextGestureEnded: onTextGestureEnded,
                 onRequestTextEditing: onRequestTextEditing,
+                isLaserAimInteractive: isLaserAimInteractive,
+                laserAim: laserAim,
+                onLaserAimBegan: onLaserAimBegan,
+                onLaserAimEnded: onLaserAimEnded,
                 canvasSize: canvasSize
             )
 
@@ -97,6 +109,10 @@ private struct ScrollableCanvasView: UIViewRepresentable {
     var onTextGestureBegan: (() -> Void)?
     var onTextGestureEnded: (() -> Void)?
     var onRequestTextEditing: (() -> Void)?
+    var isLaserAimInteractive: Bool
+    var laserAim: Binding<LaserAim?>
+    var onLaserAimBegan: (() -> Void)?
+    var onLaserAimEnded: (() -> Void)?
     let canvasSize: CGFloat
 
     func makeCoordinator() -> Coordinator {
@@ -131,6 +147,19 @@ private struct ScrollableCanvasView: UIViewRepresentable {
         let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleDoubleTap(_:)))
         doubleTap.numberOfTapsRequired = 2
         scrollView.addGestureRecognizer(doubleTap)
+
+        // The aim: a long press with no minimum duration, which is UIKit's "track the finger
+        // from touch-down" recognizer — one recogniser covers both a tap and a drag, and it
+        // begins on contact rather than after a movement threshold, so the beams swing the
+        // instant the photo is touched. Disabled until LAZER EYES asks for it.
+        let aim = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleAim(_:)))
+        aim.minimumPressDuration = 0
+        aim.allowableMovement = .greatestFiniteMagnitude
+        aim.numberOfTouchesRequired = 1
+        aim.delegate = context.coordinator
+        aim.isEnabled = false
+        scrollView.addGestureRecognizer(aim)
+        context.coordinator.aimRecognizer = aim
 
         context.coordinator.canvasSize = canvasSize
 
@@ -168,6 +197,8 @@ private struct ScrollableCanvasView: UIViewRepresentable {
             textHost.isInteractive = isTextInteractive
             textHost.update(overlay: textOverlay.wrappedValue, canvasSide: canvasSize)
         }
+
+        coordinator.setLaserAimInteractive(isLaserAimInteractive, in: container)
     }
 
     private func configureContentSize(scrollView: UIScrollView, imageView: UIImageView) {
@@ -186,11 +217,16 @@ private struct ScrollableCanvasView: UIViewRepresentable {
 
     // MARK: - Coordinator
 
-    class Coordinator: NSObject, UIScrollViewDelegate {
+    class Coordinator: NSObject, UIScrollViewDelegate, UIGestureRecognizerDelegate {
         var parent: ScrollableCanvasView
         weak var imageView: UIImageView?
         weak var textHost: TextOverlayHostView?
+        weak var aimRecognizer: UILongPressGestureRecognizer?
         var canvasSize: CGFloat = 325
+
+        /// Set once a second finger joins an aim. From then on the touch is a pinch, and the
+        /// target must not chase the recogniser's (now averaged) location.
+        private var aimSurrenderedToPinch = false
 
         private var faceMarkerViews: [FaceMarkerView] = []
         private let spotlight = FaceSpotlightLayer()
@@ -309,6 +345,83 @@ private struct ScrollableCanvasView: UIViewRepresentable {
                 top: verticalInset, left: horizontalInset,
                 bottom: verticalInset, right: horizontalInset
             )
+        }
+
+        // MARK: Lazer aim
+
+        /// Turns the aim on or off, and moves the photo's pan to two fingers while it is on.
+        ///
+        /// The pan's touch count is the only scroll-view setting touched, and it is restored
+        /// the moment aiming ends, so every other category keeps the one-finger pan it has
+        /// always had. Pinch is a separate recogniser and is never changed.
+        func setLaserAimInteractive(_ interactive: Bool, in container: CanvasContainerView) {
+            guard let aimRecognizer, aimRecognizer.isEnabled != interactive else { return }
+            aimRecognizer.isEnabled = interactive
+            container.scrollView.panGestureRecognizer.minimumNumberOfTouches = interactive ? 2 : 1
+        }
+
+        @objc func handleAim(_ recognizer: UILongPressGestureRecognizer) {
+            guard let imageView else { return }
+
+            switch recognizer.state {
+            case .began:
+                // Nothing is published yet. Two fingers rarely land in the same frame, so a
+                // pinch arrives here as one finger first — publishing now would flick the
+                // target to wherever that finger was before the second one surrendered the
+                // gesture. The first single-finger move or the lift publishes instead, which
+                // a finger cannot tell apart from touch-down.
+                aimSurrenderedToPinch = false
+                parent.onInteraction?()
+                revealMarkers()
+                parent.onLaserAimBegan?()
+                HapticService.light()
+            case .changed:
+                guard !aimSurrenderedToPinch else { return }
+                if recognizer.numberOfTouches > 1 {
+                    aimSurrenderedToPinch = true
+                    return
+                }
+                publishAim(recognizer.location(in: imageView), in: imageView)
+            case .ended:
+                if !aimSurrenderedToPinch {
+                    publishAim(recognizer.location(in: imageView), in: imageView)
+                    // The "fire": heavier than the touch-down, so lifting off feels like a trigger.
+                    HapticService.medium()
+                }
+                parent.onLaserAimEnded?()
+            case .cancelled, .failed:
+                parent.onLaserAimEnded?()
+            default:
+                break
+            }
+        }
+
+        private func publishAim(_ location: CGPoint, in imageView: UIImageView) {
+            guard let aim = LaserAim.from(canvasPoint: location, in: imageView.bounds.size) else { return }
+            if parent.laserAim.wrappedValue != aim {
+                parent.laserAim.wrappedValue = aim
+            }
+        }
+
+        // MARK: UIGestureRecognizerDelegate
+
+        /// A touch that lands on a face marker is a face selection, not an aim. Refusing it here
+        /// — rather than ordering the recognisers — keeps the marker's own tap exactly as fast as
+        /// it is under every other filter.
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard gestureRecognizer === aimRecognizer else { return true }
+            var view = touch.view
+            while let current = view {
+                if current is FaceMarkerView { return false }
+                view = current.superview
+            }
+            return true
+        }
+
+        /// The aim runs alongside the pinch (so two fingers landing mid-aim still zoom) and the
+        /// double-tap (so double-tap-to-zoom survives; it also aims, which is harmless).
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            gestureRecognizer === aimRecognizer || other === aimRecognizer
         }
 
         // MARK: Double-tap
@@ -466,7 +579,7 @@ private struct ScrollableCanvasView: UIViewRepresentable {
 /// two-finger pinch with one finger on the text and one off it would otherwise split, and neither
 /// recognizer would ever see two touches.
 final class CanvasContainerView: UIView {
-    private let scrollView: UIScrollView
+    let scrollView: UIScrollView
     private let textHost: TextOverlayHostView
     private var router = TextTouchRouter()
 

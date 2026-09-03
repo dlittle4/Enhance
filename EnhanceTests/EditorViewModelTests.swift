@@ -914,7 +914,8 @@ struct EditorViewModelTests {
         vm.selectedEffectCategory = .faceFilters
         vm.selectedFaceFilter = .lazerEyes
         #expect(vm.editingTitle == "LAZER EYES")
-        #expect(vm.editingParameters.count == 3)
+        // COLOR, INTENSITY, SIZE, PULSE, PULSE SPEED.
+        #expect(vm.editingParameters.count == 5)
     }
 
     /// The zoom panel builds its rows directly rather than from a declared list, so

@@ -19,6 +19,9 @@ struct EditorSnapshot {
     let faceFilter: FaceFilterType?
     let selectedFaceIndex: Int?
     let laserColor: LaserColor
+    /// Where LAZER EYES points, or `nil` for the classic flare. Snapshotted so undo can put the
+    /// beams back where they were, and so RESET and cancel clear it with everything else.
+    let laserAim: LaserAim?
     let tintColor: LaserColor
     let gradientStops: GradientStops
     /// PIXELATE's cell shape. A typed field rather than an entry in `parameterValues`,
@@ -148,6 +151,10 @@ class EditorViewModel {
     var selectedFaceIndex: Int? = nil
     var selectedFaceFilter: FaceFilterType? = nil
     var laserColor: LaserColor = .red
+    /// Where LAZER EYES points. Set by a touch on the canvas while that filter is active; `nil`
+    /// is the classic horizontal flare. Deliberately *not* cleared when another filter is
+    /// chosen — coming back to LAZER EYES should find the beams where they were left.
+    var laserAim: LaserAim? = nil
     var isDetectingFaces: Bool = false
     private let faceDetectionService = FaceDetectionService()
 
@@ -401,6 +408,74 @@ class EditorViewModel {
         }
     }
 
+    // MARK: - Lazer aim
+
+    /// Whether a touch on the canvas aims the lazers. True only while the LAZER EYES card is
+    /// selected under FACE FILTERS with at least one face to fire from — with no face there is
+    /// nothing for the target to do, and the photo should keep its ordinary one-finger pan.
+    var wantsLaserAim: Bool {
+        selectedEffectCategory == .faceFilters
+            && selectedFaceFilter == .lazerEyes
+            && !activeFaces.isEmpty
+    }
+
+    /// True between a finger landing on the canvas to aim and lifting off. Mirrors
+    /// `isTextGestureActive`: history is disabled for the duration and one undo entry covers the
+    /// whole drag, however many preview updates it produced.
+    private(set) var isLaserAimActive = false
+    private var laserAimEntrySnapshot: EditorSnapshot?
+
+    func beginLaserAim() {
+        guard !isLaserAimActive else { return }
+        isLaserAimActive = true
+        laserAimEntrySnapshot = currentSnapshot()
+        noteLaserAimed()
+    }
+
+    /// Moves the target under the finger. The preview follows live, debounced the way sliders
+    /// are, so a drag reads as the beams swinging rather than a series of stills.
+    func updateLaserAim(_ aim: LaserAim) {
+        guard aim != laserAim else { return }
+        laserAim = aim
+        updateCombinedPreview(debounce: true)
+    }
+
+    /// Closes the session. One undo entry if the target moved, one regeneration, and nothing at
+    /// all for a touch that landed and lifted on the point already targeted.
+    func endLaserAim() {
+        guard isLaserAimActive else { return }
+        isLaserAimActive = false
+        defer { laserAimEntrySnapshot = nil }
+
+        if let entry = laserAimEntrySnapshot, entry.laserAim != laserAim {
+            push(entry)
+            updateCombinedPreview()
+            regenerateIfNeeded()
+        }
+    }
+
+    /// Latches once the user has aimed — same discipline as `hasUsedCanvas`. Navigation state,
+    /// not snapshotted, so undoing the aim does not bring the hint back.
+    private(set) var hasAimedLasers = false
+
+    func noteLaserAimed() {
+        guard !hasAimedLasers else { return }
+        hasAimedLasers = true
+    }
+
+    /// Tells the user the photo is now a target. Shown while aiming is possible and nothing has
+    /// been aimed yet; silent while the panel owns the screen, and retired for good after the
+    /// first touch.
+    static let laserHintMessage = "TAP THE PHOTO TO AIM"
+
+    var showsLaserHint: Bool {
+        guard wantsLaserAim else { return false }
+        guard laserAim == nil, !hasAimedLasers else { return false }
+        guard !isEditingEffect else { return false }
+        guard showControls else { return false }
+        return true
+    }
+
     func undo() {
         guard let snapshot = undoStack.popLast() else { return }
         redoStack.append(currentSnapshot())
@@ -490,6 +565,7 @@ class EditorViewModel {
             faceFilter: selectedFaceFilter,
             selectedFaceIndex: selectedFaceIndex,
             laserColor: laserColor,
+            laserAim: laserAim,
             tintColor: tintColor,
             gradientStops: gradientStopsOverride ?? gradientStops,
             pixelShape: pixelShape,
@@ -508,6 +584,7 @@ class EditorViewModel {
         selectedFaceFilter = snapshot.faceFilter
         selectedFaceIndex = snapshot.selectedFaceIndex
         laserColor = snapshot.laserColor
+        laserAim = snapshot.laserAim
         tintColor = snapshot.tintColor
         pixelShape = snapshot.pixelShape
         gradientStops = snapshot.gradientStops
@@ -570,7 +647,10 @@ class EditorViewModel {
         let built = filter.effect(
             intensity: value(EffectParameter.intensityID, for: filter),
             secondValue: value(EffectParameter.secondaryID, for: filter),
-            laserColor: laserColor
+            laserColor: laserColor,
+            laserAim: laserAim,
+            tertiary: value(EffectParameter.tertiaryID, for: filter),
+            quaternary: value(EffectParameter.quaternaryID, for: filter)
         )
 
         // BIG HEAD enlarges the head's real outline, so it needs segmentation — and like ECHO,
@@ -745,6 +825,7 @@ class EditorViewModel {
         selectedFaceFilter = nil
         selectedFaceIndex = nil
         laserColor = .red
+        laserAim = nil
         tintColor = .red
         pixelShape = .square
         gradientStops = .default

@@ -1037,3 +1037,67 @@ reason why.
 
 `editingTitle`'s `"NO ZOOM"` fallback is kept as a defensive default even though no path now opens
 the panel with a nil animator.
+
+## Aimable LAZER EYES (2026-09-02)
+
+*(User's pick from a brainstorm of canvas interactions: "aim the lasers — drag from the face to
+anywhere and the beams fire there. Tap a spot and it scorches.")*
+
+The first face filter the photo itself answers to. With LAZER EYES selected and a face detected,
+a one-finger touch on the canvas sets a target: the beams leave each pupil for it, and a scorch
+mark blooms where they land. Drag and the beams swing live; lift and the GIF regenerates.
+
+- [x] **`LaserAim`** (`Models/LaserAim.swift`) — the target, normalized with a **bottom-left
+      origin** so one value lands on the 650px preview, the pre-shrunk GIF source and the full
+      original without a `scaled` step. `from(canvasPoint:in:)` does the UIKit→CI y-flip once,
+      as a pure function with tests.
+- [x] **`LazerEyesEffect(aim:)`** — `nil` is byte-for-byte the shipped flare (thumbnails, old
+      GIFs and the existing tests all see it). With an aim, the two flare layers become beams:
+      the same squashed radial gradient, rotated along the eye→target line and centred on the
+      travelled segment. Beams *travel* from 0.3→0.6 progress and the scorch blooms 0.6→0.8, so a
+      GIF reads charge → fire → burn. The scorch is a source-over char disc under an additive
+      ember ring and hot pit; the batch override draws it **once** for all faces, so two people
+      aiming at one spot do not burn it twice as dark.
+- [x] **Canvas gesture** (`ImageCanvasView`) — a zero-duration `UILongPressGestureRecognizer`,
+      UIKit's track-from-touch-down recogniser, so one recogniser covers tap and drag and begins
+      on contact. Armed only while `wantsLaserAim` (FACE FILTERS + LAZER EYES + a face). While
+      armed the scroll view's pan needs **two fingers**; pinch is untouched and runs alongside the
+      aim (a second finger landing mid-aim surrenders to the pinch). Touches on a `FaceMarkerView`
+      are refused, so face selection keeps its own tap.
+- [x] **Editor session** — `beginLaserAim` / `updateLaserAim` / `endLaserAim` mirror the text
+      gesture: one entry snapshot per drag, one undo entry only if the target moved, one
+      regeneration on lift, history disabled for the duration. `laserAim` is in `EditorSnapshot`
+      and cleared by RESET; it is deliberately *not* cleared by choosing another filter.
+- [x] **Hint** — "TAP THE PHOTO TO AIM" in the toast slot while aiming is possible and untried,
+      retired on first touch (`hasAimedLasers`, navigation state, not snapshotted).
+- [x] Verified on the SE 3: tap and drag on the live canvas, the panel's ✓ regenerating the GIF
+      with beams, undo returning to the classic flare, and extracted GIF frames showing the beams
+      short at ~0.35 progress and full by 0.6.
+
+**Known limits, recorded rather than solved:** on the existing-GIF path the live canvas only shows
+while the panel is open, so aiming there means opening LAZER EYES first. Double-tap-to-zoom also
+aims (harmless, and it keeps the zoom). Googly-eyes-follow-finger, floated in the same brainstorm,
+is not built.
+
+### PULSE and PULSE SPEED (same day)
+
+*(User's ask: "settings to make the beams pulse like they're shooting out of the eyes.")*
+
+- [x] **`Shaders/CI/LaserPulse.ci.metal`** — a `CIColorKernel` that modulates a light layer with
+      rings expanding from the pupil. Rings rather than stripes so one kernel serves the aimed
+      beam and the classic two-way flare alike. Runs on the *layer*, never the photo.
+- [x] Applied to both flare layers **and the wide bloom**; core and inner glow stay steady so it
+      reads as energy leaving the eye. The bloom is load-bearing: profiled on a 200px face it
+      carries most of the light within ~40px of the pupil and the flare is nearly gone beyond, so
+      a flare-only pulse measured a 10-point swing (the existing flicker) and was invisible.
+- [x] LAZER EYES declares PULSE (`tertiaryID`) and PULSE SPEED (`quaternaryID`) — five rows with
+      COLOR, so the panel scrolls (accepted, ROADMAP §1a). `FaceFilterType.effect` grew
+      `tertiary:`/`quaternary:` defaulting to *no* pulse, so thumbnails and every prior call are
+      unchanged; the editor reads the rows' 0.5 defaults.
+- [x] Phase follows `frameIndex`, not `progress`, so speed is a rate in the finished GIF. Crests
+      overshoot by up to 60% and sharpen with depth, so the top of the slider is packets of light
+      rather than a taller sine.
+
+**Known limit:** pause frames are one render replicated (`addPauseFrames`, for file size), so the
+pulses travel during the animation and hold still through the pause — the same way the eyes'
+flicker always has. Rendering the hold per frame would fix it at a real cost in GIF size.

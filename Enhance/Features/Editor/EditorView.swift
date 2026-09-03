@@ -426,7 +426,9 @@ struct EditorView: View {
                 // Disabled while the panel is open: it owns history there via its own
                 // back/confirm. A global undo could otherwise restore state *older* than
                 // the panel's entry snapshot, after which back would restore forward.
-                let historyEnabled = !viewModel.isEditingEffect && !viewModel.isTextGestureActive
+                let historyEnabled = !viewModel.isEditingEffect
+                    && !viewModel.isTextGestureActive
+                    && !viewModel.isLaserAimActive
 
                 if viewModel.hasNonDefaultSettings {
                     Button {
@@ -601,6 +603,10 @@ struct EditorView: View {
                     viewModel.noteTextInteraction()
                     openTextEntry()
                 },
+                isLaserAimInteractive: viewModel.wantsLaserAim,
+                laserAim: $viewModel.laserAim,
+                onLaserAimBegan: { viewModel.beginLaserAim() },
+                onLaserAimEnded: { viewModel.endLaserAim() },
                 onInteraction: { viewModel.noteCanvasInteraction() },
                 onInteractionEnded: { viewModel.commitZoomCardFraming() },
                 canvasSize: canvasSize
@@ -1631,11 +1637,17 @@ struct EditorView: View {
                 // existing overlay — but the ordering keeps the invariant obvious.
                 toastLabel(EditorViewModel.textHintMessage)
                     .transition(.opacity)
+            } else if viewModel.showsLaserHint {
+                // Same one slot. Cannot coincide with the text hint (different category) and
+                // ranks below the zoom hint, which is the one with a consequence.
+                toastLabel(EditorViewModel.laserHintMessage)
+                    .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showSaveMessage)
         .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showsZoomHint)
         .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showsTextHint)
+        .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showsLaserHint)
         .frame(maxHeight: .infinity, alignment: .bottom)
         .padding(.bottom, AppConstants.Spacing.grid)
     }

@@ -51,6 +51,12 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         if let secondary = secondaryLabel {
             params.append(EffectParameter(id: EffectParameter.secondaryID, label: secondary))
         }
+        if self == .lazerEyes {
+            // Energy travelling out of the eyes. Two rows, which puts LAZER EYES at five with
+            // COLOR — the panel scrolls, and that is accepted (ROADMAP §1a, 2026-08-12).
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "PULSE"))
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "PULSE SPEED"))
+        }
         return params
     }
 
@@ -95,11 +101,20 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         }
     }
 
-    func effect(intensity: Double = 0.5, secondValue: Double = 0.5, laserColor: LaserColor = .red) -> FaceEffect {
+    /// - Parameter laserAim: where LAZER EYES points. Only that filter reads it; `nil` keeps the
+    ///   classic edge-to-edge flare, which is also what every thumbnail shows.
+    /// - Parameters:
+    ///   - tertiary: the third slider slot (`EffectParameter.tertiaryID`) — LAZER EYES' PULSE.
+    ///   - quaternary: the fourth (`quaternaryID`) — LAZER EYES' PULSE SPEED. Both default to
+    ///     the "no pulse" end here so thumbnails and every existing call see a steady beam; the
+    ///     editor reads the declared row defaults instead.
+    func effect(intensity: Double = 0.5, secondValue: Double = 0.5, laserColor: LaserColor = .red, laserAim: LaserAim? = nil,
+                tertiary: Double = 0, quaternary: Double = 0.5) -> FaceEffect {
         let clamped = max(0, min(1, intensity))
         let clampedSecond = max(0, min(1, secondValue))
         switch self {
-        case .lazerEyes:  return LazerEyesEffect(intensity: clamped, size: clampedSecond, laserColor: laserColor)
+        case .lazerEyes:  return LazerEyesEffect(intensity: clamped, size: clampedSecond, laserColor: laserColor, aim: laserAim,
+                                                 pulse: max(0, min(1, tertiary)), pulseSpeed: max(0, min(1, quaternary)))
         case .googlyEyes: return GooglyEyesEffect(size: clamped, speed: clampedSecond)
         case .squeeze:    return SqueezeEffect(intensity: clamped)
         case .handsome:   return HandsomeEffect(intensity: clamped)
