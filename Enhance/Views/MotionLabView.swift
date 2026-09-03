@@ -155,7 +155,7 @@ struct MotionLabView: View {
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 6)
                 .background(isOn.wrappedValue ? Color.enhanceMint : Color.surfaceControl)
-                .clipShape(Capsule())
+                .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.pill, style: .continuous))
         }
         .buttonStyle(.plain)
     }

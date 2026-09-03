@@ -126,12 +126,12 @@ struct HeadMaskLabView: View {
     private var preview: some View {
         GeometryReader { proxy in
             ZStack {
-                RoundedRectangle(cornerRadius: 16).fill(Color.surfaceControl)
+                RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card).fill(Color.surfaceControl)
                 if let overlay {
                     Image(uiImage: overlay)
                         .resizable()
                         .scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                        .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.large))
                         .padding(6)
                 } else if isPreparing {
                     ProgressView().tint(.enhanceMint)
@@ -150,7 +150,7 @@ struct HeadMaskLabView: View {
                                 .foregroundColor(.surfacePrimary)
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 5)
-                                .background(Capsule().fill(Color.enhanceMint))
+                                .background(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.pill, style: .continuous).fill(Color.enhanceMint))
                             Spacer()
                         }
                         Spacer()
@@ -168,7 +168,7 @@ struct HeadMaskLabView: View {
                             .minimumScaleFactor(0.65)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 4)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(Color.black.opacity(0.72)))
+                            .background(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.small).fill(Color.black.opacity(0.72)))
                     }
                     .padding(10)
                     .allowsHitTesting(false)
@@ -193,7 +193,7 @@ struct HeadMaskLabView: View {
                     } label: {
                         thumbnail(for: url)
                             .overlay(
-                                RoundedRectangle(cornerRadius: 8)
+                                RoundedRectangle(cornerRadius: AppConstants.CornerRadius.standard)
                                     .stroke(selectedFixture == url ? Color.enhanceMint : .clear,
                                             lineWidth: 2)
                             )
@@ -214,7 +214,7 @@ struct HeadMaskLabView: View {
             }
         }
         .frame(width: 56, height: 56)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.standard))
     }
 
     /// Tiny, loaded once — the strip must not decode 11 full photos to draw.
@@ -235,7 +235,7 @@ struct HeadMaskLabView: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 38)
                         .background(
-                            RoundedRectangle(cornerRadius: 12)
+                            RoundedRectangle(cornerRadius: AppConstants.CornerRadius.large)
                                 .fill(mode == m ? Color.enhanceMint : Color.surfaceControl)
                         )
                 }
@@ -305,7 +305,7 @@ struct HeadMaskLabView: View {
                             )
                             .frame(maxWidth: .infinity)
                             .frame(height: 34)
-                            .background(RoundedRectangle(cornerRadius: 10).fill(
+                            .background(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.medium).fill(
                                 semanticSettings.mode == mode
                                     ? Color.enhanceMint : Color.surfaceControl
                             ))
@@ -329,7 +329,7 @@ struct HeadMaskLabView: View {
                     .foregroundColor(manualHeadMode ? .surfacePrimary : .textPrimary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 36)
-                    .background(RoundedRectangle(cornerRadius: 10).fill(
+                    .background(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.medium).fill(
                         manualHeadMode ? Color.enhanceMint : Color.surfaceControl
                     ))
             }
@@ -410,7 +410,7 @@ struct HeadMaskLabView: View {
                         .foregroundColor(.surfacePrimary)
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(Color.enhanceMint))
+                        .background(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.large).fill(Color.enhanceMint))
                 }
             }
             Button {
@@ -426,7 +426,7 @@ struct HeadMaskLabView: View {
                     .foregroundColor(.textPrimary)
                     .frame(maxWidth: .infinity)
                     .frame(height: 44)
-                    .background(RoundedRectangle(cornerRadius: 12).fill(Color.surfaceControl))
+                    .background(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.large).fill(Color.surfaceControl))
             }
         }
     }

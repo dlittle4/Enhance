@@ -6,7 +6,7 @@ import SwiftUI
 ///
 /// ```swift
 /// .background(
-///     RoundedRectangle(cornerRadius: 16, style: .continuous)
+///     RoundedRectangle(cornerRadius: AppConstants.CornerRadius.card, style: .continuous)
 ///         .fill(Color(hex: 0x202020).opacity(0.8))
 /// )
 /// ```

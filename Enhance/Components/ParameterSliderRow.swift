@@ -156,7 +156,7 @@ struct ParameterSliderRow: View {
     /// The hit area is 40 × 44 around the 40 × 24 capsule — the knob is under Apple's minimum
     /// target vertically, and this is the only way to drag.
     private func knob(travel: CGFloat) -> some View {
-        Capsule(style: .continuous)
+        RoundedRectangle(cornerRadius: AppConstants.CornerRadius.pill, style: .continuous)
             .fill(isOverdriven ? Color.overdrive : Color.enhanceMint)
             .frame(width: knobWidth, height: knobHeight)
             .overlay(knobLabel)

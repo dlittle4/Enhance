@@ -1836,7 +1836,7 @@ struct EditorView: View {
             .padding(.horizontal, AppConstants.Spacing.grid)
             .padding(.vertical, AppConstants.Spacing.small)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: AppConstants.CornerRadius.standard, style: .continuous)
                     .fill(Color.black)
             )
     }

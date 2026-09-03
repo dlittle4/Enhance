@@ -32,7 +32,7 @@ struct AppButton: View {
                 .background(
                     noBackground ? AnyView(Color.clear) :
                         useGradientBackground ? 
-                            AnyView(ButtonGradientBackground(cornerRadius: 100)) :
+                            AnyView(ButtonGradientBackground(cornerRadius: AppConstants.CornerRadius.circle)) :
                             AnyView(Color.mintDim)
                 )
                 .clipShape(RoundedRectangle(cornerRadius: noBackground ? 0 : 100, style: .continuous))

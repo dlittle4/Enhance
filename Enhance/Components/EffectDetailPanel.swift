@@ -129,7 +129,7 @@ struct EffectDetailPanel<Rows: View>: View {
         .padding(.horizontal, AppConstants.Spacing.grid)
         .padding(.top, AppConstants.Spacing.grid)
         .background(
-            RoundedRectangle(cornerRadius: AppConstants.Spacing.standard, style: .continuous)
+            RoundedRectangle(cornerRadius: AppConstants.CornerRadius.resolve(AppConstants.Spacing.standard), style: .continuous)
                 .fill(Color.surfaceCard)
         )
     }

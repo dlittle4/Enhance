@@ -25,31 +25,49 @@ enum AppConstants {
     
     /// Standard corner radius values
     enum CornerRadius {
+        /// Every radius passes through here, which is what lets SQUARE CORNERS
+        /// (`FeatureFlags.squareCorners`) flatten the whole app from one place.
+        static func resolve(_ radius: CGFloat) -> CGFloat {
+            FeatureFlags.squareCorners ? 0 : radius
+        }
+
+        /// The smallest steps: hairline frames and the filmstrip's thumbs (2, 4, 6pt).
+        static var tiny: CGFloat { resolve(2) }
+        static var chip: CGFloat { resolve(4) }
+        static var small: CGFloat { resolve(6) }
+
         /// Standard corner radius (8pt)
-        static let standard: CGFloat = 8
+        static var standard: CGFloat { resolve(8) }
+
+        /// Between standard and large (10pt).
+        static var medium: CGFloat { resolve(10) }
 
         /// Large corner radius (12pt)
-        static let large: CGFloat = 12
+        static var large: CGFloat { resolve(12) }
 
         /// Circle radius for buttons (100pt)
-        static let circle: CGFloat = 100
+        static var circle: CGFloat { resolve(100) }
+
+        /// A pill: any radius past half the height clamps to a capsule, and 0 is a box. Used
+        /// where `RoundedRectangle(cornerRadius: AppConstants.CornerRadius.pill, style: .continuous)` was, so the flag can square it.
+        static var pill: CGFloat { resolve(100) }
 
         /// Controls — segmented toggles, cards, pills (16pt).
         ///
         /// Exported by the design as `Radius/Control`. Kept as `card` in code because 21 call
         /// sites already use that name and the value is unchanged; the alias below carries the
         /// design's name for anyone reading across.
-        static let card: CGFloat = 16
+        static var card: CGFloat { resolve(16) }
 
         /// The design's name for the same 16pt step.
-        static let control: CGFloat = card
+        static var control: CGFloat { card }
 
         /// The editor canvas's outer frame (28pt) and the photo inside it (24pt).
         ///
         /// New in the 2026-08-12 design. The 4pt difference is what makes the mint border read as
         /// a frame around the photo rather than a stroke on it — matching them collapses that.
-        static let canvasOuter: CGFloat = 28
-        static let canvasInner: CGFloat = 24
+        static var canvasOuter: CGFloat { resolve(28) }
+        static var canvasInner: CGFloat { resolve(24) }
     }
     
     /// Animation durations

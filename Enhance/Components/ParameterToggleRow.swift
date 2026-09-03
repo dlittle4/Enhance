@@ -49,7 +49,7 @@ struct ParameterToggleRow: View {
         .frame(maxWidth: .infinity)
         .frame(height: cardHeight)
         .background(
-            RoundedRectangle(cornerRadius: AppConstants.Spacing.grid, style: .continuous)
+            RoundedRectangle(cornerRadius: AppConstants.CornerRadius.resolve(AppConstants.Spacing.grid), style: .continuous)
                 .fill(Color.surfaceControl)
         )
         .onChange(of: isOn) { _, _ in onCommit() }

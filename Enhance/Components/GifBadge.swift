@@ -9,7 +9,7 @@ struct GifBadge: View {
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
             .background(
-                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                RoundedRectangle(cornerRadius: AppConstants.CornerRadius.chip, style: .continuous)
                     .fill(Color.mintDim.opacity(0.8))
             )
             .padding(6)

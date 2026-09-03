@@ -318,7 +318,7 @@ struct CameraOverlayView: View {
         }
         // Figma: the viewfinder's radius is the `spacing/large` token (32), a size up
         // from the editor canvas.
-        .clipShape(RoundedRectangle(cornerRadius: AppConstants.Spacing.large, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.resolve(AppConstants.Spacing.large), style: .continuous))
     }
 
     // MARK: - Controls
@@ -430,7 +430,7 @@ struct CameraOverlayView: View {
             // GRADIENT LAB's camera poles and matches the gallery button it grew out of.
             ZStack {
                 ButtonGradientBackground(role: .camera)
-                    .clipShape(RoundedRectangle(cornerRadius: AppConstants.Spacing.grid, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.resolve(AppConstants.Spacing.grid), style: .continuous))
                     .frame(width: 55, height: 55)
                 Image("icon-camera-sharp")
                     .renderingMode(.template)
@@ -439,13 +439,13 @@ struct CameraOverlayView: View {
                     .gradientButtonLabel(role: .camera)
             }
             .frame(width: 62, height: 62)
-            .modifier(GlassSquare(cornerRadius: AppConstants.Spacing.grid + 3))
+            .modifier(GlassSquare(cornerRadius: AppConstants.CornerRadius.resolve(AppConstants.Spacing.grid + 3)))
             .overlay {
                 // The recording cue: a red ring while frames are being kept, and the count of
                 // frames so far riding above the shutter — the number climbing is what says
                 // "this is recording" in a way a static ring did not (device pass, 2026-09-03).
                 if viewModel.isBursting {
-                    RoundedRectangle(cornerRadius: AppConstants.Spacing.grid + 3, style: .continuous)
+                    RoundedRectangle(cornerRadius: AppConstants.CornerRadius.resolve(AppConstants.Spacing.grid + 3), style: .continuous)
                         .stroke(Color.overdrive, lineWidth: 3)
                         .transition(.opacity)
                 }
@@ -463,7 +463,7 @@ struct CameraOverlayView: View {
                     }
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(Capsule().fill(Color.black.opacity(0.7)))
+                    .background(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.pill, style: .continuous).fill(Color.black.opacity(0.7)))
                     .offset(y: -30)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
                     .allowsHitTesting(false)
@@ -519,7 +519,7 @@ struct CameraOverlayView: View {
             content()
         }
         .frame(width: 40, height: 40)
-        .modifier(GlassSquare(cornerRadius: AppConstants.Spacing.grid))
+        .modifier(GlassSquare(cornerRadius: AppConstants.CornerRadius.resolve(AppConstants.Spacing.grid)))
     }
 
     // MARK: - Permission denied

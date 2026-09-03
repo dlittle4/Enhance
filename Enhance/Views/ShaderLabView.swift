@@ -199,7 +199,7 @@ struct ShaderLabView: View {
             .padding(.horizontal, 10)
             .frame(height: 36)
             .background(isSelected ? mintGreen : Color.surfaceControl)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.standard, style: .continuous))
             .contentShape(Rectangle())
             .onTapGesture {
                 HapticService.selection()

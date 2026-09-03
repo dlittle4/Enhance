@@ -487,7 +487,7 @@ struct AnimatedGifView_Previews: PreviewProvider {
             )
             .frame(width: 300, height: 300)
             .background(Color.gray.opacity(0.2))
-            .cornerRadius(8)
+            .cornerRadius(AppConstants.CornerRadius.standard)
 
             Text("Note: Actual GIFs will only display in simulator or device")
                 .font(.caption)

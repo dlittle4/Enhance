@@ -68,7 +68,7 @@ struct EffectCategoryTabs: View {
                     // Fill only — the 1pt mint outline is gone *(user's call, 2026-08-15)*.
                     // It also retires the stroke/fill arrival mismatch the scaled capsule
                     // used to have, since there is now one shape to grow rather than two.
-                    Capsule()
+                    RoundedRectangle(cornerRadius: AppConstants.CornerRadius.pill, style: .continuous)
                         .fill(isActive ? Color.mintDim : Color.clear)
                         // Grows in rather than fading in at full size. At the default
                         // `scaleFrom` of 1 this is inert, which is today's behaviour.

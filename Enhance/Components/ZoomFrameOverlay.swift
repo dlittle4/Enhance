@@ -36,9 +36,9 @@ struct ZoomFrameOverlay: View {
                 .overlay(dimOverlay)
                 .overlay(focusRectBorder)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.small, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+            RoundedRectangle(cornerRadius: AppConstants.CornerRadius.small, style: .continuous)
                 .stroke(Color.white.opacity(0.3), lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.5), radius: 4, x: 0, y: 2)
@@ -74,7 +74,7 @@ struct ZoomFrameOverlay: View {
                 height: visibleRect.height * geo.size.height
             )
             
-            RoundedRectangle(cornerRadius: 2, style: .continuous)
+            RoundedRectangle(cornerRadius: AppConstants.CornerRadius.tiny, style: .continuous)
                 .stroke(Color.white, lineWidth: 1.5)
                 .frame(width: rect.width, height: rect.height)
                 .position(x: rect.midX, y: rect.midY)

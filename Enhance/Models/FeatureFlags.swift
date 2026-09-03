@@ -257,4 +257,15 @@ enum FeatureFlags {
     static let burstCaptureKey = "featureBurstCapture"
 
     static var burstCapture: Bool { UserDefaults.standard.bool(forKey: burstCaptureKey) }
+
+    // MARK: - Look
+
+    /// Every corner radius in the app collapses to 0 *(user's ask, 2026-09-03)*. Read by
+    /// `AppConstants.CornerRadius`, which every rounded shape goes through — so this is one
+    /// switch rather than a hunt through the views. Circles stay circles; capsules become
+    /// rectangles. Read at body time, so a screen already on the stack repaints on its next
+    /// evaluation rather than the instant the toggle flips.
+    static let squareCornersKey = "featureSquareCorners"
+
+    static var squareCorners: Bool { UserDefaults.standard.bool(forKey: squareCornersKey) }
 }

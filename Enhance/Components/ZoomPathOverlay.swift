@@ -88,7 +88,7 @@ struct ZoomPathOverlay: View {
                 .foregroundColor(tint)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.black.opacity(0.7)))
+                .background(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.small, style: .continuous).fill(Color.black.opacity(0.7)))
         }
         .buttonStyle(.plain)
         .padding(AppConstants.Spacing.small)

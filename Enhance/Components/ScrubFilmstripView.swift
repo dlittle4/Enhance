@@ -26,7 +26,7 @@ final class ScrubFilmstripView: UIView {
         isUserInteractionEnabled = false
         alpha = 0
         backgroundColor = UIColor.black.withAlphaComponent(0.55)
-        layer.cornerRadius = 8
+        layer.cornerRadius = AppConstants.CornerRadius.standard
         layer.cornerCurve = .continuous
         clipsToBounds = true
 
@@ -54,7 +54,7 @@ final class ScrubFilmstripView: UIView {
             let view = UIImageView(image: image)
             view.contentMode = .scaleAspectFill
             view.clipsToBounds = true
-            view.layer.cornerRadius = 3
+            view.layer.cornerRadius = AppConstants.CornerRadius.chip
             strip.addSubview(view)
             return view
         }
@@ -101,7 +101,7 @@ final class ScrubFilmstripView: UIView {
         let bx = bounds.width / 2 - thumbSide / 2 - 2
         bracket.path = UIBezierPath(
             roundedRect: CGRect(x: bx, y: y - 2, width: thumbSide + 4, height: thumbSide + 4),
-            cornerRadius: 4
+            cornerRadius: AppConstants.CornerRadius.chip
         ).cgPath
         layoutStrip()
     }
