@@ -160,15 +160,15 @@ struct CanvasTuning: Codable, Equatable {
 
     // MARK: - Scrub arithmetic
 
-    /// Which frame a drag lands on. Pure so the wrap and the direction are testable without a
-    /// touch: a drag to the right advances, and past either end it wraps rather than pinning,
-    /// so a long drag keeps the loop under the finger.
+    /// Which frame a drag lands on. Pure so the direction and the ends are testable without a
+    /// touch: a drag to the right advances, and past either end it **stops** rather than
+    /// wrapping *(user's call, 2026-09-03)* — the GIF is a strip with two ends, and seeing it
+    /// again means dragging back.
     static func scrubbedFrame(from start: Int, dragX: CGFloat, span: Double, frameCount: Int) -> Int {
         guard frameCount > 0 else { return 0 }
         let perFrame = max(1, span) / Double(frameCount)
         let delta = Int((Double(dragX) / perFrame).rounded())
-        let raw = (start + delta) % frameCount
-        return raw < 0 ? raw + frameCount : raw
+        return min(frameCount - 1, max(0, start + delta))
     }
 
     // MARK: - Snippet

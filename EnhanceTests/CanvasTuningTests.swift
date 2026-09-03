@@ -92,16 +92,17 @@ struct CanvasTuningTests {
         #expect(CanvasTuning.scrubbedFrame(from: 5, dragX: -20, span: 300, frameCount: 30) == 3)
     }
 
-    @Test func scrubWrapsAtBothEnds() {
-        #expect(CanvasTuning.scrubbedFrame(from: 28, dragX: 50, span: 300, frameCount: 30) == 3)
-        #expect(CanvasTuning.scrubbedFrame(from: 2, dragX: -50, span: 300, frameCount: 30) == 27)
-        // A whole loop lands back where it started.
-        #expect(CanvasTuning.scrubbedFrame(from: 7, dragX: 300, span: 300, frameCount: 30) == 7)
+    @Test func scrubStopsAtBothEnds() {
+        #expect(CanvasTuning.scrubbedFrame(from: 28, dragX: 50, span: 300, frameCount: 30) == 29)
+        #expect(CanvasTuning.scrubbedFrame(from: 2, dragX: -50, span: 300, frameCount: 30) == 0)
+        // A whole span from the middle pins at the last frame rather than coming round.
+        #expect(CanvasTuning.scrubbedFrame(from: 7, dragX: 300, span: 300, frameCount: 30) == 29)
     }
 
     @Test func scrubToleratesEmptyAndDegenerate() {
         #expect(CanvasTuning.scrubbedFrame(from: 0, dragX: 100, span: 300, frameCount: 0) == 0)
-        #expect(CanvasTuning.scrubbedFrame(from: 0, dragX: 100, span: 0, frameCount: 10) == 0)
+        // A zero span is treated as one point per loop: any drag pins at an end.
+        #expect(CanvasTuning.scrubbedFrame(from: 0, dragX: 100, span: 0, frameCount: 10) == 9)
     }
 
     // MARK: - Overdrive

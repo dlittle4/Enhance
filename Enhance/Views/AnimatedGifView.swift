@@ -424,16 +424,25 @@ struct AnimatedGifView: UIViewRepresentable {
                 let target = CanvasTuning.scrubbedFrame(
                     from: scrubStartIndex, dragX: x - scrubStartX, span: scrubSpan, frameCount: frames.count
                 )
+                // At an end the drag re-anchors there, so a finger that overshoots and comes
+                // back moves the strip at once instead of first winding back the overshoot.
+                let atEnd = target == 0 || target == frames.count - 1
+                if atEnd {
+                    scrubStartIndex = target
+                    scrubStartX = x
+                }
                 guard target != frameIndex else { return }
+                let hitEnd = atEnd && !(frameIndex == 0 || frameIndex == frames.count - 1)
                 frameIndex = target
                 imageView?.image = frames[target]
                 filmstrip?.show(index: target, animated: true)
                 // Ticks keyed to frames crossed, not to gesture updates, so the detents follow
-                // the GIF's own rhythm rather than the touch sample rate. Distance is measured
-                // the short way round the loop so a wrap does not fire a burst.
-                let crossed = abs(target - lastTickIndex)
-                let wrapped = min(crossed, frames.count - crossed)
-                if wrapped >= scrubTickEvery {
+                // the GIF's own rhythm rather than the touch sample rate. Arriving at either
+                // end is a firmer stop than a detent.
+                if hitEnd {
+                    HapticService.medium()
+                    lastTickIndex = target
+                } else if abs(target - lastTickIndex) >= scrubTickEvery {
                     HapticService.selection()
                     lastTickIndex = target
                 }
