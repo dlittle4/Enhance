@@ -194,10 +194,21 @@ polished (ROADMAP's standing rule: three effects were declined on look, none on 
 5. **Burst persistence** is still a recorded limit: none of this survives a save-and-reopen.
    That is a separate piece of work and should come before these effects are relied on.
 
-## 6 — Open questions
+## 6 — Decisions and open questions
 
-- Should FRAME ECHO ever show on a still? It could fake echoes by offsetting the single mask
-  along a chosen direction — a poor cousin. Leaning **no**: burst-only keeps the card honest.
+**Decided *(user's call, 2026-09-03)*:**
+
+- **The motion cards do not appear on a still.** They need frames over time, and faking that
+  from one frame is a poor cousin. The gate is "is there a multi-frame source", not "was the
+  camera used": a **Live Photo** (3s of frames the picker already has access to) or a **video
+  clip** would qualify the moment either becomes a source, with no change to the effects —
+  which is why `MotionContext` is built from `BurstFrame`s and never asks where they came
+  from. Live Photo as a burst source is the obvious next intake after this plan.
+- **Burst persistence stays a recorded limit for now.** None of this survives save-and-reopen;
+  a reopened GIF is a still and shows no motion cards. Recorded in HISTORY under BURST CAPTURE.
+
+**Still open:**
+
 - Tinted echoes (the ECHO card's outline colours) or natural? Offer both; default natural.
 - SPEED LINES as blur trail or as drawn lines? Build TRAIL first since it is nearly free, and
   decide whether LINES is still wanted after seeing it.
