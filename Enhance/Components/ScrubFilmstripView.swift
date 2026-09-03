@@ -16,11 +16,12 @@ final class ScrubFilmstripView: UIView {
     /// Gap between thumbs at full size; scales with the thumbs.
     static let gap: CGFloat = 3
     /// How much smaller each step from the centre gets, and the floor.
-    static let falloffPerStep: CGFloat = 0.11
-    static let minimumScale: CGFloat = 0.5
+    /// Subtle on purpose *(user's call, 2026-09-03: the first cut was too dramatic)*.
+    static let falloffPerStep: CGFloat = 0.05
+    static let minimumScale: CGFloat = 0.72
     /// Tilt of the side thumbs, in radians per step, capped — the "3D" is a hint, not a carousel.
-    static let tiltPerStep: CGFloat = 0.14
-    static let maximumTilt: CGFloat = 0.6
+    static let tiltPerStep: CGFloat = 0.06
+    static let maximumTilt: CGFloat = 0.3
     /// How far the strip rises on entrance, in points.
     static let entranceRise: CGFloat = 18
 
@@ -182,7 +183,7 @@ final class ScrubFilmstripView: UIView {
             thumb.layer.transform = steps == 0
                 ? CATransform3DIdentity
                 : CATransform3DMakeRotation(steps > 0 ? -tilt : tilt, 0, 1, 0)
-            thumb.alpha = steps == 0 ? 1 : max(0.35, 1 - CGFloat(abs(steps)) * 0.08)
+            thumb.alpha = steps == 0 ? 1 : max(0.45, 1 - CGFloat(abs(steps)) * 0.05)
             thumb.layer.zPosition = steps == 0 ? 1 : -CGFloat(abs(steps))
         }
         let ringRect = CGRect(
