@@ -209,4 +209,30 @@ enum FeatureFlags {
     static let cameraRevealKey = "featureCameraReveal"
 
     static var cameraReveal: Bool { UserDefaults.standard.bool(forKey: cameraRevealKey) }
+
+    // MARK: - Touch experiments
+    //
+    // Interactions where the photo or the preview answers to a finger directly. Tuned in CANVAS
+    // LAB (`CanvasTuning`); each of these is its own switch so one can be lived with alone.
+
+    /// A one-finger touch on the canvas aims LAZER EYES (see `LaserAim`). Registered on in
+    /// `EnhanceApp.init` because it shipped before it was gated; off restores the classic flare
+    /// and the one-finger pan under that filter.
+    static let laserAimKey = "featureLaserAim"
+
+    static var laserAim: Bool { UserDefaults.standard.bool(forKey: laserAimKey) }
+
+    /// Drag across a finished GIF to scrub it; hold to freeze; lift to resume. Read by
+    /// `GIFPreviewView`, which hands the preview a display-link player instead of
+    /// `UIImageView`'s own animation so it can be paused on a frame.
+    static let scrubPreviewKey = "featureScrubPreview"
+
+    static var scrubPreview: Bool { UserDefaults.standard.bool(forKey: scrubPreviewKey) }
+
+    /// Effect sliders keep going past their last dot, up to `CanvasTuning.overdriveMax`. The knob
+    /// turns red and its readout glitches; effects receive the raw value and clamp — or not — on
+    /// their own terms. See `EffectParameter.clampSlider`.
+    static let sliderOverdriveKey = "featureSliderOverdrive"
+
+    static var sliderOverdrive: Bool { UserDefaults.standard.bool(forKey: sliderOverdriveKey) }
 }

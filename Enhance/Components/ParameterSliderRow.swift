@@ -30,6 +30,18 @@ struct ParameterSliderRow: View {
     /// should show it.
     var valueText: String? = nil
 
+    /// SLIDER OVERDRIVE: how far past 1 the knob may be driven. 1 (the default) is the ordinary
+    /// row. Above it, the lattice keeps going past the last dot at the same spacing; the knob
+    /// pins to the track's end, turns `Color.overdrive`, and its readout counts on past 20 while
+    /// glitching. Haptics step up from selection ticks to impacts, heavy at the ceiling.
+    var overdriveMax: Double = 1
+    /// Multiplier on the drag past the track's end — see `CanvasTuning.overdriveGain`.
+    var overdriveGain: Double = 4
+    /// Probability per 90ms that the overdriven readout scrambles a character.
+    var glitchRate: Double = 0.5
+
+    private var isOverdriven: Bool { value > 1.0001 }
+
     /// Owned here rather than by the parent: each row has its own drag, so a shared
     /// flag across rows was never the right shape.
     @State private var didPushUndo = false
@@ -79,6 +91,7 @@ struct ParameterSliderRow: View {
             // the finger at the extremes.
             let travel = max(1, geo.size.width - dotSize)
             let progress = max(0, min(1, value))
+            let overdriven = isOverdriven
             let midY = geo.size.height / 2
             let filledSteps = Int((progress * Double(steps)).rounded())
 
@@ -96,7 +109,9 @@ struct ParameterSliderRow: View {
                 // accent; those ahead of it stay inactive.
                 ForEach(0...steps, id: \.self) { step in
                     Circle()
-                        .fill(step <= filledSteps ? Color.enhanceMint : Color.textInactive)
+                        .fill(step <= filledSteps
+                              ? (overdriven ? Color.overdrive : Color.enhanceMint)
+                              : Color.textInactive)
                         .frame(width: dotSize, height: dotSize)
                         .position(
                             x: dotSize / 2 + (CGFloat(step) / CGFloat(steps)) * travel,
@@ -142,15 +157,9 @@ struct ParameterSliderRow: View {
     /// target vertically, and this is the only way to drag.
     private func knob(travel: CGFloat) -> some View {
         Capsule(style: .continuous)
-            .fill(Color.enhanceMint)
+            .fill(isOverdriven ? Color.overdrive : Color.enhanceMint)
             .frame(width: knobWidth, height: knobHeight)
-            .overlay(
-                Text(valueText ?? "\(EffectParameter.displayValue(value))")
-                    .font(.silkscreenSmall)
-                    .foregroundColor(.textOnGradient)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-            )
+            .overlay(knobLabel)
             // 44pt tall for the touch target; the capsule is already 40 wide, so the hit area
             // only needs to match it horizontally rather than pad it into its neighbours.
             .frame(width: knobWidth, height: 44)
@@ -165,14 +174,19 @@ struct ParameterSliderRow: View {
                             lastHapticStep = Self.step(of: value, steps: steps)
                         }
                         // Map back out of knob-centre space before quantising.
-                        let raw = (drag.location.x - dotSize / 2) / travel
-                        let snapped = Self.quantise(raw, allowingZero: allowsZero)
+                        let raw = Self.overdriven((drag.location.x - dotSize / 2) / travel, gain: overdriveGain)
+                        let snapped = Self.quantise(raw, allowingZero: allowsZero, ceiling: overdriveMax)
 
                         // One tick per dot crossed, so the track feels like detents under the
-                        // thumb rather than a continuous slide.
-                        let step = Self.step(of: snapped, steps: steps)
+                        // thumb rather than a continuous slide. Past the end the detents get
+                        // heavier: an impact per step, and a heavy one at the ceiling.
+                        let step = Self.step(of: snapped, steps: steps, ceiling: overdriveMax)
                         if step != lastHapticStep {
-                            HapticService.selection()
+                            if snapped > 1.0001 {
+                                if snapped >= overdriveMax - 0.001 { HapticService.heavy() } else { HapticService.medium() }
+                            } else {
+                                HapticService.selection()
+                            }
                             lastHapticStep = step
                         }
 
@@ -186,9 +200,58 @@ struct ParameterSliderRow: View {
             )
     }
 
-    /// Which dot a 0…1 value sits on. Used to decide when a drag has crossed a detent.
-    static func step(of value: Double, steps: Int) -> Int {
-        Int((max(0, min(1, value)) * Double(steps)).rounded())
+    /// The raw track position with the overdrive zone's gain applied: unchanged up to 1, and
+    /// climbing `gain` times faster past it, so the ceiling is reachable before the screen ends.
+    static func overdriven(_ raw: Double, gain: Double) -> Double {
+        raw <= 1 ? raw : 1 + (raw - 1) * max(1, gain)
+    }
+
+    /// Which dot a value sits on. Used to decide when a drag has crossed a detent. `ceiling`
+    /// lets the count continue past the last drawn dot under overdrive.
+    static func step(of value: Double, steps: Int, ceiling: Double = 1) -> Int {
+        Int((max(0, min(ceiling, value)) * Double(steps)).rounded())
+    }
+
+    /// The knob's readout. Ordinarily the lattice integer (or `valueText`); overdriven, the
+    /// integer keeps counting past 20 and, at `glitchRate`, scrambles a character on each 90ms
+    /// tick — the number is still legible between glitches, which is what makes it read as a
+    /// readout under strain rather than noise.
+    @ViewBuilder
+    private var knobLabel: some View {
+        if isOverdriven {
+            TimelineView(.periodic(from: .now, by: 0.09)) { timeline in
+                Text(Self.glitched(
+                    "\(Int((max(0, value) * Double(steps)).rounded()))",
+                    rate: glitchRate,
+                    seed: UInt64(timeline.date.timeIntervalSinceReferenceDate * 1000)
+                ))
+                .font(.silkscreenSmall)
+                .foregroundColor(.textOnGradient)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            }
+        } else {
+            Text(valueText ?? "\(EffectParameter.displayValue(value))")
+                .font(.silkscreenSmall)
+                .foregroundColor(.textOnGradient)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+        }
+    }
+
+    /// Replaces one character with a glyph from the glitch set, with probability `rate`. Seeded
+    /// rather than random so a given tick renders the same in every pass of the body.
+    static func glitched(_ text: String, rate: Double, seed: UInt64) -> String {
+        guard !text.isEmpty, rate > 0 else { return text }
+        var x = seed &* 6364136223846793005 &+ 1442695040888963407
+        x ^= x >> 29; x ^= x << 17; x ^= x >> 13
+        let roll = Double(x % 10_000) / 10_000
+        guard roll < rate else { return text }
+        let glyphs = Array("#%&@!?/=+*")
+        var chars = Array(text)
+        let index = Int((x >> 20) % UInt64(chars.count))
+        chars[index] = glyphs[Int((x >> 40) % UInt64(glyphs.count))]
+        return String(chars)
     }
 
     /// Names the track's coordinate space so the knob's drag reports positions in it rather
@@ -205,9 +268,10 @@ struct ParameterSliderRow: View {
     /// `allowingZero` opts out, for rows whose zero is meaningful rather than degenerate
     /// — a 0s pause is a real setting, an effect at zero strength is just "off". The two
     /// floors are deliberate opposites, not an inconsistency.
-    static func quantise(_ raw: Double, allowingZero: Bool = false) -> Double {
+    static func quantise(_ raw: Double, allowingZero: Bool = false, ceiling: Double = 1) -> Double {
         let steps = Double(EffectParameter.sliderSteps)
-        let snapped = (max(0, min(1, raw)) * steps).rounded() / steps
+        let top = max(1, ceiling)
+        let snapped = (max(0, min(top, raw)) * steps).rounded() / steps
         return max(allowingZero ? 0 : 1 / steps, snapped)
     }
 }

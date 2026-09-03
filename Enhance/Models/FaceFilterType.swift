@@ -136,11 +136,11 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
     ///     editor reads the declared row defaults instead.
     func effect(intensity: Double = 0.5, secondValue: Double = 0.5, laserColor: LaserColor = .red, laserAim: LaserAim? = nil,
                 tertiary: Double = 0, quaternary: Double = 0.5) -> FaceEffect {
-        let clamped = max(0, min(1, intensity))
-        let clampedSecond = max(0, min(1, secondValue))
+        let clamped = EffectParameter.clampSlider(intensity)
+        let clampedSecond = EffectParameter.clampSlider(secondValue)
         switch self {
         case .lazerEyes:  return LazerEyesEffect(intensity: clamped, size: clampedSecond, laserColor: laserColor, aim: laserAim,
-                                                 pulse: max(0, min(1, tertiary)), pulseSpeed: max(0, min(1, quaternary)))
+                                                 pulse: EffectParameter.clampSlider(tertiary), pulseSpeed: EffectParameter.clampSlider(quaternary))
         case .googlyEyes: return GooglyEyesEffect(size: clamped, speed: clampedSecond)
         case .squeeze:    return SqueezeEffect(intensity: clamped)
         case .handsome:   return HandsomeEffect(intensity: clamped)

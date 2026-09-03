@@ -60,6 +60,15 @@ struct ParameterWindow: Codable, Equatable {
         min + Self.clamp01(u) * (max - min)
     }
 
+    /// `remap`, but a knob driven past 1 by SLIDER OVERDRIVE extrapolates past the window's top
+    /// by the same slope, so the overdrive reaches the effect rather than dying here. Only the
+    /// view model's resolution uses this; the factories' `EffectParameter.clampSlider` is the
+    /// ceiling.
+    func remapAllowingOverdrive(_ u: Double) -> Double {
+        guard u.isFinite, u > 1 else { return remap(u) }
+        return min + u * (max - min)
+    }
+
     /// Where on the 0…1 track a window-space value sits; the inverse of `remap`.
     func sliderPosition(for value: Double) -> Double {
         let span = max - min
@@ -304,7 +313,7 @@ struct EffectLabLookup: Equatable {
         guard let stored else {
             return window.isIdentity ? declared : window.defaultValue
         }
-        return window.remap(stored)
+        return window.remapAllowingOverdrive(stored)
     }
 
     /// Where the editor's knob opens for a parameter it has no stored value for.

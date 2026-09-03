@@ -115,6 +115,19 @@ struct EffectParameter: Identifiable, Hashable {
     /// Whether a stored `Double` reads as on.
     static func isOn(_ value: Double) -> Bool { value > 0.5 }
 
+    /// The ceiling a slider value is clamped to before an effect's `init` sees it: 1 normally,
+    /// `CanvasTuning.overdriveMax` while SLIDER OVERDRIVE is on. Every factory clamp goes through
+    /// here so the experiment is one switch rather than thirty edits.
+    static var overdriveCeiling: Double {
+        FeatureFlags.sliderOverdrive ? max(1, CanvasTuningStore.shared.tuning.overdriveMax) : 1
+    }
+
+    /// `max(0, min(ceiling, value))` — the clamp every effect factory used to inline as
+    /// `max(0, min(1, x))`, with the top end owned by the overdrive experiment.
+    static func clampSlider(_ value: Double) -> Double {
+        max(0, min(overdriveCeiling, value))
+    }
+
     /// The integer shown in the knob for a 0…1 value.
     static func displayValue(_ value: Double) -> Int {
         Int((max(0, min(1, value)) * Double(sliderSteps)).rounded())

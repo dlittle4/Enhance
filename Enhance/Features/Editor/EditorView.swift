@@ -45,6 +45,9 @@ struct EditorView: View {
     /// MOTION LAB's live values, plus the flags deciding which of them this view actually reads.
     /// Scaffolding — see `MotionTuning` for what graduation looks like.
     @ObservedObject private var motionStore = MotionTuningStore.shared
+    /// SLIDER OVERDRIVE's ceiling and glitch rate, for the effect rows. Observed so a change in
+    /// CANVAS LAB re-renders the rows.
+    @ObservedObject private var canvasStore = CanvasTuningStore.shared
     @AppStorage(FeatureFlags.motionTabScaleKey) private var motionTabScale = false
     @AppStorage(FeatureFlags.motionCategorySwitchKey) private var motionCategorySwitch = false
     @AppStorage(FeatureFlags.motionTilePressKey) private var motionTilePress = false
@@ -1298,7 +1301,10 @@ struct EditorView: View {
                 ParameterSliderRow(
                     label: param.label,
                     value: parameterBinding(param, for: effect),
-                    onCommit: { viewModel.onParameterDragEnded() }
+                    onCommit: { viewModel.onParameterDragEnded() },
+                    overdriveMax: EffectParameter.overdriveCeiling,
+                    overdriveGain: canvasStore.tuning.overdriveGain,
+                    glitchRate: canvasStore.tuning.overdriveGlitchRate
                 )
             case .tintColor:
                 ParameterPickerRow(label: param.label) {

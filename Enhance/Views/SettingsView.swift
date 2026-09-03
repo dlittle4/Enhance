@@ -67,6 +67,14 @@ struct SettingsView: View {
 
     @ObservedObject private var motionStore = MotionTuningStore.shared
 
+    /// The touch experiments, tuned in CANVAS LAB. `@AppStorage` on both ends: `GIFPreviewView`
+    /// and the editor's slider rows read the same keys.
+    @AppStorage(FeatureFlags.laserAimKey) private var laserAim: Bool = false
+    @AppStorage(FeatureFlags.scrubPreviewKey) private var scrubPreview: Bool = false
+    @AppStorage(FeatureFlags.sliderOverdriveKey) private var sliderOverdrive: Bool = false
+
+    @State private var showCanvasLab = false
+
     private let mintGreen = Color.enhanceMint
     private let themes = ["PIXEL", "THEME 2", "THEME 3"]
     private let appIcons: [(name: String, preview: String, identifier: String?)] = [
@@ -124,6 +132,9 @@ struct SettingsView: View {
         .sheet(isPresented: $showEffectLab) {
             EffectLabView(isPresented: $showEffectLab)
         }
+        .sheet(isPresented: $showCanvasLab) {
+            CanvasLabView(isPresented: $showCanvasLab)
+        }
     }
 
     // MARK: - Auto-Play
@@ -164,6 +175,9 @@ struct SettingsView: View {
                 cameraRevealControls
             }
             experimentRow("ANIMATED BUTTON TEXT", isOn: $buttonTextEffects)
+            experimentRow("AIM THE LAZERS", isOn: $laserAim)
+            experimentRow("SCRUB THE PREVIEW", isOn: $scrubPreview)
+            experimentRow("SLIDER OVERDRIVE", isOn: $sliderOverdrive)
         }
     }
 
@@ -253,6 +267,7 @@ struct SettingsView: View {
             labRow("BUTTON TEXT LAB →") { showButtonTextLab = true }
             labRow("SHADER LAB →") { showShaderLab = true }
             labRow("EFFECTS LAB →") { showEffectLab = true }
+            labRow("CANVAS LAB →") { showCanvasLab = true }
         }
     }
 

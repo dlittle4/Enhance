@@ -26,6 +26,10 @@ extension Color {
     /// 2pt outline rather than an outline alone.
     static let mintDim = Color(hex: 0x60FFA8).opacity(0.3)
 
+    /// The "too much" state: a slider driven past its end. The one warm colour in the accent
+    /// set, so it cannot be confused with selection.
+    static let overdrive = Color(hex: 0xFF4438)
+
     // MARK: - Surfaces
     //
     // Three levels, named primary → card → control rather than by depth. They got materially

@@ -85,15 +85,11 @@
 		};
 		FD69C18A2D8F8CDA001ED27D /* EnhanceTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = EnhanceTests;
 			sourceTree = "<group>";
 		};
 		FD69C1942D8F8CDA001ED27D /* EnhanceUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
 			path = EnhanceUITests;
 			sourceTree = "<group>";
 		};
@@ -131,7 +127,6 @@
 				A59980750DA18F7FB3D0652B /* Pods-Enhance.debug.xcconfig */,
 				65A6C145EC78B66B99738A82 /* Pods-Enhance.release.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};

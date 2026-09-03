@@ -1101,3 +1101,44 @@ is not built.
 **Known limit:** pause frames are one render replicated (`addPauseFrames`, for file size), so the
 pulses travel during the animation and hold still through the pause — the same way the eyes'
 flicker always has. Rendering the hold per frame would fix it at a real cost in GIF size.
+
+## Touch experiments: SCRUB THE PREVIEW and SLIDER OVERDRIVE (2026-09-03)
+
+*(From the same brainstorm as LAZER EYES aiming. User's framing for the whole batch: every one
+an experiment that can be switched off, with a lab where the numbers need finding.)*
+
+Both flags live in `FeatureFlags` (off by default) and their knobs in `CanvasTuning`, edited by
+**CANVAS LAB**. AIM THE LAZERS gained a flag at the same time (`laserAimKey`, registered on).
+
+### SCRUB THE PREVIEW
+
+- [x] `AnimatedGifView` grows a display-link frame player under the flag, because
+      `UIImageView`'s own animation has no current frame — it can be started and stopped, but
+      stopping shows whatever `image` was set to, not the frame it was on. Off, the view is
+      byte-for-byte the shipped one; the flag can flip at runtime and the frames are handed
+      between the two paths.
+- [x] A zero-duration long press on the preview: touch-down freezes, drag scrubs
+      (`CanvasTuning.scrubbedFrame`, wrapping at both ends), lift resumes from the frame under
+      the finger. Ticks every N frames crossed, measured the short way round the loop so a wrap
+      does not fire a burst.
+- [x] Only `GIFPreviewView` reads the flag — gallery tiles must keep playing under a swipe.
+- [x] Verified on the SE 3 via the `Enhance:scrub` debug log (`log stream --debug`), since a hold
+      cannot be screenshotted from outside the process: a hold began on frame 36 of 38 and a
+      150pt drag landed on 17, which is 36 + 19 wrapped — exactly the arithmetic.
+
+### SLIDER OVERDRIVE
+
+- [x] `ParameterSliderRow` takes `overdriveMax` and `overdriveGain`: past the last dot the
+      lattice continues at `gain`× the drag (the screen ends ~30pt past the track, so gain 1
+      would cap a phone at ~110%). Knob pins to the track's end, turns `Color.overdrive`, the
+      filled dots follow, and the readout counts past 20 while glitching a character at
+      `overdriveGlitchRate` per 90ms. Haptics step up: impacts per detent past the end, heavy at
+      the ceiling.
+- [x] The value reaches the effect: `ParameterWindow.remapAllowingOverdrive` extrapolates a
+      knob past 1 (the plain `remap` keeps the effects lab's clamp), and the 35 inline
+      `max(0, min(1, x))` clamps in the two factories now go through
+      `EffectParameter.clampSlider`, whose ceiling is 1 or `overdriveMax` by the flag. What each
+      effect *does* with 1.5 is its own business — some saturate, some go feral — which is the
+      "secret too much mode" as asked.
+- [x] Verified on the SE 3: dragging CHROMA SHIFT's INTENSITY to the screen edge read a red
+      glitching "22".

@@ -436,7 +436,8 @@ class EditorViewModel {
     /// selected under FACE FILTERS with at least one face to fire from — with no face there is
     /// nothing for the target to do, and the photo should keep its ordinary one-finger pan.
     var wantsLaserAim: Bool {
-        selectedEffectCategory == .faceFilters
+        FeatureFlags.laserAim
+            && selectedEffectCategory == .faceFilters
             && selectedFaceFilter == .lazerEyes
             && !activeFaces.isEmpty
     }

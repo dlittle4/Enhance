@@ -310,40 +310,40 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     }
 
     func effect(intensity: Double = 0.5, options: EffectOptions = EffectOptions()) -> VisualEffect {
-        let clamped = max(0, min(1, intensity))
+        let clamped = EffectParameter.clampSlider(intensity)
 
         switch self {
-        case .chromaShift:  return ChromaticAberrationEffect(intensity: clamped, angle: max(0, min(1, options.size)))
-        case .lensDistortion: return LensDistortionEffect(intensity: clamped, reach: max(0, min(1, options.size)))
+        case .chromaShift:  return ChromaticAberrationEffect(intensity: clamped, angle: EffectParameter.clampSlider(options.size))
+        case .lensDistortion: return LensDistortionEffect(intensity: clamped, reach: EffectParameter.clampSlider(options.size))
         case .halftone:     return HalftoneEffect(intensity: clamped,
-                                                  sharpness: max(0, min(1, options.size)),
-                                                  angle: max(0, min(1, options.tertiary)))
-        case .fisheye:      return FisheyeEffect(intensity: clamped, size: max(0, min(1, options.size)))
-        case .swirl:        return SwirlEffect(intensity: clamped, size: max(0, min(1, options.size)))
+                                                  sharpness: EffectParameter.clampSlider(options.size),
+                                                  angle: EffectParameter.clampSlider(options.tertiary))
+        case .fisheye:      return FisheyeEffect(intensity: clamped, size: EffectParameter.clampSlider(options.size))
+        case .swirl:        return SwirlEffect(intensity: clamped, size: EffectParameter.clampSlider(options.size))
         case .pixelate:     return PixelateEffect(intensity: clamped, shape: options.pixelShape)
-        case .rainbow:      return RainbowGradientEffect(intensity: clamped, speed: max(0, min(1, options.size)))
+        case .rainbow:      return RainbowGradientEffect(intensity: clamped, speed: EffectParameter.clampSlider(options.size))
         case .heatHaze:     return HeatHazeEffect(intensity: clamped,
-                                                  frequency: max(0, min(1, options.size)),
-                                                  speed: max(0, min(1, options.tertiary)))
-        case .motionBlur:   return MotionBlurEffect(intensity: clamped, angle: max(0, min(1, options.size)))
+                                                  frequency: EffectParameter.clampSlider(options.size),
+                                                  speed: EffectParameter.clampSlider(options.tertiary))
+        case .motionBlur:   return MotionBlurEffect(intensity: clamped, angle: EffectParameter.clampSlider(options.size))
         case .gradientMap:  return GradientMapEffect(intensity: clamped,
                                                      stops: options.gradientStops,
-                                                     midpoint: max(0, min(1, options.size)))
+                                                     midpoint: EffectParameter.clampSlider(options.size))
         case .coloredEdges: return ColoredEdgesEffect(intensity: clamped, color: options.tintColor)
         case .sliceShift:   return SliceShiftEffect(intensity: clamped,
-                                                    size: max(0, min(1, options.size)),
-                                                    jitter: max(0, min(1, options.tertiary)))
+                                                    size: EffectParameter.clampSlider(options.size),
+                                                    jitter: EffectParameter.clampSlider(options.tertiary))
         case .risoPrint:    return RisoPrintEffect(intensity: clamped,
                                                    stops: options.gradientStops,
-                                                   scale: max(0, min(1, options.size)),
-                                                   misregistration: max(0, min(1, options.tertiary)),
-                                                   grain: max(0, min(1, options.quaternary)),
-                                                   contrast: max(0, min(1, options.quinary)))
+                                                   scale: EffectParameter.clampSlider(options.size),
+                                                   misregistration: EffectParameter.clampSlider(options.tertiary),
+                                                   grain: EffectParameter.clampSlider(options.quaternary),
+                                                   contrast: EffectParameter.clampSlider(options.quinary))
         case .bitmap:
             return BitmapEffect(
                 intensity: clamped,
-                size: max(0, min(1, options.size)),
-                contrast: max(0, min(1, options.tertiary)),
+                size: EffectParameter.clampSlider(options.size),
+                contrast: EffectParameter.clampSlider(options.tertiary),
                 stops: options.gradientStops
             )
         case .subjectEcho:
@@ -352,22 +352,22 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             // what the card thumbnail should show, since a thumbnail has no segmentation either.
             return SubjectEchoEffect(
                 intensity: clamped,
-                spread: max(0, min(1, options.size)),
-                count: max(0, min(1, options.tertiary)),
+                spread: EffectParameter.clampSlider(options.size),
+                count: EffectParameter.clampSlider(options.tertiary),
                 color: options.tintColor
             )
         case .stretch:      return StretchEffect(intensity: clamped,
-                                                 angle: max(0, min(1, options.size)),
-                                                 position: max(0, min(1, options.tertiary)),
-                                                 reach: max(0, min(1, options.quaternary)))
+                                                 angle: EffectParameter.clampSlider(options.size),
+                                                 position: EffectParameter.clampSlider(options.tertiary),
+                                                 reach: EffectParameter.clampSlider(options.quaternary))
         case .caustic:      return CausticEffect(intensity: clamped,
-                                                 size: max(0, min(1, options.size)),
-                                                 speed: max(0, min(1, options.tertiary)),
-                                                 sharpness: max(0, min(1, options.quaternary)),
+                                                 size: EffectParameter.clampSlider(options.size),
+                                                 speed: EffectParameter.clampSlider(options.tertiary),
+                                                 sharpness: EffectParameter.clampSlider(options.quaternary),
                                                  color: options.tintColor)
         case .dither:       return DitherEffect(intensity: clamped,
-                                                size: max(0, min(1, options.size)),
-                                                levels: max(0, min(1, options.tertiary)))
+                                                size: EffectParameter.clampSlider(options.size),
+                                                levels: EffectParameter.clampSlider(options.tertiary))
 
         case .thermal, .chromaticSplit, .datamosh, .heatShimmer, .liveRipple, .melt,
              .neonEdge, .pixelateStorm, .pulse, .shockwave, .solarize, .wavePool:
@@ -395,7 +395,7 @@ extension VisualEffectType {
     /// for PIXEL STORM eases the block size up from one pixel so a ramp of zero cannot divide
     /// the grid by zero.
     fileprivate func packShaderEffect(intensity: Double, options: EffectOptions) -> VisualEffect {
-        func unit(_ v: Double) -> Double { max(0, min(1, v)) }
+        func unit(_ v: Double) -> Double { EffectParameter.clampSlider(v) }
         func lerp(_ u: Double, _ lo: Double, _ hi: Double) -> Double { lo + unit(u) * (hi - lo) }
         let a = intensity
         let b = options.size, c = options.tertiary, d = options.quaternary, e = options.quinary
