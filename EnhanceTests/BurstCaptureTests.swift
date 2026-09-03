@@ -131,4 +131,59 @@ struct BurstCaptureTests {
         let still = generator.generateGIF(from: img, currentScale: 1, visibleRect: CGRect(x: 0, y: 0, width: 1, height: 1), animator: StaticAnimator(), speed: 1, pauseDuration: 0.1)
         #expect(one?.count == still?.count)
     }
+
+    // MARK: - Device-pass regressions
+
+    /// A hold that outlasts the burst used to freeze the viewfinder and go nowhere: the
+    /// auto-stop took the frames, and the lift found nothing to do. The finished burst now
+    /// waits for the lift, once.
+    @MainActor
+    @Test func aBurstTheAutoStopFinishesWaitsForTheLiftToHandOff() async throws {
+        let camera = StubCamera()
+        let vm = CameraViewModel(service: camera, authorizationStatus: { .authorized }, requestAccess: { true })
+        vm.beginBurst(fps: 1000, duration: 0.25)
+        for i in 0..<6 {
+            camera.onPreviewFrame?(frame(CGFloat(i) / 6))
+            try await Task.sleep(for: .milliseconds(8))
+        }
+        // Past the duration: the auto-stop task ends the burst on its own.
+        try await Task.sleep(for: .milliseconds(450))
+        #expect(!vm.isBursting)
+        #expect(vm.capturedImage != nil)
+
+        let handed = vm.takePendingBurstHandoff()
+        #expect(handed?.count == 6)
+        #expect(vm.takePendingBurstHandoff() == nil, "consumed once")
+    }
+
+    /// The live canvas plays the burst: with no effect it shows the raw frame under the
+    /// index, and with an effect pending it holds frame 0's preview rather than flashing raw.
+    @MainActor
+    @Test func canvasImagePlaysTheBurstAndHoldsThePreviewWhileRendering() {
+        let a = UIImage(cgImage: frame(0.1))
+        let b = UIImage(cgImage: frame(0.5))
+        let vm = EditorViewModel(content: .newImage(a))
+        #expect(vm.canvasImage == nil, "a still with no effect draws the photo itself")
+
+        vm.adoptBurst([a, b])
+        #expect(vm.burstFrames?.count == 2)
+        #expect(vm.canvasImage === a)
+
+        vm.adoptBurst(nil)
+        #expect(vm.burstFrames == nil)
+        #expect(vm.canvasImage == nil)
+    }
+
+    /// The generator is handed a snapshot of the burst rather than reading the live arrays.
+    @MainActor
+    @Test func burstSourceFramesSnapshotCarriesEveryFrame() {
+        let a = UIImage(cgImage: frame(0.1))
+        let b = UIImage(cgImage: frame(0.5))
+        let c = UIImage(cgImage: frame(0.9))
+        let vm = EditorViewModel(content: .newImage(a))
+        vm.adoptBurst([a, b, c])
+        let snapshot = vm.burstSourceFrames
+        #expect(snapshot?.count == 3)
+        #expect(snapshot?[2].image === c)
+    }
 }

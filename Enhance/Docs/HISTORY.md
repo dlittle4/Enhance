@@ -1208,6 +1208,30 @@ Both flags live in `FeatureFlags` (off by default) and their knobs in `CanvasTun
 - [x] `MockCameraService` sweeps a marker across the card at 15fps while frames are on, so a
       simulator burst is a stack of distinct frames.
 
-**Known limits, recorded rather than solved:** the live canvas and every thumbnail show frame 0
-only; BACKGROUND ONLY and BIG HEAD use frame 0's mask for every frame; a burst is not persisted
-with a saved GIF (reopening edits the GIF as a still). Memory: 18 frames at 720px is ~37MB.
+**Known limits, recorded rather than solved:** every thumbnail shows frame 0; BACKGROUND ONLY
+and BIG HEAD use frame 0's mask for every frame; a burst is not persisted with a saved GIF
+(reopening edits the GIF as a still). Memory: 18 frames at 720px is ~37MB.
+
+### The device pass (2026-09-03): two crashes and a dead end, and the canvas plays the burst
+
+"Crashes sometimes" on the phone. No report reached the Mac, so this was read from the code,
+and three things were wrong — two of them races that only a real burst could reach:
+
+- **Shared detector.** `adoptBurst` ran per-frame Vision through the editor's own
+  `FaceDetectionService`, a plain class with a one-entry cache, while opening FACE FILTERS drove
+  the same instance from another task. The burst now has its own instance
+  (`burstDetectionService`); frame 0 is detected twice, cheaply.
+- **`burstFaces` read off-main.** `renderGIF` read `burstSourceFrames` inside the generation
+  queue while the detection task was still replacing elements on the main actor. Both
+  generation sites now snapshot the burst *before* they hop queues and pass it in.
+- **The auto-stop went nowhere.** A hold past `burstDuration` ended the burst from its own
+  task, set `capturedImage`, and the lift found `isBursting` false and returned — the
+  viewfinder froze and nothing opened. `CameraViewModel.pendingBurstHandoff` now holds the
+  finished frames for the lift, consumed once by `takePendingBurstHandoff`.
+
+**The live canvas now plays the burst** *(user's ask)*. `EditorViewModel.canvasImage` replaces
+`previewImage` as the canvas's source: a timer at the burst's own rate advances
+`burstPreviewIndex`, and `scheduleBurstPreview` renders the selected effect onto every frame
+off-main with that frame's faces, double-buffered so a slider drag never flashes a
+half-rendered stack. With no effect on, the raw frames cycle; while a stack renders, frame 0's
+preview holds. Detection finishing triggers one more render so filters follow every face.

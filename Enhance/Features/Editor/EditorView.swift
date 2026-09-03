@@ -600,7 +600,7 @@ struct EditorView: View {
     private func liveCanvas(image: UIImage) -> some View {
         borderedCanvas {
             ImageCanvasView(
-                image: viewModel.previewImage ?? image,
+                image: viewModel.canvasImage ?? image,
                 scale: $viewModel.currentScale,
                 visibleRect: $viewModel.visibleRect,
                 faceMarkers: activeFaceMarkers,

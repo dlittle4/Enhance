@@ -70,6 +70,19 @@ final class CameraViewModel {
     private var burstAutoStop: Task<Void, Never>?
     /// The normalized burst, alongside `capturedImage` (its first frame). Set by `endBurst`.
     private(set) var capturedBurst: [UIImage]?
+    /// A burst the auto-stop finished while the finger was still down, waiting for the lift
+    /// to hand it to the editor. The gesture's end consumes it via `takePendingBurstHandoff`.
+    ///
+    /// Without this a hold past `burstDuration` froze the viewfinder and went nowhere: the
+    /// auto-stop set `capturedImage`, and the lift found `isBursting` already false and
+    /// returned — the first thing the device pass turned up.
+    private var pendingBurstHandoff: [UIImage]?
+
+    /// The frames a finished-but-unhanded burst is holding, cleared on read.
+    func takePendingBurstHandoff() -> [UIImage]? {
+        defer { pendingBurstHandoff = nil }
+        return pendingBurstHandoff
+    }
 
     /// Starts recording. Frames arrive through the same tap the resolve intro uses; the
     /// `previewFrame` mirror keeps flowing, which is harmless. Auto-stops at `duration`, so a
@@ -86,7 +99,9 @@ final class CameraViewModel {
         burstAutoStop = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(Int(duration * 1000)))
             guard !Task.isCancelled, let self, self.isBursting else { return }
-            await self.endBurst()
+            if let frames = await self.endBurst() {
+                self.pendingBurstHandoff = frames
+            }
         }
     }
 

@@ -384,12 +384,18 @@ struct CameraOverlayView: View {
                 }
             }
             .onEnded { _ in
-                guard viewModel.isBursting else { return }
-                Task {
-                    if let frames = await viewModel.endBurst() {
-                        HapticService.success()
-                        onCaptureBurst(frames)
+                // Either the lift ends the burst, or the auto-stop already did and left the
+                // frames waiting. Both hand off here; neither is a photo.
+                if viewModel.isBursting {
+                    Task {
+                        if let frames = await viewModel.endBurst() {
+                            HapticService.success()
+                            onCaptureBurst(frames)
+                        }
                     }
+                } else if let frames = viewModel.takePendingBurstHandoff() {
+                    HapticService.success()
+                    onCaptureBurst(frames)
                 }
             }
     }

@@ -200,6 +200,61 @@ class EditorViewModel {
     /// mean "not yet" and the generator falls back to frame 0's faces for them.
     private(set) var burstFaces: [[DetectedFace]] = []
     private var burstDetection: Task<Void, Never>?
+    /// Its own detector, not `faceDetectionService`. That one is a plain class with a
+    /// one-entry cache, and the editor drives it from its own task the moment FACE FILTERS
+    /// opens — two tasks in one unsynchronised instance was the likeliest of the burst
+    /// crashes. Frame 0 is detected twice as a result, which is cheap.
+    private let burstDetectionService = FaceDetectionService()
+
+    // MARK: Burst preview
+
+    /// Which burst frame the live canvas is showing. Advanced by `burstPreviewTimer` at the
+    /// burst's own rate, so the canvas plays the motion rather than freezing on frame 0.
+    private(set) var burstPreviewIndex = 0
+    private var burstPreviewTimer: Timer?
+    /// The selected effect rendered onto every burst frame, in order — the burst's answer to
+    /// `previewImage`. Double-buffered: a rebuild fills `burstPreviewPending` and swaps it in
+    /// whole, so a slider drag never shows a half-rendered stack flickering between raw and
+    /// effected frames.
+    private(set) var burstPreviewFrames: [UIImage]?
+    private var burstPreviewSources: [CGImage] = []
+    private var burstPreviewWorkItem: DispatchWorkItem?
+
+    /// What the live canvas draws. For a still that is the effect preview or the photo; for a
+    /// burst it is the current frame of the rendered stack, the raw frame while no effect is
+    /// on, or frame 0's preview while the stack is still rendering.
+    var canvasImage: UIImage? {
+        guard let burstFrames, !burstFrames.isEmpty else { return previewImage }
+        let index = burstPreviewIndex % burstFrames.count
+        if let rendered = burstPreviewFrames, rendered.count == burstFrames.count {
+            return rendered[index]
+        }
+        return previewImage ?? burstFrames[index]
+    }
+
+    private func startBurstPreviewTimer(fps: Double) {
+        burstPreviewTimer?.invalidate()
+        let interval = 1 / max(1, fps)
+        burstPreviewTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            guard let self, self.burstFrames != nil, self.showsLiveCanvas else { return }
+            self.burstPreviewIndex += 1
+        }
+    }
+
+    deinit {
+        burstPreviewTimer?.invalidate()
+        burstDetection?.cancel()
+    }
+
+    private func stopBurstPreview() {
+        burstPreviewTimer?.invalidate()
+        burstPreviewTimer = nil
+        burstPreviewWorkItem?.cancel()
+        burstPreviewWorkItem = nil
+        burstPreviewFrames = nil
+        burstPreviewSources = []
+        burstPreviewIndex = 0
+    }
 
     /// Hands the editor a burst. Detection runs per frame off the main actor — ~18 Vision
     /// passes take a couple of seconds on device, well inside the time it takes to pick an
@@ -207,10 +262,12 @@ class EditorViewModel {
     func adoptBurst(_ frames: [UIImage]?) {
         burstDetection?.cancel()
         burstFaces = []
+        stopBurstPreview()
         guard let frames, frames.count > 1 else { burstFrames = nil; return }
         burstFrames = frames
         burstFaces = Array(repeating: [], count: frames.count)
-        let service = faceDetectionService
+        startBurstPreviewTimer(fps: CanvasTuningStore.shared.tuning.burstFPS)
+        let service = burstDetectionService
         burstDetection = Task { [weak self] in
             for (index, frame) in frames.enumerated() {
                 if Task.isCancelled { return }
@@ -220,14 +277,22 @@ class EditorViewModel {
                     self.burstFaces[index] = faces
                 }
             }
+            // Faces landed after the stack was rendered would leave a filter on frame 0's
+            // eyes for every frame; one more pass now that every frame has its own.
+            await MainActor.run { [weak self] in self?.updateCombinedPreview() }
         }
     }
 
     /// The one call both generation paths make. A burst goes through the frames overload with
     /// the per-frame faces; a still takes the path it always has. Reads the view model on
     /// whatever queue the caller is on, as the two sites always did.
-    func renderGIF(image: UIImage, animator: Animator, scale: CGFloat, rect: CGRect) -> Data? {
-        if let frames = burstSourceFrames {
+    ///
+    /// - Parameter burst: the burst's frames and faces, **snapshotted on the main actor before
+    ///   the caller hops queues**. `burstFaces` is still being written by the detection task
+    ///   while the first ENHANCE runs, and reading a Swift array on one thread while another
+    ///   replaces an element is the second of the burst crashes.
+    func renderGIF(image: UIImage, animator: Animator, scale: CGFloat, rect: CGRect, burst: [BurstFrame]?) -> Data? {
+        if let frames = burst {
             return gifGenerator.generateGIF(
                 frames: frames, currentScale: scale, visibleRect: rect, animator: animator,
                 speed: playbackSpeed, pauseDuration: pauseDuration,
@@ -1483,6 +1548,7 @@ class EditorViewModel {
 
         guard let source = image ?? sourceImage else {
             previewImage = nil
+            burstPreviewFrames = nil
             return
         }
 
@@ -1491,6 +1557,7 @@ class EditorViewModel {
         // visible. Consulting the shared property is what keeps this in step with the view.
         if isSplit, case .newImage = content, !wantsLiveCanvas {
             previewImage = nil
+            burstPreviewFrames = nil
             return
         }
 
@@ -1500,8 +1567,11 @@ class EditorViewModel {
 
         guard !visualEffects.isEmpty || (faceEffect != nil && !faces.isEmpty) else {
             previewImage = nil
+            burstPreviewFrames = nil
             return
         }
+
+        scheduleBurstPreview(visualEffects: visualEffects, faceEffect: faceEffect, fallbackFaces: faces, debounce: debounce)
 
         let schedule = { [weak self] in
             guard let self else { return }
@@ -1583,6 +1653,79 @@ class EditorViewModel {
         }
     }
     
+    /// Renders the selected effect onto every burst frame, off the main queue, and swaps the
+    /// finished stack in whole. Each frame gets its own faces where detection has delivered
+    /// them and frame 0's otherwise — the same fallback the generator uses, so the canvas and
+    /// the GIF agree. Cancelled and restarted by every preview update, so a slider drag only
+    /// ever pays for the last position it settled on.
+    private func scheduleBurstPreview(visualEffects: [VisualEffect], faceEffect: FaceEffect?, fallbackFaces: [DetectedFace], debounce: Bool) {
+        burstPreviewWorkItem?.cancel()
+        guard let burstFrames, burstFrames.count > 1 else { return }
+
+        if burstPreviewSources.count != burstFrames.count {
+            burstPreviewSources = burstFrames.compactMap {
+                EffectThumbnailRenderer.previewSource(from: $0, maxPixel: previewMaxDimension)
+            }
+            guard burstPreviewSources.count == burstFrames.count else { burstPreviewSources = []; return }
+        }
+
+        let sources = burstPreviewSources
+        let frames = burstFrames
+        let facesPerFrame = burstFaces
+        let rect = visibleRect
+        let previewProg = selectedFaceFilter?.previewProgress ?? 1.0
+        let visualProg = selectedVisualEffect?.previewProgress
+            ?? (selectedAnimatorType == .heartBeat ? VisualEffectType.pulse.previewProgress : 1.0)
+        let ciContext = self.ciContext
+
+        var work: DispatchWorkItem!
+        work = DispatchWorkItem { [weak self] in
+            var rendered: [UIImage] = []
+            rendered.reserveCapacity(frames.count)
+            for (index, cgImage) in sources.enumerated() {
+                if work.isCancelled { return }
+                let frame = frames[index]
+                let ownFaces = index < facesPerFrame.count ? facesPerFrame[index] : []
+                let faces = ownFaces.isEmpty ? fallbackFaces : ownFaces
+                var result = CIImage(cgImage: cgImage)
+
+                if let faceEffect, !faces.isEmpty {
+                    let scaleX = result.extent.width / (frame.size.width * frame.scale)
+                    let scaleY = result.extent.height / (frame.size.height * frame.scale)
+                    let scaled = faces.map { $0.scaled(x: scaleX, y: scaleY) }
+                    // Frame index doubles as the flicker seed, so the stack shimmers like the GIF.
+                    result = faceEffect.apply(to: result, faces: scaled, progress: previewProg, frameIndex: index)
+                    if let flattened = ciContext.createCGImage(result, from: result.extent) {
+                        result = CIImage(cgImage: flattened)
+                    }
+                }
+
+                if !visualEffects.isEmpty {
+                    let center = CGPoint(
+                        x: (rect.origin.x + rect.width / 2) * result.extent.width,
+                        y: (1.0 - (rect.origin.y + rect.height / 2)) * result.extent.height
+                    )
+                    for effect in visualEffects {
+                        result = effect.apply(to: result, progress: visualProg, frameIndex: index, viewportCenter: center)
+                    }
+                }
+
+                guard let outputCG = ciContext.createCGImage(result, from: result.extent) else { return }
+                rendered.append(UIImage(cgImage: outputCG, scale: frame.scale, orientation: .up))
+            }
+            guard !work.isCancelled else { return }
+            let stack = rendered
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.burstFrames?.count == stack.count else { return }
+                self.burstPreviewFrames = stack
+            }
+        }
+        burstPreviewWorkItem = work
+        // Behind the single-frame preview in the queue, so frame 0 lands first and the canvas
+        // has something effected to show while the stack renders.
+        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + (debounce ? 0.12 : 0.02), execute: work)
+    }
+
     /// For existing GIFs: the first frame extracted for re-editing
     var sourceImage: UIImage?
 
@@ -1784,12 +1927,13 @@ class EditorViewModel {
             isGenerating = true
         }
         
+        let burst = burstSourceFrames
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             let animator = activeAnimator
             
             if let gifData = self.renderGIF(
                 image: imageToUse, animator: animator,
-                scale: generationScale, rect: generationVisibleRect
+                scale: generationScale, rect: generationVisibleRect, burst: burst
             ) {
                 let tempDir = FileManager.default.temporaryDirectory
                 let fileURL = tempDir.appendingPathComponent("\(UUID().uuidString).gif")
@@ -1826,12 +1970,13 @@ class EditorViewModel {
         
         withAnimation { isRegenerating = true }
         
+        let burst = burstSourceFrames
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             let animator = activeAnimator
             
             if let gifData = self.renderGIF(
                 image: sourceImg, animator: animator,
-                scale: generationScale, rect: generationVisibleRect
+                scale: generationScale, rect: generationVisibleRect, burst: burst
             ) {
                 let tempDir = FileManager.default.temporaryDirectory
                 let fileURL = tempDir.appendingPathComponent("\(UUID().uuidString).gif")
