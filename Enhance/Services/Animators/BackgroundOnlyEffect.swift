@@ -35,21 +35,27 @@ struct BackgroundOnlyEffect: VisualEffect {
         viewportCenter: CGPoint?,
         geometry: FrameGeometry
     ) -> CIImage {
-        guard mask != nil else {
-            return wrapped.apply(
-                to: image, progress: progress, frameIndex: frameIndex,
-                viewportCenter: viewportCenter, geometry: geometry
-            )
-        }
+        apply(to: image, progress: progress, frameIndex: frameIndex,
+              viewportCenter: viewportCenter, geometry: geometry, motion: nil)
+    }
 
-        return compositor.applyingToBackground(
-            wrapped,
-            of: image,
-            mask: mask,
-            progress: progress,
-            frameIndex: frameIndex,
-            viewportCenter: viewportCenter,
-            geometry: geometry
+    /// The wrapped effect gets the motion too — an adapter must not be the place a burst's
+    /// context is silently dropped. The subject is held with the still's mask, or for a burst
+    /// with this frame's own when the context has one.
+    func apply(
+        to image: CIImage,
+        progress: CGFloat,
+        frameIndex: Int,
+        viewportCenter: CGPoint?,
+        geometry: FrameGeometry,
+        motion: MotionContext?
+    ) -> CIImage {
+        let frameMask = motion?.mask ?? mask
+        let treated = wrapped.apply(
+            to: image, progress: progress, frameIndex: frameIndex,
+            viewportCenter: viewportCenter, geometry: geometry, motion: motion
         )
+        guard frameMask != nil else { return treated }
+        return compositor.subject(of: image, over: treated, mask: frameMask, geometry: geometry)
     }
 }

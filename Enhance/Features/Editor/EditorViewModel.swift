@@ -261,6 +261,19 @@ class EditorViewModel {
     /// crashes. Frame 0 is detected twice as a result, which is cheap.
     private let burstDetectionService = FaceDetectionService()
 
+    // MARK: Burst motion analysis (FEATURE-MOTION-EFFECTS.md §1)
+
+    /// A subject mask per burst frame, in the burst's own space at the lab's MASK SIZE, filled
+    /// in the background after detection; `nil` where nothing was found or not done yet.
+    private(set) var burstMasks: [CIImage?] = []
+    /// Per-frame velocities from the face track and from frame registration.
+    private(set) var burstSubjectVelocities: [CGVector] = []
+    private(set) var burstCameraVelocities: [CGVector] = []
+    /// Its own instance for the same reason as `burstDetectionService`: the editor's still
+    /// segmentation may run at the same time on the same class's unsynchronised cache.
+    private let burstSegmentationService = SubjectSegmentationService()
+    private static let motionLog = Logger(subsystem: "Enhance", category: "motion")
+
     // MARK: Burst preview
 
     /// The selected effect rendered onto every burst frame, in order — the burst's answer to
@@ -308,6 +321,9 @@ class EditorViewModel {
     func adoptBurst(_ frames: [UIImage]?) {
         burstDetection?.cancel()
         burstFaces = []
+        burstMasks = []
+        burstSubjectVelocities = []
+        burstCameraVelocities = []
         stopBurstPreview()
         // Untouched timing follows the burst's defaults (real time, no hold); a speed or
         // pause the user already set is theirs and stays.
@@ -337,7 +353,65 @@ class EditorViewModel {
             // Faces landed after the stack was rendered would leave a filter on frame 0's
             // eyes for every frame; one more pass now that every frame has its own.
             await MainActor.run { [weak self] in self?.updateCombinedPreview() }
+            guard FeatureFlags.motionEffects, !Task.isCancelled else { return }
+            await self?.analyseBurstMotion(frames)
         }
+    }
+
+    /// The motion foundation: a mask per frame, the subject track from the faces, the camera
+    /// track from frame registration. Runs after detection in the same task, publishing as it
+    /// goes; every step is measured to the log, since the plan's device pass is about numbers.
+    private func analyseBurstMotion(_ frames: [UIImage]) async {
+        let tuning = CanvasTuningStore.shared.tuning
+        let side = Int(tuning.motionMaskSide)
+        let count = frames.count
+        let segmentation = burstSegmentationService
+
+        // Subject track: normalized face centres per frame, largest face first.
+        let sides = frames.map { CGFloat(max(1, $0.size.width * $0.scale)) }
+        let centres: [[CGPoint]] = burstFaces.enumerated().map { i, faces in
+            faces.sorted { $0.faceWidth > $1.faceWidth }.map {
+                CGPoint(x: $0.faceCenter.x / sides[i], y: $0.faceCenter.y / sides[i])
+            }
+        }
+        burstSubjectVelocities = MotionTrack.subjectVelocities(faceCentres: centres, smoothing: tuning.motionVelocitySmoothing)
+
+        // Shrunk copies for segmentation and registration.
+        let small: [CGImage?] = await Task.detached(priority: .utility) {
+            frames.map { EffectThumbnailRenderer.previewSource(from: $0, maxPixel: side) }
+        }.value
+
+        // Masks, one at a time, landing as they finish.
+        burstMasks = Array(repeating: nil, count: count)
+        let maskStart = ProcessInfo.processInfo.systemUptime
+        for i in 0..<count {
+            if Task.isCancelled { return }
+            guard let cg = small[i] else { continue }
+            let mask = await segmentation.subjectMask(for: UIImage(cgImage: cg))
+            guard i < burstMasks.count else { return }
+            burstMasks[i] = mask.map { MotionMasks.feathered($0, radius: tuning.motionMaskFeather) }
+        }
+        let maskMs = Int(((ProcessInfo.processInfo.systemUptime - maskStart) * 1_000).rounded())
+        if tuning.motionMaskSmoothing {
+            burstMasks = MotionMasks.neighbourSmoothed(burstMasks)
+        }
+
+        // Camera track: translation between consecutive shrunk frames.
+        let regStart = ProcessInfo.processInfo.systemUptime
+        let translations: [CGVector] = await Task.detached(priority: .utility) {
+            var out = [CGVector](repeating: .zero, count: count)
+            for i in 1..<max(1, count) {
+                guard let a = small[i - 1], let b = small[i] else { continue }
+                out[i] = BurstRegistration.translation(from: a, to: b)
+            }
+            return out
+        }.value
+        burstCameraVelocities = MotionTrack.cameraVelocities(translations: translations, smoothing: tuning.motionVelocitySmoothing)
+        let regMs = Int(((ProcessInfo.processInfo.systemUptime - regStart) * 1_000).rounded())
+
+        let found = burstMasks.compactMap { $0 }.count
+        Self.motionLog.debug("burst motion: \(count, privacy: .public) frames, masks \(found, privacy: .public) in \(maskMs, privacy: .public)ms at \(side, privacy: .public)px, registration \(regMs, privacy: .public)ms, subject v0 \(self.burstSubjectVelocities.first?.motionMagnitude ?? 0, privacy: .public), camera v0 \(self.burstCameraVelocities.first?.motionMagnitude ?? 0, privacy: .public)")
+        updateCombinedPreview()
     }
 
     /// The one call both generation paths make. A burst goes through the frames overload with
@@ -370,7 +444,13 @@ class EditorViewModel {
     var burstSourceFrames: [BurstFrame]? {
         guard let burstFrames else { return nil }
         return burstFrames.enumerated().map { index, image in
-            BurstFrame(image: image, faces: index < burstFaces.count ? burstFaces[index] : [])
+            BurstFrame(
+                image: image,
+                faces: index < burstFaces.count ? burstFaces[index] : [],
+                mask: index < burstMasks.count ? burstMasks[index] : nil,
+                subjectVelocity: index < burstSubjectVelocities.count ? burstSubjectVelocities[index] : .zero,
+                cameraVelocity: index < burstCameraVelocities.count ? burstCameraVelocities[index] : .zero
+            )
         }
     }
 
@@ -1847,6 +1927,8 @@ class EditorViewModel {
         let sources = burstPreviewSources
         let frames = burstFrames
         let facesPerFrame = burstFaces
+        let motionFrames = burstSourceFrames ?? []
+        let previewFrameImages = sources.map { CIImage(cgImage: $0) }
         let rect = visibleRect
         let previewProg = selectedFaceFilter?.previewProgress ?? 1.0
         let visualProg = selectedVisualEffect?.previewProgress
@@ -1880,8 +1962,19 @@ class EditorViewModel {
                         x: (rect.origin.x + rect.width / 2) * result.extent.width,
                         y: (1.0 - (rect.origin.y + rect.height / 2)) * result.extent.height
                     )
+                    // The preview's geometry: no zoom, and a content rect equal to the frame,
+                    // so burst-space masks and echo frames are placed by extent into this
+                    // 650px copy exactly as the GIF places them into its 600px output.
+                    let motion: MotionContext? = index < motionFrames.count
+                        ? MotionContext(
+                            index: index, frames: previewFrameImages, masks: motionFrames.map(\.mask),
+                            subjectVelocity: motionFrames[index].subjectVelocity,
+                            cameraVelocity: motionFrames[index].cameraVelocity
+                          )
+                        : nil
+                    let geometry = FrameGeometry(scale: 1, contentOrigin: .zero, contentRect: result.extent)
                     for effect in visualEffects {
-                        result = effect.apply(to: result, progress: visualProg, frameIndex: index, viewportCenter: center)
+                        result = effect.apply(to: result, progress: visualProg, frameIndex: index, viewportCenter: center, geometry: geometry, motion: motion)
                     }
                 }
 

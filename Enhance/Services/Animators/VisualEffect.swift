@@ -83,6 +83,11 @@ public protocol VisualEffect {
     func apply(to image: CIImage, progress: CGFloat, frameIndex: Int) -> CIImage
     func apply(to image: CIImage, progress: CGFloat, frameIndex: Int, viewportCenter: CGPoint?) -> CIImage
     func apply(to image: CIImage, progress: CGFloat, frameIndex: Int, viewportCenter: CGPoint?, geometry: FrameGeometry) -> CIImage
+    /// The burst-aware entry point: `motion` carries the frames around this one, a mask per
+    /// frame and the measured velocities (FEATURE-MOTION-EFFECTS.md). Nil for a still. Only
+    /// effects that read motion implement it; the default drops `motion` and calls the
+    /// geometry overload, so the shipped effects are byte-for-byte unchanged.
+    func apply(to image: CIImage, progress: CGFloat, frameIndex: Int, viewportCenter: CGPoint?, geometry: FrameGeometry, motion: MotionContext?) -> CIImage
 }
 
 extension VisualEffect {
@@ -94,5 +99,10 @@ extension VisualEffect {
     /// spatial grid need to opt in.
     public func apply(to image: CIImage, progress: CGFloat, frameIndex: Int, viewportCenter: CGPoint?, geometry: FrameGeometry) -> CIImage {
         apply(to: image, progress: progress, frameIndex: frameIndex, viewportCenter: viewportCenter)
+    }
+
+    /// Defaults to ignoring the motion, so only effects that read it need to opt in.
+    public func apply(to image: CIImage, progress: CGFloat, frameIndex: Int, viewportCenter: CGPoint?, geometry: FrameGeometry, motion: MotionContext?) -> CIImage {
+        apply(to: image, progress: progress, frameIndex: frameIndex, viewportCenter: viewportCenter, geometry: geometry)
     }
 }

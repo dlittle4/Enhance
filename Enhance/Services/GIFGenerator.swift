@@ -121,6 +121,9 @@ public class GIFGenerator: GIFGenerating {
             guard let burstSource else { return facePass }
             return burstSource.passes[index] ?? nil
         }
+        func burstMotion(_ index: Int) -> MotionContext? {
+            burstSource?.motionContext(at: index)
+        }
         let burstFrames = burst
 
         // Stage 4 of the pipeline: text is composited after the face → zoom → visual-effect passes,
@@ -134,10 +137,10 @@ public class GIFGenerator: GIFGenerating {
                 .map { TextPass(raster: $0, overlay: overlay) }
         }
 
-        addAnimatedFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects, facePass: facePass, textPass: textPass, burst: burstFrames, burstPass: burstPass)
+        addAnimatedFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects, facePass: facePass, textPass: textPass, burst: burstFrames, burstPass: burstPass, burstMotion: burstMotion)
         // The hold is on the burst's last frame: the person as they were when the shutter lifted.
         let lastIndex = (burstFrames?.count ?? 1) - 1
-        addPauseFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects, facePass: burstFrames == nil ? facePass : burstPass(lastIndex), textPass: textPass, sourceImage: burstFrames?.last?.image)
+        addPauseFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects, facePass: burstFrames == nil ? facePass : burstPass(lastIndex), textPass: textPass, sourceImage: burstFrames?.last?.image, motion: burstFrames == nil ? nil : burstMotion(lastIndex))
 
         if CGImageDestinationFinalize(destination) {
             return data as Data
@@ -218,7 +221,7 @@ public class GIFGenerator: GIFGenerating {
         return destination
     }
 
-    private func addAnimatedFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?, textPass: TextPass?, burst: [BurstFrame]? = nil, burstPass: ((Int) -> FaceEffectPass?)? = nil) {
+    private func addAnimatedFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?, textPass: TextPass?, burst: [BurstFrame]? = nil, burstPass: ((Int) -> FaceEffectPass?)? = nil, burstMotion: ((Int) -> MotionContext?)? = nil) {
         let frameProperties: [String: Any] = [
             kCGImagePropertyGIFDictionary as String: [
                 kCGImagePropertyGIFDelayTime as String: context.frameDelay,
@@ -237,7 +240,7 @@ public class GIFGenerator: GIFGenerating {
             let lock = NSLock()
             DispatchQueue.concurrentPerform(iterations: count) { k in
                 let image = autoreleasepool {
-                    renderAnimatedFrame(start + k, context: context, animator: animator, visualEffects: visualEffects, facePass: facePass, textPass: textPass, burst: burst, burstPass: burstPass)
+                    renderAnimatedFrame(start + k, context: context, animator: animator, visualEffects: visualEffects, facePass: facePass, textPass: textPass, burst: burst, burstPass: burstPass, burstMotion: burstMotion)
                 }
                 lock.lock()
                 rendered[k] = image
@@ -255,7 +258,7 @@ public class GIFGenerator: GIFGenerating {
     /// One animated frame, a pure function of its index — which is what lets the frames
     /// render concurrently. Every input is read-only here: the burst passes are built before
     /// the loop, the contexts are thread-safe, and the UIGraphics context is per thread.
-    private func renderAnimatedFrame(_ i: Int, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?, textPass: TextPass?, burst: [BurstFrame]?, burstPass: ((Int) -> FaceEffectPass?)?) -> CGImage? {
+    private func renderAnimatedFrame(_ i: Int, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?, textPass: TextPass?, burst: [BurstFrame]?, burstPass: ((Int) -> FaceEffectPass?)?, burstMotion: ((Int) -> MotionContext?)? = nil) -> CGImage? {
         let frameProgress = CGFloat(i) / CGFloat(context.frameCount - 1)
         let frameParams = animator.animationParameters(for: frameProgress, in: context)
 
@@ -273,14 +276,15 @@ public class GIFGenerator: GIFGenerating {
         let sourceForFrame = faceEffectedSource(pass: passForFrame, progress: frameProgress, frameIndex: i) ?? plainSource
         guard let frameImage = createFrameImage(transform: transform, context: context, sourceOverride: sourceForFrame) else { return nil }
         let geometry = frameGeometry(params: frameParams, transform: transform, context: context)
-        let effected = applyVisualEffects(frameImage, effects: visualEffects, progress: frameProgress, frameIndex: i, geometry: geometry)
+        let motion = burstIndex.flatMap { burstMotion?($0) }
+        let effected = applyVisualEffects(frameImage, effects: visualEffects, progress: frameProgress, frameIndex: i, geometry: geometry, motion: motion)
         // The text entrance consumes the same `frameProgress` the zoom does, so the two
         // are choreographed by construction. `frameProgress` runs 0…1 across the moving
         // frames, which is exactly the normalized progress the presets expect.
         return composited(effected, textPass: textPass, progress: frameProgress)
     }
 
-    private func addPauseFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?, textPass: TextPass?, sourceImage: UIImage? = nil) {
+    private func addPauseFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?, textPass: TextPass?, sourceImage: UIImage? = nil, motion: MotionContext? = nil) {
         let finalParams = animator.animationParameters(for: 1.0, in: context)
         let finalTransform = calculateTransformForFrame(
             params: finalParams, drawRect: context.drawRect, outputSize: context.outputSize
@@ -289,7 +293,7 @@ public class GIFGenerator: GIFGenerating {
         let sourceForFrame = faceEffectedSource(pass: facePass, progress: 1.0, frameIndex: context.frameCount) ?? sourceImage
         if let finalFrameImage = createFrameImage(transform: finalTransform, context: context, sourceOverride: sourceForFrame) {
             let geometry = frameGeometry(params: finalParams, transform: finalTransform, context: context)
-            let effected = applyVisualEffects(finalFrameImage, effects: visualEffects, progress: 1.0, frameIndex: context.frameCount, geometry: geometry)
+            let effected = applyVisualEffects(finalFrameImage, effects: visualEffects, progress: 1.0, frameIndex: context.frameCount, geometry: geometry, motion: motion)
             // Composited once at progress 1: the text is at its settled state and identical across
             // every replicated pause frame, so the message holds still and adds no entropy.
             let outputImage = composited(effected, textPass: textPass, progress: 1.0)
@@ -342,9 +346,26 @@ public class GIFGenerator: GIFGenerating {
         let frames: [BurstFrame]
         let fallbackFaces: [DetectedFace]
         var passes: [Int: FaceEffectPass] = [:]
+        /// Lazy `CIImage`s over the burst frames and their masks, built once for the motion
+        /// contexts every output frame receives (FEATURE-MOTION-EFFECTS.md §1e).
+        let frameImages: [CIImage]
+        let masks: [CIImage?]
         init(frames: [BurstFrame], fallbackFaces: [DetectedFace]) {
             self.frames = frames
             self.fallbackFaces = fallbackFaces
+            self.frameImages = frames.map { CIImage(cgImage: $0.image.cgImage ?? CIImage.empty().cgImage!) }
+            self.masks = frames.map(\.mask)
+        }
+
+        /// The context for output frame `index`: this frame, everything before it, and its
+        /// velocities. Frames and masks stay in the burst's own space; the effect's geometry
+        /// places them.
+        func motionContext(at index: Int) -> MotionContext {
+            let frame = frames[index]
+            return MotionContext(
+                index: index, frames: frameImages, masks: masks,
+                subjectVelocity: frame.subjectVelocity, cameraVelocity: frame.cameraVelocity
+            )
         }
     }
 
@@ -397,13 +418,13 @@ public class GIFGenerator: GIFGenerating {
     ///   applied *after* the zoom transform, so anything with its own spatial grid needs
     ///   both the scale and the content offset to stay locked to the subject rather than
     ///   to the output frame.
-    private func applyVisualEffects(_ cgImage: CGImage, effects: [VisualEffect], progress: CGFloat, frameIndex: Int, geometry: FrameGeometry) -> CGImage {
+    private func applyVisualEffects(_ cgImage: CGImage, effects: [VisualEffect], progress: CGFloat, frameIndex: Int, geometry: FrameGeometry, motion: MotionContext? = nil) -> CGImage {
         guard !effects.isEmpty else { return cgImage }
         var ciImage = CIImage(cgImage: cgImage)
         for effect in effects {
             ciImage = effect.apply(
                 to: ciImage, progress: progress, frameIndex: frameIndex,
-                viewportCenter: nil, geometry: geometry
+                viewportCenter: nil, geometry: geometry, motion: motion
             )
         }
         return ciContext.createCGImage(ciImage, from: ciImage.extent) ?? cgImage

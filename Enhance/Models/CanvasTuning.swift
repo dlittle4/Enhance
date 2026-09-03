@@ -86,6 +86,18 @@ struct CanvasTuning: Codable, Equatable {
     /// past.
     var burstFrameSide: Double
 
+    // MARK: Motion effects (FEATURE-MOTION-EFFECTS.md §1)
+
+    /// Side the burst frames are shrunk to before segmentation and registration, in pixels.
+    /// The mask is placed by extent, so a small one still lands right; smaller is faster.
+    var motionMaskSide: Double
+    /// Gaussian blur on each mask, in mask pixels. 0 is Vision's edge as it came.
+    var motionMaskFeather: Double
+    /// Average each mask with its neighbours (¼ · ½ · ¼) to calm frame-to-frame edge jitter.
+    var motionMaskSmoothing: Bool
+    /// EMA weight of the new sample in the velocity tracks — see `MotionTrack`.
+    var motionVelocitySmoothing: Double
+
     static let `default` = CanvasTuning(
         scrubSpan: 300,
         scrubTickEvery: 4,
@@ -108,7 +120,11 @@ struct CanvasTuning: Codable, Equatable {
         videoBitrateMbps: 6,
         burstDuration: 1.5,
         burstFPS: 12,
-        burstFrameSide: 720
+        burstFrameSide: 720,
+        motionMaskSide: 360,
+        motionMaskFeather: 1.5,
+        motionMaskSmoothing: true,
+        motionVelocitySmoothing: 0.5
     )
 
     // MARK: - Decoding
@@ -142,11 +158,16 @@ struct CanvasTuning: Codable, Equatable {
         burstDuration = try c.decodeIfPresent(Double.self, forKey: .burstDuration) ?? d.burstDuration
         burstFPS = try c.decodeIfPresent(Double.self, forKey: .burstFPS) ?? d.burstFPS
         burstFrameSide = try c.decodeIfPresent(Double.self, forKey: .burstFrameSide) ?? d.burstFrameSide
+        motionMaskSide = try c.decodeIfPresent(Double.self, forKey: .motionMaskSide) ?? d.motionMaskSide
+        motionMaskFeather = try c.decodeIfPresent(Double.self, forKey: .motionMaskFeather) ?? d.motionMaskFeather
+        motionMaskSmoothing = try c.decodeIfPresent(Bool.self, forKey: .motionMaskSmoothing) ?? d.motionMaskSmoothing
+        motionVelocitySmoothing = try c.decodeIfPresent(Double.self, forKey: .motionVelocitySmoothing) ?? d.motionVelocitySmoothing
     }
 
     init(scrubSpan: Double, scrubTickEvery: Double, scrubStripThumb: Double,
          scrubStripFalloff: Double, scrubStripMinScale: Double, scrubStripTilt: Double,
-         scrubStripFade: Double, scrubStripGap: Double, scrubStripRise: Double, overdriveMax: Double, overdriveGain: Double, overdriveGlitchRate: Double, pathEase: Double, pathDwell: Double, pathSmoothing: Bool, pathScaleRamp: Double, pathSampleSpacing: Double, videoLoops: Double, videoBitrateMbps: Double, burstDuration: Double, burstFPS: Double, burstFrameSide: Double) {
+         scrubStripFade: Double, scrubStripGap: Double, scrubStripRise: Double, overdriveMax: Double, overdriveGain: Double, overdriveGlitchRate: Double, pathEase: Double, pathDwell: Double, pathSmoothing: Bool, pathScaleRamp: Double, pathSampleSpacing: Double, videoLoops: Double, videoBitrateMbps: Double, burstDuration: Double, burstFPS: Double, burstFrameSide: Double,
+         motionMaskSide: Double = 360, motionMaskFeather: Double = 1.5, motionMaskSmoothing: Bool = true, motionVelocitySmoothing: Double = 0.5) {
         self.scrubSpan = scrubSpan; self.scrubTickEvery = scrubTickEvery; self.scrubStripThumb = scrubStripThumb
         self.scrubStripFalloff = scrubStripFalloff; self.scrubStripMinScale = scrubStripMinScale
         self.scrubStripTilt = scrubStripTilt; self.scrubStripFade = scrubStripFade
@@ -156,6 +177,8 @@ struct CanvasTuning: Codable, Equatable {
         self.pathScaleRamp = pathScaleRamp; self.pathSampleSpacing = pathSampleSpacing
         self.videoLoops = videoLoops; self.videoBitrateMbps = videoBitrateMbps
         self.burstDuration = burstDuration; self.burstFPS = burstFPS; self.burstFrameSide = burstFrameSide
+        self.motionMaskSide = motionMaskSide; self.motionMaskFeather = motionMaskFeather
+        self.motionMaskSmoothing = motionMaskSmoothing; self.motionVelocitySmoothing = motionVelocitySmoothing
     }
 
     // MARK: - Scrub arithmetic
@@ -198,7 +221,11 @@ struct CanvasTuning: Codable, Equatable {
             videoBitrateMbps: \(Self.number(videoBitrateMbps)),
             burstDuration: \(Self.number(burstDuration)),
             burstFPS: \(Self.number(burstFPS)),
-            burstFrameSide: \(Self.number(burstFrameSide))
+            burstFrameSide: \(Self.number(burstFrameSide)),
+            motionMaskSide: \(Self.number(motionMaskSide)),
+            motionMaskFeather: \(Self.number(motionMaskFeather)),
+            motionMaskSmoothing: \(motionMaskSmoothing),
+            motionVelocitySmoothing: \(Self.number(motionVelocitySmoothing))
         )
         """
     }

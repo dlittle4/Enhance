@@ -9,4 +9,11 @@ import UIKit
 struct BurstFrame {
     let image: UIImage
     var faces: [DetectedFace] = []
+    /// The subject mask for this frame in the burst's own pixel space (any size — the
+    /// placement maps by extent), or `nil` when segmentation found nothing or has not run.
+    /// Filled by the editor's burst analysis under MOTION EFFECTS; see `MotionContext`.
+    var mask: CIImage? = nil
+    /// How the subject and the camera moved into this frame, normalized units per frame.
+    var subjectVelocity: CGVector = .zero
+    var cameraVelocity: CGVector = .zero
 }

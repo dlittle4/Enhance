@@ -41,6 +41,8 @@ struct CanvasTuningTests {
         #expect(tuning.scrubSpan == 420)
         #expect(tuning.scrubStripThumb == CanvasTuning.default.scrubStripThumb)
         #expect(tuning.burstFPS == CanvasTuning.default.burstFPS)
+        #expect(tuning.motionMaskSide == CanvasTuning.default.motionMaskSide)
+        #expect(tuning.motionMaskSmoothing == CanvasTuning.default.motionMaskSmoothing)
     }
 
     @Test func filmstripCentresTheCurrentThumbLargestAndShrinksOutward() {

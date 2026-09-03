@@ -35,6 +35,8 @@ struct CanvasLabView: View {
                     divider
                     pathSection
                     divider
+                    motionSection
+                    divider
                     actions
                 }
                 .padding(.horizontal, 16)
@@ -52,6 +54,49 @@ struct CanvasLabView: View {
             labToggle("SCRUB THE PREVIEW", isOn: $scrubFlag)
             labToggle("SLIDER OVERDRIVE", isOn: $overdriveFlag)
             labToggle("STEERABLE ZOOM (PATH)", isOn: $pathFlag)
+        }
+    }
+
+    /// FEATURE-MOTION-EFFECTS.md §1e — the analysis knobs. Judged in the editor on a burst.
+    private var motionSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("MOTION FX")
+                .font(.silkscreenSectionTitle)
+                .foregroundColor(.white)
+
+            Text("JUDGE IN THE EDITOR — HOLD THE SHUTTER FOR A BURST")
+                .font(.silkscreenSmall)
+                .foregroundColor(.textPrimary)
+
+            ParameterSliderRow(
+                label: "MASK SIZE",
+                value: normalized(tuning.motionMaskSide, in: 160...720),
+                valueText: "\(Int(store.tuning.motionMaskSide))PX"
+            )
+            ParameterSliderRow(
+                label: "MASK FEATHER",
+                value: normalized(tuning.motionMaskFeather, in: 0...8),
+                allowsZero: true,
+                valueText: String(format: "%.1fPX", store.tuning.motionMaskFeather)
+            )
+            ParameterSliderRow(
+                label: "VELOCITY SMOOTHING",
+                value: normalized(tuning.motionVelocitySmoothing, in: 0.1...1),
+                valueText: String(format: "%.2f", store.tuning.motionVelocitySmoothing)
+            )
+
+            Text("MASK SMOOTHING")
+                .font(.silkscreenSubheadline)
+                .foregroundColor(.textPrimary)
+
+            SegmentedToggle(
+                items: [true, false],
+                selection: Binding(
+                    get: { store.tuning.motionMaskSmoothing },
+                    set: { store.tuning.motionMaskSmoothing = $0 }
+                ),
+                label: { $0 ? "NEIGHBOURS" : "OFF" }
+            )
         }
     }
 

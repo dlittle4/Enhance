@@ -268,4 +268,14 @@ enum FeatureFlags {
     static let squareCornersKey = "featureSquareCorners"
 
     static var squareCorners: Bool { UserDefaults.standard.bool(forKey: squareCornersKey) }
+
+    // MARK: - Motion effects
+
+    /// FEATURE-MOTION-EFFECTS.md: a burst is analysed for a subject mask per frame and for how
+    /// the subject and camera moved, and effects that read that (FRAME ECHO and the
+    /// motion-aware cards) appear on the IMAGE tab for bursts. Off, no analysis runs and the
+    /// cards are hidden; the foundation costs nothing.
+    static let motionEffectsKey = "featureMotionEffects"
+
+    static var motionEffects: Bool { UserDefaults.standard.bool(forKey: motionEffectsKey) }
 }
