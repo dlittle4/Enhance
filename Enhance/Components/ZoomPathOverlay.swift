@@ -1,6 +1,8 @@
 import SwiftUI
 
-/// Draws a `ZoomPath` over the live canvas: the route, numbered stops, and a CLEAR chip.
+/// Draws a `ZoomPath` over the live canvas: the route, its stops, and one chip — DONE while
+/// the route is being drawn, EDIT PATH once it is finished. Tweaking a route is undo and redo
+/// (one entry per stroke), not buttons *(user's call, 2026-09-03)*.
 ///
 /// Stops are in the photo's normalized space and the canvas shows `visibleRect` of it, so each
 /// point is mapped through that rect — the route stays pinned to the photo through a pinch
@@ -11,7 +13,10 @@ struct ZoomPathOverlay: View {
     let visibleRect: CGRect
     let canvasSize: CGFloat
     let smoothing: Bool
-    let onClear: () -> Void
+    /// Drawing mode: strokes extend the route and the chip reads DONE.
+    let isEditing: Bool
+    let onDone: () -> Void
+    let onEdit: () -> Void
 
     private func canvasPoint(_ p: CGPoint) -> CGPoint {
         guard visibleRect.width > 0, visibleRect.height > 0 else { return .zero }
@@ -39,8 +44,10 @@ struct ZoomPathOverlay: View {
                         route.move(to: points[0])
                         for p in points.dropFirst() { route.addLine(to: p) }
                     }
-                    context.stroke(route, with: .color(.black.opacity(0.45)), style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
-                    context.stroke(route, with: .color(Color.enhanceMint), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round, dash: [6, 5]))
+                    // Finished routes sit back so the photo reads as the thing being framed.
+                    let alpha: CGFloat = isEditing ? 1 : 0.55
+                    context.stroke(route, with: .color(.black.opacity(0.45 * alpha)), style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))
+                    context.stroke(route, with: .color(Color.enhanceMint.opacity(alpha)), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round, dash: [6, 5]))
                 }
                 for (index, p) in points.enumerated() {
                     let isEnd = index == 0 || index == points.count - 1
@@ -52,22 +59,28 @@ struct ZoomPathOverlay: View {
             }
             .allowsHitTesting(false)
 
-            if !path.isEmpty {
-                Button {
-                    HapticService.selection()
-                    onClear()
-                } label: {
-                    Text("CLEAR PATH")
-                        .font(.silkscreenSmall)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.black.opacity(0.7)))
-                }
-                .buttonStyle(.plain)
-                .padding(AppConstants.Spacing.small)
+            if isEditing {
+                chip("DONE", tint: Color.enhanceMint) { onDone() }
+            } else {
+                chip("EDIT PATH", tint: .white) { onEdit() }
             }
         }
         .frame(width: canvasSize, height: canvasSize)
+    }
+
+    private func chip(_ title: String, tint: Color, action: @escaping () -> Void) -> some View {
+        Button {
+            HapticService.selection()
+            action()
+        } label: {
+            Text(title)
+                .font(.silkscreenSmall)
+                .foregroundColor(tint)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(Color.black.opacity(0.7)))
+        }
+        .buttonStyle(.plain)
+        .padding(AppConstants.Spacing.small)
     }
 }

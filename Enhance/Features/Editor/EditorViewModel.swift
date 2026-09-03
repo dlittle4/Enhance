@@ -132,6 +132,9 @@ class EditorViewModel {
         let wasAtDefault = isPauseAtDefault
         selectedAnimatorType = type
         if wasAtDefault { pauseDuration = defaultPauseDuration }
+        // Choosing PATH — or tapping it again — is asking to draw. Every other card leaves
+        // drawing mode, so the pinch and the GIF come back.
+        isEditingZoomPath = type == .path
     }
     var selectedModifier: ModifierType? = nil
     var isPlaying: Bool = true
@@ -656,10 +659,37 @@ class EditorViewModel {
 
     // MARK: - Zoom path
 
-    /// Whether a touch on the canvas lays down PATH stops: the experiment is on, the ZOOM tab is
-    /// up and the PATH card is the selection.
-    var wantsZoomPath: Bool {
+    /// Whether the PATH card is the selection under the ZOOM tab with the experiment on — the
+    /// route is drawn over the live photo whenever this holds.
+    var showsZoomPathOverlay: Bool {
         FeatureFlags.pathZoom && selectedEffectCategory == .zoomEffects && selectedAnimatorType == .path
+    }
+
+    /// Whether a touch on the canvas lays down PATH stops: the card is up **and the route is
+    /// being edited**. Drawing owns the one-finger touch and keeps the photo on the canvas, so
+    /// it has to be a mode the user leaves: DONE hands the finger back to the pinch (that is
+    /// how the zoom level gets set) and lets ENHANCE show its GIF, which the live canvas was
+    /// covering (device pass, 2026-09-03). EDIT PATH, or tapping the card again, comes back.
+    var wantsZoomPath: Bool {
+        showsZoomPathOverlay && isEditingZoomPath
+    }
+
+    /// Navigation state, like `isEditingEffect`: not snapshotted, so undo never drops the
+    /// user back into drawing.
+    private(set) var isEditingZoomPath = false
+
+    func finishZoomPath() {
+        guard isEditingZoomPath else { return }
+        isEditingZoomPath = false
+        hasFinishedZoomPath = true
+        updateCombinedPreview()
+        regenerateIfNeeded()
+    }
+
+    func editZoomPath() {
+        guard showsZoomPathOverlay, !isEditingZoomPath else { return }
+        isEditingZoomPath = true
+        updateCombinedPreview()
     }
 
     /// True between a finger landing to draw and lifting. Same discipline as the text and aim
@@ -710,12 +740,23 @@ class EditorViewModel {
     }
 
     static let zoomPathHintMessage = "DRAW A PATH ON THE PHOTO"
+    static let zoomPathDoneHintMessage = "TAP DONE, THEN PINCH TO SET THE ZOOM"
 
     var showsZoomPathHint: Bool {
         guard wantsZoomPath else { return false }
         guard zoomPath.isEmpty, !hasDrawnZoomPath else { return false }
         guard !isEditingEffect else { return false }
         guard showControls else { return false }
+        return true
+    }
+
+    /// Once a route exists the next step is not obvious: the finger is still drawing, and the
+    /// zoom level lives behind DONE. Shown until the route is finished once.
+    private(set) var hasFinishedZoomPath = false
+
+    var showsZoomPathDoneHint: Bool {
+        guard wantsZoomPath, !zoomPath.isEmpty, !hasFinishedZoomPath else { return false }
+        guard !isZoomPathActive, !isEditingEffect, showControls else { return false }
         return true
     }
 
@@ -1099,6 +1140,7 @@ class EditorViewModel {
         laserColor = .red
         laserAim = nil
         zoomPath = ZoomPath()
+        isEditingZoomPath = false
         tintColor = .red
         pixelShape = .square
         gradientStops = .default

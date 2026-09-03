@@ -1260,6 +1260,19 @@ ticking at 12Hz on an `@Observable` re-evaluated the whole editor body and re-ra
 (`updatePlayback`), which swaps `imageView.image` on its own timer; SwiftUI is not involved
 in a frame change at all. `EditorViewModel.canvasPlaybackFrames` just says *what* to play.
 
+### PATH is a mode you leave (2026-09-03)
+
+Three device-pass complaints, one cause. While the PATH card was selected the canvas stayed
+live so the route could keep being drawn — which meant the one-finger touch was never the
+pinch (so the zoom level could not be set), and `wantsLiveCanvas` was true, so **ENHANCE
+rendered a GIF the canvas never showed**; it only surfaced after SAVE, in the gallery.
+
+Drawing is now `EditorViewModel.isEditingZoomPath`: entered by choosing the PATH card (or
+tapping it again), left by the DONE chip on the overlay. Finished, the route stays drawn at
+half strength, the finger goes back to the pinch, and ENHANCE shows its GIF like every other
+card; EDIT PATH re-enters. CLEAR PATH is gone — tweaking a route is undo and redo, one entry
+per stroke *(user's call)*. A hint after the first stroke says where the zoom level lives.
+
 ### "Sluggish next to the preview, and stuck at the end" (2026-09-03)
 
 Both were the zoom's timing applied to real motion. The GIF's animated length is fixed at

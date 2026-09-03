@@ -647,13 +647,15 @@ struct EditorView: View {
             )
             .frame(width: canvasSize, height: canvasSize)
             .overlay {
-                if viewModel.wantsZoomPath {
+                if viewModel.showsZoomPathOverlay {
                     ZoomPathOverlay(
                         path: viewModel.zoomPath,
                         visibleRect: displayedRect,
                         canvasSize: canvasSize,
                         smoothing: canvasStore.tuning.pathSmoothing,
-                        onClear: { viewModel.clearZoomPath() }
+                        isEditing: viewModel.isEditingZoomPath,
+                        onDone: { viewModel.finishZoomPath() },
+                        onEdit: { viewModel.editZoomPath() }
                     )
                 }
             }
@@ -1772,6 +1774,9 @@ struct EditorView: View {
                 // ranks below the zoom hint, which is the one with a consequence.
                 toastLabel(EditorViewModel.laserHintMessage)
                     .transition(.opacity)
+            } else if viewModel.showsZoomPathDoneHint {
+                toastLabel(EditorViewModel.zoomPathDoneHintMessage)
+                    .transition(.opacity)
             } else if viewModel.showsZoomPathHint {
                 toastLabel(EditorViewModel.zoomPathHintMessage)
                     .transition(.opacity)
@@ -1782,6 +1787,7 @@ struct EditorView: View {
         .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showsTextHint)
         .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showsLaserHint)
         .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showsZoomPathHint)
+        .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showsZoomPathDoneHint)
         .frame(maxHeight: .infinity, alignment: .bottom)
         .padding(.bottom, AppConstants.Spacing.grid)
     }

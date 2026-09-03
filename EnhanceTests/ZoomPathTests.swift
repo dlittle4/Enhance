@@ -148,6 +148,71 @@ struct ZoomPathTests {
         #expect(vm.zoomPath.isEmpty)
     }
 
+    /// Drawing is a mode: PATH enters it, DONE leaves it (handing the canvas to the pinch and
+    /// the GIF), EDIT PATH or the card again re-enters it, and another card leaves it.
+    @MainActor
+    @Test func pathDrawingIsAModeEnteredByTheCardAndLeftByDone() {
+        let key = FeatureFlags.pathZoomKey
+        let previous = UserDefaults.standard.object(forKey: key)
+        defer {
+            if let previous { UserDefaults.standard.set(previous, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+        UserDefaults.standard.set(true, forKey: key)
+
+        let vm = EditorViewModel(content: .newImage(UIImage()))
+        vm.selectedEffectCategory = .zoomEffects
+        vm.selectAnimator(.path)
+        #expect(vm.isEditingZoomPath)
+        #expect(vm.wantsZoomPath)
+        #expect(vm.wantsLiveCanvas, "the photo stays up while drawing")
+
+        vm.finishZoomPath()
+        #expect(!vm.isEditingZoomPath)
+        #expect(vm.showsZoomPathOverlay, "the route stays drawn")
+        #expect(!vm.wantsZoomPath, "the finger goes back to the pinch")
+        #expect(!vm.wantsLiveCanvas, "ENHANCE can show its GIF")
+
+        vm.editZoomPath()
+        #expect(vm.isEditingZoomPath)
+
+        vm.selectAnimator(.zoomIn)
+        #expect(!vm.isEditingZoomPath)
+        #expect(!vm.showsZoomPathOverlay)
+
+        vm.selectAnimator(.path)
+        #expect(vm.isEditingZoomPath, "the card again re-enters drawing")
+    }
+
+    @MainActor
+    @Test func doneHintShowsOnceARouteExistsUntilFinished() {
+        let key = FeatureFlags.pathZoomKey
+        let previous = UserDefaults.standard.object(forKey: key)
+        defer {
+            if let previous { UserDefaults.standard.set(previous, forKey: key) }
+            else { UserDefaults.standard.removeObject(forKey: key) }
+        }
+        UserDefaults.standard.set(true, forKey: key)
+
+        let vm = EditorViewModel(content: .newImage(UIImage()))
+        vm.showControls = true
+        vm.selectAnimator(.path)
+        #expect(vm.showsZoomPathHint)
+        #expect(!vm.showsZoomPathDoneHint)
+
+        vm.beginZoomPathStroke()
+        vm.extendZoomPath(to: CGPoint(x: 0.2, y: 0.2), minimumSpacing: 0.02)
+        vm.extendZoomPath(to: CGPoint(x: 0.6, y: 0.6), minimumSpacing: 0.02)
+        vm.endZoomPathStroke()
+        #expect(!vm.showsZoomPathHint)
+        #expect(vm.showsZoomPathDoneHint)
+
+        vm.finishZoomPath()
+        #expect(!vm.showsZoomPathDoneHint)
+        vm.editZoomPath()
+        #expect(!vm.showsZoomPathDoneHint, "retired for good once finished once")
+    }
+
     @MainActor
     @Test func activeAnimatorIsAPathAnimatorForThePathCard() {
         let vm = EditorViewModel(content: .newImage(UIImage()))
