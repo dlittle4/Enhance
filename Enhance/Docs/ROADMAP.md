@@ -37,7 +37,8 @@ Items marked 🔍 are landed and green but never confirmed on hardware.
 > the questions we want fresh eyes on. **Read it before touching `BigHeadEffect`.**
 > Feature plans: [TEXT-EFFECTS](FEATURE-TEXT-EFFECTS.md) · [THEMES](FEATURE-THEMES.md) ·
 > [LENS](FEATURE-LENS-DISTORTION.md) · [SCRAMBLER](FEATURE-SCRAMBLER.md) *(historical)* ·
-> [VIEW-TRANSITIONS](FEATURE-VIEW-TRANSITIONS.md)
+> [VIEW-TRANSITIONS](FEATURE-VIEW-TRANSITIONS.md) ·
+> [MOTION-EFFECTS](FEATURE-MOTION-EFFECTS.md) *(plan: FRAME ECHO and motion-reading effects on bursts)*
 
 ---
 
