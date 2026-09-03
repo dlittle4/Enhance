@@ -151,11 +151,15 @@ struct CausticTests {
     @Test("CAUSTIC declares three extra sliders and a tint picker")
     func caustic_parameterShape() {
         let params = VisualEffectType.caustic.parameters
-        #expect(params.count == 5)
+        // Six as of EFFECTS LAB: COLOR, three sliders behind INTENSITY, and BACKGROUND ONLY —
+        // retired effects carry the toggle too now, since the lab can put them back in front
+        // of the user.
+        #expect(params.count == 6)
         // COLOR leads as of 2026-08-13; intensity is the first slider behind it.
         #expect(params.first?.kind == .tintColor)
         #expect(params.first { $0.kind == .slider }?.id == EffectParameter.intensityID)
-        #expect(params.filter { $0.kind != .slider }.count == 1)
+        #expect(params.filter { $0.kind != .slider && $0.kind != .toggle }.count == 1)
+        #expect(params.last?.id == EffectParameter.backgroundOnlyID)
         #expect(VisualEffectType.caustic.colorPickerKind == .tintColor)
     }
 }

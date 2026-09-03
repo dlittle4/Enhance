@@ -23,7 +23,8 @@ Bundled model SHA-256:
 Copyright (c) 2026 Kris Puckett.
 
 `Enhance/Shaders/ShaderPack.metal` and `Enhance/Components/ShaderPackEffects.swift` are vendored
-from SwiftUIShaders and distributed under the MIT License:
+from SwiftUIShaders, and `Enhance/Shaders/CI/ShaderPack.ci.metal` carries twelve of its shader
+bodies ported to Core Image kernels; all are distributed under the MIT License:
 https://github.com/krispuckett/SwiftUIShaders/blob/main/LICENSE
 
 Vendored from commit `6b644a8bd4f3131401bd6765990e476352d3cdef`.

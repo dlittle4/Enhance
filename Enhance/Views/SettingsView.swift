@@ -47,6 +47,7 @@ struct SettingsView: View {
     @State private var showMotionLab = false
     @State private var showHeadMaskLab = false
     @State private var showShaderLab = false
+    @State private var showEffectLab = false
 
     /// Read by `GalleryView` (the MAKE A GIF label) — `@AppStorage` on both ends republishes, so
     /// toggling here swaps the label live under this sheet. `ButtonTextLabView` edits the values;
@@ -119,6 +120,9 @@ struct SettingsView: View {
         }
         .sheet(isPresented: $showShaderLab) {
             ShaderLabView(isPresented: $showShaderLab)
+        }
+        .sheet(isPresented: $showEffectLab) {
+            EffectLabView(isPresented: $showEffectLab)
         }
     }
 
@@ -225,7 +229,7 @@ struct SettingsView: View {
 
     // MARK: - Labs
 
-    /// The three tuning benches, collected.
+    /// The tuning benches, collected.
     ///
     /// **Placed high in the sheet on purpose.** `BottomSheet` opens at the `.medium` detent, and a
     /// destination row below that fold is one most people never find — the face-marker section
@@ -248,6 +252,7 @@ struct SettingsView: View {
             labRow("HEAD MASK LAB →") { showHeadMaskLab = true }
             labRow("BUTTON TEXT LAB →") { showButtonTextLab = true }
             labRow("SHADER LAB →") { showShaderLab = true }
+            labRow("EFFECTS LAB →") { showEffectLab = true }
         }
     }
 

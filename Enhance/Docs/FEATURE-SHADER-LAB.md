@@ -57,3 +57,17 @@ against the `.metal` signatures (vendored commit is recorded in `THIRD_PARTY_NOT
 refresh: re-copy the two vendored files (re-apply the two mechanical adaptations noted at the
 top of `ShaderPackEffects.swift`), regenerate the catalog rather than hand-editing it, and let
 `ShaderLabTests` catch what moved.
+
+## Graduated 2026-09-02
+
+The twelve starred shaders now ship: THERMAL, CHROMATIC SPLIT, DATAMOSH, HEAT SHIMMER, LIVE
+RIPPLE, MELT, NEON EDGE, PIXEL STORM, SHOCKWAVE, SOLARIZE and WAVE POOL as IMAGE effects
+(THERMAL and MELT also on the FACE tab, masked through `FaceVisualEffect`), and PULSE as
+HEART BEAT on the ZOOM tab — the same kernel, appended to the effect list while that zoom card is
+selected, with the shader's controls standing in for SPEED / PAUSE / MOTION.
+Not via the typed wrappers (those are SwiftUI `layerEffect`s, and the editor's pipeline is
+`CIImage` in, `CIImage` out) but as Core Image kernels: `Shaders/CI/ShaderPack.ci.metal` carries
+the vendored bodies verbatim inside a `BCSLayer` frame that stands in for `SwiftUI::Layer`, and
+`PackShaderEffect` drives them. The lab's tuned values landed in `EffectTuningTables.windows` as
+each knob's opening position, so the editor's defaults are the lab's. The lab, the wrappers and
+`ShaderPack.metal` stay for auditioning the other 29.
