@@ -24,6 +24,10 @@ enum ZoomCardFraming {
         case .zoomIn:  return 1
         case .zoomOut: return 0
         case .pulse:   return 0.5
+        // HEART BEAT's card is not a framing at all — `EditorView` draws it from the effect
+        // thumbnail, since the beat is a shader rather than a camera move. A distinct value is
+        // kept so the fraction table stays total and the distinctness tests keep their meaning.
+        case .heartBeat: return 0.75
         }
     }
 

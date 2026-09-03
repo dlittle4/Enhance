@@ -40,7 +40,12 @@ jobs:
 
   unit-tests:
     name: Unit tests
-    runs-on: macos-15
+    # macos-26, not macos-15: the camera chrome calls `glassEffect` behind an `#available(iOS 26)`
+    # guard, which is correct at runtime but only *compiles* against an iOS 26 SDK — the guard
+    # cannot conjure a symbol the SDK does not declare. macos-15's default toolchain is Xcode 16.4,
+    # so the build failed on that one line before any test ran. The tokens job stays on macos-15;
+    # it is a bare `swift` script with no SDK dependency.
+    runs-on: macos-26
     timeout-minutes: 30
 
     steps:

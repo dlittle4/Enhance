@@ -25,8 +25,32 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
     case lensDistortion = "LENS"
     /// ROADMAP §2a — one `CIBumpDistortion` with a head-sized radius and a positive scale.
     case bigHead        = "BIG HEAD"
+    /// Two of the SHADER LAB graduates, masked to the face through `FaceVisualEffect` (user's
+    /// call, 2026-09-02). Same raw values as their IMAGE twins; the parameter namespace keeps
+    /// the two apart, as it does for FISHEYE.
+    case thermal        = "THERMAL"
+    case melt           = "MELT"
 
     var id: String { rawValue }
+
+    /// Filters withdrawn from the FACE carousel without deleting their implementations — the
+    /// twin of `VisualEffectType.retired`, added when EFFECTS LAB gave both families an on/off
+    /// switch. Empty so far; the lab's COPY SWIFT emits the literal to paste here.
+    ///
+    /// They stay compiled and under test via `allCases`. To bring one back, delete it from this
+    /// set — nothing else is needed.
+    static let retired: Set<FaceFilterType> = [
+        // Withdrawn 2026-09-02 from EFFECTS LAB (user's call).
+        .fadeToBW
+    ]
+
+    /// The filters the picker offers, in carousel order — the code's own answer, before
+    /// EFFECTS LAB's live overrides (`EffectLabLookup.enabledFaceFilters`) are applied.
+    static var selectable: [FaceFilterType] {
+        allCases.filter { !retired.contains($0) }
+    }
+
+    var isRetired: Bool { Self.retired.contains(self) }
 
     /// Effects that only make sense targeting a single face.
     var requiresSingleFace: Bool {
@@ -87,6 +111,8 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         // coverage) cannot affect it. The second slot now nudges the enlarged head vertically;
         // its midpoint preserves the face-centred V2 result.
         case .bigHead:        return "VERTICAL POSITION"
+        case .thermal:        return "SHIMMER"
+        case .melt:           return "DRIP SCALE"
         default:              return nil
         }
     }
@@ -136,6 +162,23 @@ enum FaceFilterType: String, CaseIterable, Identifiable, Hashable, Parameterized
         // around the face, which would clip the head exactly where it is meant to swell past
         // its outline. `CIBumpDistortion` already falls off to nothing on its own.
         case .bigHead:        return BigHeadEffect(intensity: clamped, size: clampedSecond)
+        // The IMAGE factories, with the pack controls the face panel has no room for pinned at
+        // SHADER LAB's tuned values (THERMAL: noise speed 0.75, palette 0.65; MELT: speed 0.90,
+        // heat 1.0 — slider-space, see `EffectTuningTables`). The face adapter masks the result
+        // to the face; MELT's drip still weighs by height in the *frame*, so a face high in the
+        // photo melts less than one low in it.
+        case .thermal:
+            return FaceVisualEffect(
+                effect: VisualEffectType.thermal.effect(
+                    intensity: clamped,
+                    options: EffectOptions(size: clampedSecond, tertiary: 0.75, quaternary: 0.65)),
+                skipDelay: true)
+        case .melt:
+            return FaceVisualEffect(
+                effect: VisualEffectType.melt.effect(
+                    intensity: clamped,
+                    options: EffectOptions(size: clampedSecond, tertiary: 0.90, quaternary: 1.0)),
+                skipDelay: true)
         }
     }
 }

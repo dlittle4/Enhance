@@ -248,6 +248,8 @@ struct EditorView: View {
             }
         }
         .onChange(of: viewModel.selectedAnimatorType) { _, _ in
+            // HEART BEAT is a visual effect riding this tab, so the canvas has to repaint.
+            viewModel.updatePreviewImage()
             viewModel.regenerateIfNeeded()
         }
         .onChange(of: viewModel.selectedModifier) { _, _ in
@@ -389,6 +391,10 @@ struct EditorView: View {
                 onCommit: { viewModel.regenerateIfNeeded() },
                 valueText: "\(Int((viewModel.textOverlay?.tuning ?? 0.5) * 100))"
             )
+        case .zoomEffects where viewModel.selectedAnimatorType == .heartBeat:
+            // HEART BEAT is the shader, not a camera move: SPEED / PAUSE / MOTION shape a zoom
+            // and mean nothing to it *(user's call, 2026-09-02)*, so its own controls stand in.
+            parameterRows(for: VisualEffectType.pulse, colorSelection: $viewModel.tintColor)
         case .zoomEffects:
             // Built directly rather than through `parameterRows`. Speed and pause are
             // *output* settings that shape the whole GIF, not per-effect parameters —
@@ -761,7 +767,11 @@ struct EditorView: View {
                 zoomToggle(animType, cardSize: cardSize)
             }
         }
-        .onAppear { viewModel.generateZoomPreviewImage() }
+        .onAppear {
+            viewModel.generateZoomPreviewImage()
+            // HEART BEAT's card is an effect thumbnail, not a framing.
+            viewModel.generateEffectThumbnails()
+        }
     }
 
     /// The "no effect" card every carousel opens with.
@@ -803,8 +813,30 @@ struct EditorView: View {
     private func zoomToggle(_ animType: AnimatorType, cardSize: CGFloat) -> some View {
         let isActive = viewModel.selectedAnimatorType == animType
         let framing = viewModel.zoomCardFraming
+        let selectAndEdit = {
+            HapticService.selection()
+            if viewModel.selectedAnimatorType != animType {
+                viewModel.pushUndo()
+                // Carries an untouched PAUSE back off the no-zoom default when leaving NO ZOOM.
+                viewModel.selectAnimator(animType)
+            }
+            viewModel.beginEditing()
+        }
 
-        return EffectCardView(
+        // HEART BEAT shows what it does rather than where it lands: the three zooms differ by
+        // framing, and this one is a shader on whatever framing the user set.
+        if animType == .heartBeat {
+            return AnyView(EffectCardView(
+                title: animType.rawValue.uppercased(),
+                thumbnail: viewModel.effectThumbnails[.pulse],
+                isActive: isActive,
+                isBlocked: viewModel.isRegenerating,
+                size: cardSize,
+                action: selectAndEdit
+            ))
+        }
+
+        return AnyView(EffectCardView(
             // Raw values are mixed case ("Zoom In") unlike every other family.
             title: animType.rawValue.uppercased(),
             isActive: isActive,
@@ -826,16 +858,9 @@ struct EditorView: View {
                 } else {
                     EffectCardThumbnail(image: nil, isActive: isActive, size: cardSize)
                 }
-            }
-        ) {
-            HapticService.selection()
-            if viewModel.selectedAnimatorType != animType {
-                viewModel.pushUndo()
-                // Carries an untouched PAUSE back off the no-zoom default when leaving NO ZOOM.
-                viewModel.selectAnimator(animType)
-            }
-            viewModel.beginEditing()
-        }
+            },
+            action: selectAndEdit
+        ))
     }
 
     // MARK: - Text Gallery
@@ -1313,7 +1338,12 @@ struct EditorView: View {
         for effect: E
     ) -> Binding<Double> {
         Binding(
-            get: { viewModel.value(param.id, for: effect, default: param.defaultValue) },
+            // The knob opens where EFFECTS LAB's window says the default is, so an untouched
+            // slider and the effect it builds agree — see `EditorViewModel.resolvedValue`.
+            get: {
+                viewModel.value(param.id, for: effect,
+                                default: viewModel.effectLab.initialSliderValue(param.id, for: effect, declared: param.defaultValue))
+            },
             set: { viewModel.setValue($0, param.id, for: effect) }
         )
     }
@@ -1322,7 +1352,7 @@ struct EditorView: View {
 
     private func visualEffectsGrid(cardSize: CGFloat) -> some View {
         EffectCarousel(
-            items: EffectChoice.gallery(VisualEffectType.selectable),
+            items: EffectChoice.gallery(viewModel.effectLab.enabledVisualEffects),
             scrollTo: EffectChoice(viewModel.selectedVisualEffect),
             contentInset: canvasInset,
             cascade: cardCascade
@@ -1375,7 +1405,7 @@ struct EditorView: View {
 
     private func faceFiltersGrid(cardSize: CGFloat) -> some View {
         EffectCarousel(
-            items: EffectChoice.gallery(FaceFilterType.allCases),
+            items: EffectChoice.gallery(viewModel.effectLab.enabledFaceFilters),
             scrollTo: EffectChoice(viewModel.selectedFaceFilter),
             contentInset: canvasInset,
             cascade: cardCascade

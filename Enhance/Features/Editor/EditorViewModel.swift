@@ -47,6 +47,14 @@ class EditorViewModel {
     /// value would silently change the behaviour of every later test in the process.
     let allowsGenerationWithoutZoom: Bool
 
+    /// What EFFECTS LAB has decided about the effects: which are on, how each slider is
+    /// windowed, what each card renders at. Read once at construction for exactly the reason
+    /// `allowsGenerationWithoutZoom` is — the editor is rebuilt per photo and Settings cannot be
+    /// open over it, so a snapshot is current by construction — and because the GIF path
+    /// evaluates the effect list off the main thread, where a value is safe and a shared
+    /// `ObservableObject` is not.
+    let effectLab: EffectLabLookup
+
     var scale: CGFloat = 1.0
     var lastScale: CGFloat = 1.0
     var offset: CGSize = .zero
@@ -138,6 +146,20 @@ class EditorViewModel {
 
     func setValue<E: ParameterizedEffect>(_ newValue: Double, _ paramID: String, for effect: E) {
         parameterValues[EffectParameter.key(paramID, for: effect)] = newValue
+    }
+
+    /// The knob position exactly as stored — nil when the user has never touched it — for the
+    /// choke points below, which need to tell "untouched" from "0.5".
+    private func storedValue<E: ParameterizedEffect>(_ paramID: String, for effect: E) -> Double? {
+        parameterValues[EffectParameter.key(paramID, for: effect)]
+    }
+
+    /// What the effect is built with: the stored knob position through EFFECTS LAB's window for
+    /// that parameter, or the window's default when the knob is untouched. This is the one
+    /// translation between the slider the user sees and the number the effect's `init` reads,
+    /// and both the preview and the GIF go through it.
+    func resolvedValue<E: ParameterizedEffect>(_ paramID: String, for effect: E) -> Double {
+        effectLab.resolvedSliderValue(stored: storedValue(paramID, for: effect), paramID: paramID, for: effect)
     }
 
     var tintColor: LaserColor = .red
@@ -645,12 +667,12 @@ class EditorViewModel {
         guard let filter = selectedFaceFilter else { return nil }
 
         let built = filter.effect(
-            intensity: value(EffectParameter.intensityID, for: filter),
-            secondValue: value(EffectParameter.secondaryID, for: filter),
+            intensity: resolvedValue(EffectParameter.intensityID, for: filter),
+            secondValue: resolvedValue(EffectParameter.secondaryID, for: filter),
             laserColor: laserColor,
             laserAim: laserAim,
-            tertiary: value(EffectParameter.tertiaryID, for: filter),
-            quaternary: value(EffectParameter.quaternaryID, for: filter)
+            tertiary: resolvedValue(EffectParameter.tertiaryID, for: filter),
+            quaternary: resolvedValue(EffectParameter.quaternaryID, for: filter)
         )
 
         // BIG HEAD enlarges the head's real outline, so it needs segmentation — and like ECHO,
@@ -710,17 +732,20 @@ class EditorViewModel {
 
     /// Same hot-path rule as `activeFaceEffect`: direct dict reads, never `.parameters`.
     var activeVisualEffectList: [VisualEffect] {
-        guard let effect = selectedVisualEffect else { return [] }
+        // HEART BEAT rides the ZOOM tab but *is* a visual effect (`VisualEffectType.pulse`),
+        // applied after the IMAGE tab's selection so the beat pushes whatever that produced.
+        let heartBeat: [VisualEffect] = selectedAnimatorType == .heartBeat ? [heartBeatEffect] : []
+        guard let effect = selectedVisualEffect else { return heartBeat }
         let options = EffectOptions(
-            size: value(EffectParameter.sizeID, for: effect),
-            tertiary: value(EffectParameter.tertiaryID, for: effect),
-            quaternary: value(EffectParameter.quaternaryID, for: effect),
-            quinary: value(EffectParameter.quinaryID, for: effect),
+            size: resolvedValue(EffectParameter.sizeID, for: effect),
+            tertiary: resolvedValue(EffectParameter.tertiaryID, for: effect),
+            quaternary: resolvedValue(EffectParameter.quaternaryID, for: effect),
+            quinary: resolvedValue(EffectParameter.quinaryID, for: effect),
             tintColor: tintColor,
             gradientStops: gradientStops,
             pixelShape: pixelShape
         )
-        var built = effect.effect(intensity: value(EffectParameter.intensityID, for: effect), options: options)
+        var built = effect.effect(intensity: resolvedValue(EffectParameter.intensityID, for: effect), options: options)
 
         // ECHO draws *from* the subject mask rather than being masked by it, so it is the one
         // effect the factory cannot finish building — the factory has no segmentation.
@@ -732,9 +757,21 @@ class EditorViewModel {
         // both paths — there is no second place to keep in sync.
         guard effect.parameters.contains(where: { $0.id == EffectParameter.backgroundOnlyID }),
               EffectParameter.isOn(value(EffectParameter.backgroundOnlyID, for: effect))
-        else { return [built] }
+        else { return [built] + heartBeat }
 
-        return [BackgroundOnlyEffect(wrapped: built, mask: subjectMask)]
+        return [BackgroundOnlyEffect(wrapped: built, mask: subjectMask)] + heartBeat
+    }
+
+    /// The ZOOM tab's HEART BEAT, built from its own knobs through the same windows as any
+    /// other effect. Kept off the IMAGE carousel by `VisualEffectType.retired`.
+    private var heartBeatEffect: VisualEffect {
+        let type = VisualEffectType.pulse
+        let options = EffectOptions(
+            size: resolvedValue(EffectParameter.sizeID, for: type),
+            tertiary: resolvedValue(EffectParameter.tertiaryID, for: type),
+            quaternary: resolvedValue(EffectParameter.quaternaryID, for: type)
+        )
+        return type.effect(intensity: resolvedValue(EffectParameter.intensityID, for: type), options: options)
     }
 
     /// The zoom, with the motion modifier layered over it.
@@ -1142,17 +1179,14 @@ class EditorViewModel {
             let thumb = self.getThumbnailSourceCGImage(from: source)
             guard let thumb else { return }
 
-            let ciInput = CIImage(cgImage: thumb)
             var results: [VisualEffectType: UIImage] = [:]
 
-            for effectType in VisualEffectType.selectable {
-                let options = EffectOptions(size: 0.5, tintColor: .purple, gradientStops: .default)
-                let effect = effectType.effect(intensity: 0.7, options: options)
-                let progress = effectType.previewProgress
-                let output = effect.apply(to: ciInput, progress: progress, frameIndex: 3)
-                if let cgOut = self.ciContext.createCGImage(output, from: output.extent) {
-                    results[effectType] = UIImage(cgImage: cgOut)
-                }
+            // The lab's set, not `selectable`: a retired effect switched back on in EFFECTS LAB
+            // needs a card like any other. Values, tint and frame live in the renderer, shared
+            // with the lab's own preview card so the two cannot disagree.
+            // Plus HEART BEAT, whose card lives on the ZOOM tab but is rendered like these.
+            for effectType in self.effectLab.enabledVisualEffects + [.pulse] {
+                results[effectType] = self.thumbnailRenderer.render(effectType, source: thumb, lab: self.effectLab)
             }
 
             DispatchQueue.main.async {
@@ -1245,28 +1279,17 @@ class EditorViewModel {
 
             // ~1.8x the face box, so the crop carries enough surrounding context to
             // read as a portrait rather than a disembodied feature.
-            let box = scaledFace.boundingBox
-            let crop = box
-                .insetBy(dx: -box.width * 0.4, dy: -box.height * 0.4)
-                .intersection(base.extent)
-            guard !crop.isNull, crop.width > 1, crop.height > 1 else { return }
+            let crop = EffectThumbnailRenderer.faceCrop(for: scaledFace, in: base.extent)
+            guard !crop.isNull else { return }
 
             // The same crop with no effect on it, so the ORIGINAL card is the *comparison* the
             // rest of the carousel is judged against rather than a differently-framed photo.
             let plain = self.ciContext.createCGImage(base, from: crop).map(UIImage.init(cgImage:))
 
             var results: [FaceFilterType: UIImage] = [:]
-            for filter in FaceFilterType.allCases {
-                let effect = filter.effect(intensity: 0.7, secondValue: 0.5, laserColor: .red)
-                let output = effect.apply(
-                    to: base,
-                    face: scaledFace,
-                    progress: filter.previewProgress,
-                    frameIndex: 5
-                )
-                if let cgOut = self.ciContext.createCGImage(output, from: crop) {
-                    results[filter] = UIImage(cgImage: cgOut)
-                }
+            for filter in self.effectLab.enabledFaceFilters {
+                results[filter] = self.thumbnailRenderer.render(
+                    filter, base: base, face: scaledFace, crop: crop, lab: self.effectLab)
             }
 
             DispatchQueue.main.async {
@@ -1276,40 +1299,21 @@ class EditorViewModel {
         }
     }
 
+    /// Shared with EFFECTS LAB's live card — see `EffectThumbnailRenderer`. A value over the
+    /// view model's own context, built where it is used rather than held: the thumbnail loops
+    /// run on a utility queue, and a stored `lazy var` would be first-touched there.
+    private var thumbnailRenderer: EffectThumbnailRenderer { EffectThumbnailRenderer(context: ciContext) }
+
     private func getThumbnailSourceCGImage(from source: UIImage) -> CGImage? {
         if let cached = thumbnailSourceCGImage { return cached }
-        guard let data = source.jpegData(compressionQuality: 0.7),
-              let imgSource = CGImageSourceCreateWithData(data as CFData, nil) else {
-            return source.cgImage
-        }
-        let options: [CFString: Any] = [
-            kCGImageSourceThumbnailMaxPixelSize: thumbnailDimension,
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true
-        ]
-        guard let thumb = CGImageSourceCreateThumbnailAtIndex(imgSource, 0, options as CFDictionary) else {
-            return source.cgImage
-        }
+        let thumb = EffectThumbnailRenderer.thumbnailSource(from: source, maxPixel: thumbnailDimension)
         thumbnailSourceCGImage = thumb
         return thumb
     }
 
     private func getPreviewSourceCGImage(from source: UIImage) -> CGImage? {
         if let cached = previewSourceCGImage { return cached }
-        guard let data = source.jpegData(compressionQuality: 0.9),
-              let imgSource = CGImageSourceCreateWithData(data as CFData, nil) else {
-            return source.cgImage
-        }
-        let options: [CFString: Any] = [
-            kCGImageSourceThumbnailMaxPixelSize: previewMaxDimension,
-            kCGImageSourceCreateThumbnailFromImageAlways: true,
-            kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceShouldCacheImmediately: true
-        ]
-        guard let thumb = CGImageSourceCreateThumbnailAtIndex(imgSource, 0, options as CFDictionary) else {
-            return source.cgImage
-        }
+        let thumb = EffectThumbnailRenderer.previewSource(from: source, maxPixel: previewMaxDimension)
         previewSourceCGImage = thumb
         return thumb
     }
@@ -1399,7 +1403,8 @@ class EditorViewModel {
                     let vpCenterX = (rect.origin.x + rect.width / 2) * imgW
                     let vpCenterY = (1.0 - (rect.origin.y + rect.height / 2)) * imgH
                     let center = CGPoint(x: vpCenterX, y: vpCenterY)
-                    let previewProg = self.selectedVisualEffect?.previewProgress ?? 1.0
+                    let previewProg = self.selectedVisualEffect?.previewProgress
+                        ?? (self.selectedAnimatorType == .heartBeat ? VisualEffectType.pulse.previewProgress : 1.0)
                     for effect in visualEffects {
                         result = effect.apply(to: result, progress: previewProg, frameIndex: 0, viewportCenter: center)
                     }
@@ -1478,12 +1483,14 @@ class EditorViewModel {
         content: DetailContent,
         canvasPlaceholder: UIImage? = nil,
         gifGenerator: GIFGenerating = GIFGenerator(),
-        allowsGenerationWithoutZoom: Bool = FeatureFlags.zoomOptional
+        allowsGenerationWithoutZoom: Bool = FeatureFlags.zoomOptional,
+        effectLab: EffectLabLookup = EffectLabStore.shared.lookup
     ) {
         self.content = content
         self.canvasPlaceholder = canvasPlaceholder
         self.gifGenerator = gifGenerator
         self.allowsGenerationWithoutZoom = allowsGenerationWithoutZoom
+        self.effectLab = effectLab
         // After the stored property above, which `defaultAnimatorType` reads.
         self.selectedAnimatorType = allowsGenerationWithoutZoom ? nil : .zoomIn
         // And after the animator, which decides which pause default applies.

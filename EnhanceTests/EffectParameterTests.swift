@@ -28,7 +28,9 @@ struct EffectParameterTests {
         .chromaShift:   ("INTENSITY", nil),
         .rainbow:       ("INTENSITY", "SPEED"),
         .lensDistortion: ("INTENSITY", "REACH"),
-        .bigHead:        ("INTENSITY", "VERTICAL POSITION")
+        .bigHead:        ("INTENSITY", "VERTICAL POSITION"),
+        .thermal:        ("INTENSITY", "SHIMMER"),
+        .melt:           ("INTENSITY", "DRIP SCALE")
     ]
 
     /// The table above must cover the enum — otherwise adding a case would silently
