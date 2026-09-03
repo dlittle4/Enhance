@@ -10,18 +10,32 @@
 
 ## Current state
 
-**15 effects live**, in carousel order:
+**27 effects live**, in carousel order:
 
 `CHROMA SHIFT` · `LENS` · `HALFTONE` · `FISHEYE` · `SWIRL` · `PIXELATE` · `RAINBOW` ·
-`HEAT HAZE` · `MOTION BLUR` · `GRADIENT` · `EDGES` · `DITHER` · `SLICE SHIFT` · `RISO` · `STRETCH`
+`HEAT HAZE` · `MOTION BLUR` · `GRADIENT` · `EDGES` · `DITHER` · `SLICE SHIFT` · `RISO` ·
+`ECHO` · `BITMAP`, then the SHADER LAB graduates (2026-09-02): `THERMAL` · `CHROMATIC SPLIT` ·
+`DATAMOSH` · `HEAT SHIMMER` · `LIVE RIPPLE` · `MELT` · `NEON EDGE` · `PIXEL STORM` ·
+`SHOCKWAVE` · `SOLARIZE` · `WAVE POOL` (the twelfth star, PULSE, is HEART BEAT on the ZOOM
+tab — the same shader, hosted there with its own controls, and retired from this carousel so it
+shows once) — one `PackShaderEffect` over
+the kernels in `Shaders/CI/ShaderPack.ci.metal`, the vendored SwiftUIShaders bodies verbatim
+inside a frame that stands in for `SwiftUI::Layer` (origin flip, sRGB round-trip, a virtual
+650px frame so pixel constants export at the size they were tuned on).
 
-**7 retired** (compiled and tested, hidden from the picker — remove from
+**8 retired** (compiled and tested, hidden from the picker — remove from
 `VisualEffectType.retired` to bring one back): Monotone, Duotone, Bloom, Inversion,
-Vintage Grain, Pop Art, and **Caustic** — the last withdrawn on the user's call after being
-built, not before.
+Vintage Grain, Pop Art, **Caustic** — withdrawn on the user's call after being built, not
+before — and **Stretch**, withdrawn from EFFECTS LAB on 2026-09-02.
 
-**15 face filters**, all shipped. LENS is the seventh effect living in *both* carousels, via
-`FaceVisualEffect`.
+**17 face filters** shipped; FADE TO B&W is retired (`FaceFilterType.retired`, the FACE twin of
+the visual set, filled from EFFECTS LAB). THERMAL and MELT joined the FACE tab on 2026-09-02
+through `FaceVisualEffect`, which also carries LENS and the other effects living in *both*
+carousels.
+
+The set, each slider's exposed span, and each card's thumbnail values are edited in
+**EFFECTS LAB** (SETTINGS → LABS), which applies live to the next editor session and hands the
+result back as Swift — see `FEATURE-EFFECTS-LAB.md`.
 
 Every effect **except RISO and STRETCH** is composed from stock `CIFilter`s, and that is still the
 default — rule zero below has not changed. **Custom Core Image kernel infrastructure now exists** as of

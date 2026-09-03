@@ -747,6 +747,10 @@ that was written while three rows was still believed marginal.
 
 ### 2e. Follow-ups on shipped effects
 
+- [ ] **Edit down the shipped set, the slider spans, and the card thumbnails** in EFFECTS LAB
+      (SETTINGS → LABS) rather than by hand — see `FEATURE-EFFECTS-LAB.md`. COPY SWIFT hands back
+      the `retired` literals and the `EffectTuningTables` tables; paste, RESET ALL, delete the lab.
+
 - [ ] **THIRD EYE's ray colour should follow the COLOUR pick.** Currently hardcoded warm gold while
       the eye tints. LAZER EYES tints its whole glow, which is part of why it reads as cohesive.
       One `CIColor` in `ThirdEyeEffect`.
@@ -1126,13 +1130,16 @@ Landed and green, never confirmed on hardware. Effect-specific items are in §2e
 App/              → Entry point, font registration
 Models/           → Data types (AnimatorType, ModifierType, VisualEffectType, EffectCategory,
                     DetailContent, GradientStops, Text/*, etc.)
-Services/         → Business logic (GIF generation, photo library, permissions, face detection)
+Services/         → Business logic (GIF generation, photo library, permissions, face detection,
+                    EffectThumbnailRenderer — the picker cards, shared by the editor and EFFECTS LAB)
   Animators/      → Animator + MotionModifier + VisualEffect protocols, CompositeAnimator,
                     per-effect files, FaceRegions/ compositor
   Text/           → Text layout, rasterization, tile compositing
 Features/
   Gallery/        → Gallery screen + pinch-to-reflow grid
   Editor/         → Editor screen + logic (EditorView, EditorViewModel)
+Views/            → Settings and the labs (GRADIENT, FACE MARKER, MOTION, HEAD MASK, BUTTON TEXT,
+                    SHADER, EFFECTS) — scaffolding, each with a delete-on-graduation contract
 Components/       → Shared reusable UI
 Design/           → Tokens, modifiers, typography, PanelMetrics
 Extensions/       → Swift extensions

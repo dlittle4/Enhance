@@ -124,7 +124,14 @@ struct EffectParameter: Identifiable, Hashable {
 
     /// Key under which a parameter's value is stored on the view model.
     static func key<E: ParameterizedEffect>(_ paramID: String, for effect: E) -> String {
-        "\(E.parameterNamespace)|\(effect.parameterKeyComponent)|\(paramID)"
+        "\(effectKey(for: effect))|\(paramID)"
+    }
+
+    /// The effect's own key — the prefix of every one of its parameter keys, and what
+    /// per-effect state (EFFECTS LAB's on/off switch and thumbnail preset) is stored under.
+    /// Namespaced for the same reason `key(_:for:)` is: the two `FISHEYE`s must not collide.
+    static func effectKey<E: ParameterizedEffect>(for effect: E) -> String {
+        "\(E.parameterNamespace)|\(effect.parameterKeyComponent)"
     }
 
 }

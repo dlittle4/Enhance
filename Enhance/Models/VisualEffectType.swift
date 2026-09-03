@@ -64,6 +64,24 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     case subjectEcho   = "ECHO"
     /// ROADMAP §2b — 1-bit clustered-dot halftone in two spot colours.
     case bitmap        = "BITMAP"
+    // The twelve SwiftUIShaders looks starred in SHADER LAB, graduated 2026-09-02 as Core Image
+    // kernels — see `PackShaderEffect` and `Shaders/CI/ShaderPack.ci.metal`.
+    case thermal       = "THERMAL"
+    case chromaticSplit = "CHROMATIC SPLIT"
+    case datamosh      = "DATAMOSH"
+    case heatShimmer   = "HEAT SHIMMER"
+    case liveRipple    = "LIVE RIPPLE"
+    case melt          = "MELT"
+    case neonEdge      = "NEON EDGE"
+    case pixelateStorm = "PIXEL STORM"
+    case shockwave     = "SHOCKWAVE"
+    case solarize      = "SOLARIZE"
+    case wavePool      = "WAVE POOL"
+    /// The twelfth SHADER LAB star. Lives on the **ZOOM** tab as HEART BEAT — its beat reads as
+    /// a zoom — with this effect's own controls in place of SPEED / PAUSE / MOTION; retired
+    /// from the IMAGE carousel so it appears once. `EditorViewModel.activeVisualEffectList`
+    /// appends it while `AnimatorType.heartBeat` is selected.
+    case pulse         = "HEART BEAT"
 
     // MARK: - Retired
     // Hidden from the picker but kept compiled and tested — see `retired` below.
@@ -87,7 +105,13 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
         // Withdrawn 2026-08-12 on the user's call — the look was not wanted. Kept compiled
         // rather than deleted, per this set's purpose: it is the only custom-kernel effect
         // besides RISO, so it is also the working second example of the CIKernel path.
-        .caustic
+        .caustic,
+        // Withdrawn 2026-09-02 from EFFECTS LAB (user's call).
+        .stretch,
+        // Not withdrawn — *hosted elsewhere*. HEART BEAT is the ZOOM tab's card (see the case);
+        // retiring it here is what keeps it off the IMAGE carousel. EFFECTS LAB can still window
+        // it, and switching it on there would show it on both tabs.
+        .pulse
     ]
 
     /// The effects the picker offers, in carousel order. Everything that walks the
@@ -177,11 +201,66 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "ANGLE"))
             params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "POSITION"))
             params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "REACH"))
+
+        // The shader pack: INTENSITY is whatever the look reads as an *amount* (the pack's own
+        // intensity, an amplitude, a spread) and the pack's other controls follow in its order.
+        // NEON EDGE and SOLARIZE have no amount of their own, so INTENSITY blends the result
+        // over the original and all four pack controls follow.
+        case .thermal:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "SHIMMER"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "NOISE SPEED"))
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "PALETTE"))
+        case .chromaticSplit:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "ANGLE"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "EDGE ONLY"))
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "ANIMATE"))
+        case .datamosh:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "SMEAR"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "COLOR BLEED"))
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "GLITCH RATE"))
+        case .heatShimmer:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "FREQUENCY"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "SPEED"))
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "VERTICAL BIAS"))
+        case .liveRipple:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "FREQUENCY"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "SPEED"))
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "DAMPING"))
+        case .melt:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "DRIP SCALE"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "SPEED"))
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "HEAT"))
+        case .neonEdge:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "EDGE STRENGTH"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "GLOW"))
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "COLOR CYCLE"))
+            params.append(EffectParameter(id: EffectParameter.quinaryID, label: "MIX ORIGINAL"))
+        case .pixelateStorm:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "STORM"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "SWIRL"))
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "PULSE"))
+        case .pulse:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "BPM"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "SHARPNESS"))
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "GLOW"))
+        case .shockwave:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "WAVE SPEED"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "RING WIDTH"))
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "REPEAT"))
+        case .solarize:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "THRESHOLD"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "CURVE"))
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "COLOR SEP"))
+            params.append(EffectParameter(id: EffectParameter.quinaryID, label: "ANIMATE"))
+        case .wavePool:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "WAVELENGTH"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "SPEED"))
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "COMPLEXITY"))
         default:
             break
         }
 
-        // Last, and on every selectable effect — it is a *modifier* on whatever is above it
+        // Last, and on every effect — it is a *modifier* on whatever is above it
         // rather than one of the effect's own qualities, so it reads wrong interleaved with
         // them. Off by default (ROADMAP §2f).
         //
@@ -194,7 +273,13 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
         // silhouette that did not move.
         // ECHO is excluded: it *is* a subject effect, so "apply to the background only" is not a
         // meaningful modifier on it — it would mask the effect with the same mask it draws from.
-        if Self.selectable.contains(self), self != .subjectEcho {
+        //
+        // Retired effects are *not* excluded, as of EFFECTS LAB: the lab can switch a retired
+        // effect back on for the user, and it should arrive with the same modifier every other
+        // card has. The old `selectable` gate only ever existed because nobody could reach them.
+        // HEART BEAT is excluded too: it runs from the ZOOM tab, whose panel has no subject mask
+        // to offer, and the modifier is only honoured for the IMAGE tab's selection.
+        if self != .subjectEcho, self != .pulse {
             params.append(.backgroundOnly)
         }
 
@@ -284,12 +369,89 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
                                                 size: max(0, min(1, options.size)),
                                                 levels: max(0, min(1, options.tertiary)))
 
+        case .thermal, .chromaticSplit, .datamosh, .heatShimmer, .liveRipple, .melt,
+             .neonEdge, .pixelateStorm, .pulse, .shockwave, .solarize, .wavePool:
+            return packShaderEffect(intensity: clamped, options: options)
+
         case .monotone:     return MonotoneEffect(intensity: clamped)
         case .duotone:      return DuotoneEffect(intensity: clamped, color: options.tintColor)
         case .bloom:        return BloomEffect(intensity: clamped)
         case .inversion:    return InversionEffect(intensity: clamped)
         case .vintageGrain: return VintageGrainEffect(intensity: clamped)
         case .popArt:       return PopArtEffect(intensity: clamped)
+        }
+    }
+}
+
+// MARK: - Shader pack
+
+extension VisualEffectType {
+
+    /// The pack's controls, mapped linearly over the ranges SHADER LAB documents for them. The
+    /// tuned values from the lab land as the knobs' opening positions via
+    /// `EffectTuningTables.windows`, not here — 0…1 stays the slider's whole documented span.
+    ///
+    /// `ramp` is the progress ease-in `PackShaderEffect` applies; it multiplies the amount, and
+    /// for PIXEL STORM eases the block size up from one pixel so a ramp of zero cannot divide
+    /// the grid by zero.
+    fileprivate func packShaderEffect(intensity: Double, options: EffectOptions) -> VisualEffect {
+        func unit(_ v: Double) -> Double { max(0, min(1, v)) }
+        func lerp(_ u: Double, _ lo: Double, _ hi: Double) -> Double { lo + unit(u) * (hi - lo) }
+        let a = intensity
+        let b = options.size, c = options.tertiary, d = options.quaternary, e = options.quinary
+
+        switch self {
+        case .thermal:
+            return PackShaderEffect(kernel: .thermal) { ramp in
+                [unit(a) * ramp, lerp(b, 0, 15), lerp(c, 0.5, 3), unit(d)]
+            }
+        case .chromaticSplit:
+            return PackShaderEffect(kernel: .chromaticSplit) { ramp in
+                [lerp(a, 0, 30) * ramp, lerp(b, 0, 6.28), unit(c), unit(d)]
+            }
+        case .datamosh:
+            return PackShaderEffect(kernel: .datamosh) { ramp in
+                [unit(a) * ramp, lerp(b, 0, 60), unit(c), lerp(d, 0.5, 5)]
+            }
+        case .heatShimmer:
+            return PackShaderEffect(kernel: .heatShimmer) { ramp in
+                [lerp(a, 0, 20) * ramp, lerp(b, 1, 30), lerp(c, 0.5, 5), unit(d)]
+            }
+        case .liveRipple:
+            // The pack's fifth control, ring count, stays at the lab's tuned 1.2 (one ring).
+            return PackShaderEffect(kernel: .liveRipple) { ramp in
+                [lerp(a, 0, 30) * ramp, lerp(b, 5, 60), lerp(c, 1, 10), lerp(d, 0.5, 5), 1.2]
+            }
+        case .melt:
+            return PackShaderEffect(kernel: .melt) { ramp in
+                [lerp(a, 0, 100) * ramp, lerp(b, 1, 15), lerp(c, 0.1, 3), unit(d)]
+            }
+        case .neonEdge:
+            return PackShaderEffect(kernel: .neonEdge) { ramp in
+                [unit(a) * ramp, lerp(b, 1, 10), lerp(c, 0, 4), lerp(d, 0, 3), unit(e)]
+            }
+        case .pixelateStorm:
+            return PackShaderEffect(kernel: .pixelateStorm) { ramp in
+                [1 + (lerp(a, 2, 40) - 1) * ramp, unit(b), lerp(c, 0, 3), lerp(d, 0, 3)]
+            }
+        case .pulse:
+            return PackShaderEffect(kernel: .pulse) { ramp in
+                [lerp(a, 0, 30) * ramp, lerp(b, 30, 180), lerp(c, 1, 10), unit(d) * ramp]
+            }
+        case .shockwave:
+            return PackShaderEffect(kernel: .shockwave) { ramp in
+                [lerp(b, 50, 500), lerp(c, 5, 60), lerp(a, 5, 80) * ramp, lerp(d, 0.5, 5)]
+            }
+        case .solarize:
+            return PackShaderEffect(kernel: .solarize) { ramp in
+                [unit(a) * ramp, lerp(b, 0.2, 0.8), lerp(c, 0, 3), unit(d), unit(e)]
+            }
+        case .wavePool:
+            return PackShaderEffect(kernel: .wavePool) { ramp in
+                [lerp(a, 0, 25) * ramp, lerp(b, 5, 40), lerp(c, 0.5, 5), lerp(d, 1, 6)]
+            }
+        default:
+            return MonotoneEffect(intensity: 0)
         }
     }
 }
