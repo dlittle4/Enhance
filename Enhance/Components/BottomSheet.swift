@@ -33,6 +33,8 @@ struct BottomSheet<Content: View>: View {
         .presentationDetents(expandable ? [.medium, .large] : [.medium])
         .presentationDragIndicator(.hidden)
         .presentationBackground(Color.surfaceCard)
+        // SQUARE CORNERS reaches the system sheet too; nil keeps the platform default.
+        .presentationCornerRadius(FeatureFlags.squareCorners ? 0 : nil)
     }
 
     private var header: some View {

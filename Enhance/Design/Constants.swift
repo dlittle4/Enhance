@@ -127,7 +127,7 @@ enum AppConstants {
         static let parameterRowHeight: CGFloat = 44
 
         /// Corner radius for the effect detail panel and effect cards (20pt)
-        static let panelCornerRadius: CGFloat = 20
+        static var panelCornerRadius: CGFloat { CornerRadius.resolve(20) }
     }
 }
  

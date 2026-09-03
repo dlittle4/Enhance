@@ -17,7 +17,7 @@ struct CameraOverlayView: View {
 
     /// The corner radius the frozen capture wears — the flight's starting clip, flown to the
     /// canvas's radius by the gallery.
-    static let freezeCornerRadius: CGFloat = AppConstants.Spacing.large
+    static var freezeCornerRadius: CGFloat { AppConstants.CornerRadius.resolve(AppConstants.Spacing.large) }
 
     /// Where the camera button's center lands in the card's own coordinate space (the card
     /// overlays the bottom bar): the anchor the card scales up from on open, so the entrance

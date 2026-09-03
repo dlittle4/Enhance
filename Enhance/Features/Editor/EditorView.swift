@@ -128,8 +128,10 @@ struct EditorView: View {
     private let borderInset: CGFloat = 6
     private var canvasSize: CGFloat { max(0, borderedSize - borderInset * 2) }
 
-    private let outerRadius: CGFloat = 28
-    private var innerRadius: CGFloat { outerRadius - borderInset }
+    // Through the tokens, so SQUARE CORNERS reaches the photo frame; the inner radius floors
+    // at 0 rather than going negative when the outer one is squared.
+    private var outerRadius: CGFloat { AppConstants.CornerRadius.canvasOuter }
+    private var innerRadius: CGFloat { max(0, outerRadius - borderInset) }
 
     private let mintGreen = Color.enhanceMint
     private let buttonHeight: CGFloat = 60
@@ -310,6 +312,7 @@ struct EditorView: View {
         }
         .sheet(isPresented: $viewModel.showSaveSheet) {
             saveSheetContent
+                .presentationCornerRadius(FeatureFlags.squareCorners ? 0 : nil)
         }
         .sheet(isPresented: $viewModel.showShareSheet) {
             if let gifData = viewModel.generatedGIF {
@@ -320,6 +323,7 @@ struct EditorView: View {
         }
         .sheet(isPresented: $viewModel.showShareChooser) {
             shareChooserContent
+                .presentationCornerRadius(FeatureFlags.squareCorners ? 0 : nil)
         }
         .sheet(item: $viewModel.videoShareURL) { video in
             ShareSheet(fileURL: video.url, fileType: .mpeg4Movie)
