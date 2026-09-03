@@ -77,24 +77,6 @@ struct CanvasLabView: View {
                 allowsZero: true,
                 valueText: store.tuning.pathScaleRamp < 0.01 ? "HOLD" : String(format: "%.2f", store.tuning.pathScaleRamp)
             )
-            ParameterSliderRow(
-                label: "SPACING",
-                value: normalized(tuning.pathSampleSpacing, in: 8...80),
-                valueText: "\(Int(store.tuning.pathSampleSpacing))PT"
-            )
-
-            Text("CORNERS")
-                .font(.silkscreenSubheadline)
-                .foregroundColor(.textPrimary)
-
-            SegmentedToggle(
-                items: [true, false],
-                selection: Binding(
-                    get: { store.tuning.pathSmoothing },
-                    set: { store.tuning.pathSmoothing = $0 }
-                ),
-                label: { $0 ? "ROUNDED" : "SHARP" }
-            )
         }
     }
 

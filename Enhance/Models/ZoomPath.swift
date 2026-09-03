@@ -40,19 +40,29 @@ struct ZoomPath: Equatable {
     }
 
     /// Inserts a stop on the route at fraction `f` of segment `index` and returns its index.
-    /// Placed on the curve, not the chord, so the route passes through where the finger was.
+    /// Placed on the route as drawn at `curve`, so it lands where the finger was.
     @discardableResult
-    mutating func insert(onSegment index: Int, f: CGFloat) -> Int {
+    mutating func insert(onSegment index: Int, f: CGFloat, curve: CGFloat = 1) -> Int {
         guard index >= 0, index + 1 < stops.count else { return max(0, stops.count - 1) }
-        let point = catmullRom(segment: index, f: max(0, min(1, f)))
+        let point = routePoint(segment: index, f: max(0, min(1, f)), curve: curve)
         stops.insert(point, at: index + 1)
         return index + 1
+    }
+
+    /// The point `f` along segment `i` at a given curve amount: 0 is the straight chord, 1 the
+    /// Catmull-Rom curve through the neighbours, between is a blend — the CURVE slider.
+    func routePoint(segment i: Int, f: CGFloat, curve: CGFloat) -> CGPoint {
+        let straight = Self.lerp(stops[i], stops[i + 1], f)
+        let c = max(0, min(1, curve))
+        guard c > 0 else { return straight }
+        let rounded = catmullRom(segment: i, f: f)
+        return Self.lerp(straight, rounded, c)
     }
 
     /// What a touch landed on. `map` takes a normalized point to the space the touch and
     /// `tolerance` are in (the canvas's content points). Stops win over the route, and the
     /// route is tested along the curve it is drawn with.
-    func hitTest(_ touch: CGPoint, map: (CGPoint) -> CGPoint, tolerance: CGFloat) -> ZoomPathHit {
+    func hitTest(_ touch: CGPoint, map: (CGPoint) -> CGPoint, tolerance: CGFloat, curve: CGFloat = 1) -> ZoomPathHit {
         func distance(_ p: CGPoint) -> CGFloat { let m = map(p); return hypot(m.x - touch.x, m.y - touch.y) }
 
         var nearestStop: (Int, CGFloat)? = nil
@@ -67,7 +77,7 @@ struct ZoomPath: Equatable {
             for i in 0..<(stops.count - 1) {
                 for s in 0...Self.samplesPerSegment {
                     let f = CGFloat(s) / CGFloat(Self.samplesPerSegment)
-                    let d = distance(catmullRom(segment: i, f: f))
+                    let d = distance(routePoint(segment: i, f: f, curve: curve))
                     if d <= tolerance, d < (nearestOnRoute?.2 ?? .infinity) { nearestOnRoute = (i, f, d) }
                 }
             }
@@ -102,6 +112,11 @@ struct ZoomPath: Equatable {
     ///   The moving legs share what is left, so 3 stops at dwell 0.1 travel for 90% of the time
     ///   and pause for 10% in the middle.
     func point(at t: CGFloat, dwell: CGFloat, smoothing: Bool) -> CGPoint? {
+        point(at: t, dwell: dwell, curve: smoothing ? 1 : 0)
+    }
+
+    /// - Parameter curve: 0 travels straight legs, 1 the rounded curve, between blends the two.
+    func point(at t: CGFloat, dwell: CGFloat, curve: CGFloat) -> CGPoint? {
         guard let first = stops.first else { return nil }
         guard stops.count > 1 else { return first }
         // Remove the dwells from the timeline: `u` is progress along the *moving* legs.
@@ -115,7 +130,7 @@ struct ZoomPath: Equatable {
             let legShare = (arcs[i] - arcs[i - 1]) * moving
             if remaining <= legShare || i == stops.count - 1 {
                 let f = legShare > 0 ? max(0, min(1, remaining / legShare)) : 1
-                return smoothing ? catmullRom(segment: i - 1, f: f) : Self.lerp(stops[i - 1], stops[i], f)
+                return routePoint(segment: i - 1, f: f, curve: curve)
             }
             remaining -= legShare
             // The dwell at stop i (interior).

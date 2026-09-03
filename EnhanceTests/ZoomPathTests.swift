@@ -263,11 +263,39 @@ struct ZoomPathTests {
         vm.undo()
         #expect(vm.zoomPath.stops.count == 3)
 
-        // A touch on empty photo deselects and draws, as before.
+        // A touch on empty photo only deselects: placement is a tap, not a stroke.
         vm.beginZoomPathTouch(.none, at: CGPoint(x: 0.2, y: 0.9), minimumSpacing: 0.02)
         #expect(vm.selectedZoomStop == nil)
-        #expect(vm.zoomPath.stops.count == 4)
+        #expect(vm.zoomPath.stops.count == 3)
         vm.endZoomPathTouch()
+    }
+
+    @MainActor
+    @Test func aTapPlacesAStopSelectsItAndIsOneUndoEntry() {
+        let vm = EditorViewModel(content: .newImage(UIImage()))
+        vm.selectedAnimatorType = .path
+        vm.addZoomStop(at: CGPoint(x: 0.2, y: 0.2))
+        vm.addZoomStop(at: CGPoint(x: 0.21, y: 0.2))
+        #expect(vm.zoomPath.stops.count == 2, "taps ignore the stroke spacing")
+        #expect(vm.selectedZoomStop == 1)
+        vm.undo()
+        #expect(vm.zoomPath.stops.count == 1)
+        #expect(vm.selectedZoomStop == nil)
+    }
+
+    @Test func curveBlendsBetweenStraightLegsAndTheRoundedRoute() {
+        let path = route([(0, 0), (0.5, 0.5), (1, 0)])
+        let straight = path.point(at: 0.25, dwell: 0, curve: 0)!
+        let rounded = path.point(at: 0.25, dwell: 0, curve: 1)!
+        let half = path.point(at: 0.25, dwell: 0, curve: 0.5)!
+        #expect(straight != rounded)
+        #expect(abs(half.x - (straight.x + rounded.x) / 2) < 1e-6)
+        #expect(abs(half.y - (straight.y + rounded.y) / 2) < 1e-6)
+        // Every amount still passes through the stops.
+        for c: CGFloat in [0, 0.3, 1] {
+            #expect(path.point(at: 0, dwell: 0, curve: c) == CGPoint(x: 0, y: 0))
+            #expect(path.point(at: 1, dwell: 0, curve: c) == CGPoint(x: 1, y: 0))
+        }
     }
 
     // MARK: - Stop pause

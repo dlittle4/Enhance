@@ -12,18 +12,22 @@ public struct PathAnimator: Animator {
     let ease: CGFloat
     /// Fraction of the duration parked at each interior stop.
     let dwell: CGFloat
-    /// Whether the route rounds its corners.
-    let smoothing: Bool
+    /// How much the route rounds its corners: 0 straight legs, 1 fully curved (the CURVE slider).
+    let curve: CGFloat
     /// 0 holds the pinched magnification throughout; 1 ramps from the whole photo up to it over
     /// the journey.
     let scaleRamp: CGFloat
 
     init(path: ZoomPath, ease: CGFloat = 0.6, dwell: CGFloat = 0.1, smoothing: Bool = true, scaleRamp: CGFloat = 0) {
+        self.init(path: path, ease: ease, dwell: dwell, curve: smoothing ? 1 : 0, scaleRamp: scaleRamp)
+    }
+
+    init(path: ZoomPath, ease: CGFloat, dwell: CGFloat, curve: CGFloat, scaleRamp: CGFloat) {
         self.path = path
         self.ease = max(0, min(1, ease))
         // Up to 0.9 of the journey may be parked in total; `ZoomPath.point` caps the sum.
         self.dwell = max(0, min(0.9, dwell))
-        self.smoothing = smoothing
+        self.curve = max(0, min(1, curve))
         self.scaleRamp = max(0, min(1, scaleRamp))
     }
 
@@ -33,7 +37,7 @@ public struct PathAnimator: Animator {
         }
         let clamped = max(0, min(1, progress))
         let t = easeInOut(clamped) * ease + clamped * (1 - ease)
-        let stop = path.point(at: t, dwell: dwell, smoothing: smoothing) ?? CGPoint(x: 0.5, y: 0.5)
+        let stop = path.point(at: t, dwell: dwell, curve: curve) ?? CGPoint(x: 0.5, y: 0.5)
 
         // Log-scale ramp, like `interpolate`, so a ramp reads as uniform zoom speed.
         let target = max(1, context.userZoomParams.scale)

@@ -51,7 +51,14 @@ struct ImageCanvasView: View {
     /// The route, for hit-testing a touch against its stops and legs while editing.
     var zoomPath: ZoomPath = ZoomPath()
     /// Fired on touch-down with what the finger landed on, in the photo's normalized space.
+    /// Only stops and the route reach here — a touch on empty photo is left to the pan.
     var onZoomPathTouchDown: ((ZoomPathHit, CGPoint) -> Void)? = nil
+    /// A tap on empty photo: where a new stop goes *(tap-only placement, user's call
+    /// 2026-09-03)*. Panning and pinching are untouched while placing, because a tap conflicts
+    /// with neither.
+    var onZoomPathTap: ((CGPoint) -> Void)? = nil
+    /// The CURVE amount, so the route is hit-tested where it is drawn.
+    var zoomPathCurve: CGFloat = 1
     /// Normalized, top-left-origin — `visibleRect` space. Called on touch-down and every move.
     var onZoomPathPoint: ((CGPoint) -> Void)? = nil
     /// The region of the photo the scroll view is showing **right now**, kept honest through
@@ -107,7 +114,9 @@ struct ImageCanvasView: View {
                 onLaserAimEnded: onLaserAimEnded,
                 isZoomPathInteractive: isZoomPathInteractive,
                 zoomPath: zoomPath,
+                zoomPathCurve: zoomPathCurve,
                 onZoomPathTouchDown: onZoomPathTouchDown,
+                onZoomPathTap: onZoomPathTap,
                 onZoomPathPoint: onZoomPathPoint,
                 onZoomPathBegan: onZoomPathBegan,
                 onZoomPathEnded: onZoomPathEnded,
@@ -149,7 +158,9 @@ private struct ScrollableCanvasView: UIViewRepresentable {
     var onLaserAimEnded: (() -> Void)?
     var isZoomPathInteractive: Bool
     var zoomPath: ZoomPath
+    var zoomPathCurve: CGFloat
     var onZoomPathTouchDown: ((ZoomPathHit, CGPoint) -> Void)?
+    var onZoomPathTap: ((CGPoint) -> Void)?
     var onZoomPathPoint: ((CGPoint) -> Void)?
     var onZoomPathBegan: (() -> Void)?
     var onZoomPathEnded: (() -> Void)?
@@ -188,6 +199,17 @@ private struct ScrollableCanvasView: UIViewRepresentable {
         let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleDoubleTap(_:)))
         doubleTap.numberOfTapsRequired = 2
         scrollView.addGestureRecognizer(doubleTap)
+
+        // PATH placement: a single tap on empty photo. Waits for the double-tap to fail so
+        // double-tap-to-zoom keeps working while placing; the ~0.3s lag on a placement is
+        // the price, and a stop is not time-critical.
+        let placeTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handlePlaceTap(_:)))
+        placeTap.numberOfTapsRequired = 1
+        placeTap.require(toFail: doubleTap)
+        placeTap.delegate = context.coordinator
+        placeTap.isEnabled = false
+        scrollView.addGestureRecognizer(placeTap)
+        context.coordinator.placeTapRecognizer = placeTap
 
         // The aim: a long press with no minimum duration, which is UIKit's "track the finger
         // from touch-down" recognizer — one recogniser covers both a tap and a drag, and it
@@ -242,7 +264,7 @@ private struct ScrollableCanvasView: UIViewRepresentable {
             textHost.update(overlay: textOverlay.wrappedValue, canvasSide: canvasSize)
         }
 
-        coordinator.setTouchInteractive(isLaserAimInteractive || isZoomPathInteractive, in: container)
+        coordinator.setTouchInteractive(aim: isLaserAimInteractive, path: isZoomPathInteractive, in: container)
     }
 
     private func configureContentSize(scrollView: UIScrollView, imageView: UIImageView) {
@@ -266,6 +288,7 @@ private struct ScrollableCanvasView: UIViewRepresentable {
         weak var imageView: UIImageView?
         weak var textHost: TextOverlayHostView?
         weak var aimRecognizer: UILongPressGestureRecognizer?
+        weak var placeTapRecognizer: UITapGestureRecognizer?
         var canvasSize: CGFloat = 325
 
         /// Set once a second finger joins an aim. From then on the touch is a pinch, and the
@@ -461,10 +484,37 @@ private struct ScrollableCanvasView: UIViewRepresentable {
         /// The pan's touch count is the only scroll-view setting touched, and it is restored
         /// the moment the mode ends, so every other category keeps the one-finger pan it has
         /// always had. Pinch is a separate recogniser and is never changed.
-        func setTouchInteractive(_ interactive: Bool, in container: CanvasContainerView) {
-            guard let aimRecognizer, aimRecognizer.isEnabled != interactive else { return }
-            aimRecognizer.isEnabled = interactive
-            container.scrollView.panGestureRecognizer.minimumNumberOfTouches = interactive ? 2 : 1
+        func setTouchInteractive(aim: Bool, path: Bool, in container: CanvasContainerView) {
+            guard let aimRecognizer else { return }
+            aimRecognizer.isEnabled = aim || path
+            placeTapRecognizer?.isEnabled = path
+            // Only the aim takes the whole finger. PATH claims a touch only when it lands on a
+            // stop or the route (see `shouldReceive`), so the ordinary one-finger pan stays.
+            container.scrollView.panGestureRecognizer.minimumNumberOfTouches = aim ? 2 : 1
+        }
+
+        /// What a touch lands on, in the image view's own coordinates, where a screen point is
+        /// `1 / zoom` of a content point — so the 22pt target stays 22pt on screen however far
+        /// the photo is pinched.
+        private func pathHit(for location: CGPoint, in imageView: UIImageView) -> ZoomPathHit {
+            let size = imageView.bounds.size
+            guard size.width > 0, size.height > 0 else { return .none }
+            return parent.zoomPath.hitTest(
+                location,
+                map: { CGPoint(x: $0.x * size.width, y: $0.y * size.height) },
+                tolerance: 22 / max(0.01, currentZoomScale),
+                curve: parent.zoomPathCurve
+            )
+        }
+
+        @objc func handlePlaceTap(_ recognizer: UITapGestureRecognizer) {
+            guard let imageView else { return }
+            let size = imageView.bounds.size
+            guard size.width > 0, size.height > 0 else { return }
+            let p = recognizer.location(in: imageView)
+            parent.onInteraction?()
+            HapticService.selection()
+            parent.onZoomPathTap?(CGPoint(x: p.x / size.width, y: p.y / size.height))
         }
 
         @objc func handleAim(_ recognizer: UILongPressGestureRecognizer) {
@@ -521,17 +571,7 @@ private struct ScrollableCanvasView: UIViewRepresentable {
                 parent.onZoomPathBegan?()
                 HapticService.light()
                 if let p = normalized() {
-                    // Hit-tested in the image view's own coordinates, where a screen point is
-                    // `1 / zoom` of a content point — so the 22pt target stays 22pt on screen
-                    // however far the photo is pinched.
-                    let size = imageView.bounds.size
-                    let tolerance = 22 / max(0.01, currentZoomScale)
-                    let hit = parent.zoomPath.hitTest(
-                        recognizer.location(in: imageView),
-                        map: { CGPoint(x: $0.x * size.width, y: $0.y * size.height) },
-                        tolerance: tolerance
-                    )
-                    parent.onZoomPathTouchDown?(hit, p)
+                    parent.onZoomPathTouchDown?(pathHit(for: recognizer.location(in: imageView), in: imageView), p)
                 }
             case .changed:
                 guard !aimSurrenderedToPinch else { return }
@@ -560,19 +600,38 @@ private struct ScrollableCanvasView: UIViewRepresentable {
         /// — rather than ordering the recognisers — keeps the marker's own tap exactly as fast as
         /// it is under every other filter.
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-            guard gestureRecognizer === aimRecognizer else { return true }
+            guard gestureRecognizer === aimRecognizer || gestureRecognizer === placeTapRecognizer else { return true }
             var view = touch.view
             while let current = view {
                 if current is FaceMarkerView { return false }
                 view = current.superview
             }
-            return true
+            // PATH splits the touch by what is under it: a stop or the route goes to the
+            // press-and-drag (select, move, insert); empty photo goes to the tap (place) and,
+            // if it moves, to the pan. The aim under LAZER EYES still takes everything.
+            if parent.isZoomPathInteractive, let imageView {
+                let onRoute = pathHit(for: touch.location(in: imageView), in: imageView) != .none
+                return gestureRecognizer === aimRecognizer ? onRoute : !onRoute
+            }
+            return gestureRecognizer === aimRecognizer
         }
 
         /// The aim runs alongside the pinch (so two fingers landing mid-aim still zoom) and the
-        /// double-tap (so double-tap-to-zoom survives; it also aims, which is harmless).
+        /// double-tap (so double-tap-to-zoom survives; it also aims, which is harmless). Under
+        /// PATH a drag on a stop must *not* also pan the photo.
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
-            gestureRecognizer === aimRecognizer || other === aimRecognizer
+            if parent.isZoomPathInteractive, other is UIPanGestureRecognizer, other === (imageView?.superview as? UIScrollView)?.panGestureRecognizer {
+                return false
+            }
+            return gestureRecognizer === aimRecognizer || other === aimRecognizer
+        }
+
+        /// Under PATH the pan waits for the stop-drag to decline the touch, so a finger that
+        /// lands on a stop moves the stop and one that lands on photo pans without delay —
+        /// the decline is immediate, from `shouldReceive`.
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldBeRequiredToFailBy other: UIGestureRecognizer) -> Bool {
+            guard gestureRecognizer === aimRecognizer, parent.isZoomPathInteractive else { return false }
+            return other === (imageView?.superview as? UIScrollView)?.panGestureRecognizer
         }
 
         // MARK: Double-tap

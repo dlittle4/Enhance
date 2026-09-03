@@ -1286,6 +1286,20 @@ parked at each interior stop, and it is **added to the journey** rather than car
 fixed `1s / SPEED` length — `ZoomPathTiming` hands the generator a slower effective speed and
 the matching dwell fraction, capped at the generator's 4s. The lab's DWELL row went with it.
 
+### PATH: tap to place, CURVE to round (2026-09-03)
+
+*(User's call.)* Freehand strokes made too many stops — each one a dwell for PAUSE AT STOPS and
+a crowded target to edit — and drawing was the only reason one finger had to be taken from the
+pan. Stops are now placed by **tapping** the photo; a tap never conflicts with pan or pinch, so
+both work while placing. The press-and-drag recogniser claims a touch only when it lands on a
+stop or the route (`shouldReceive` hit-tests), the pan waits for it to decline
+(`shouldBeRequiredToFailBy`), and a placement tap waits for the double-tap to fail so
+double-tap-to-zoom survives. DONE remains, now only as the moment the canvas hands over to
+the GIF. The lab's SPACING and CORNERS knobs retired.
+
+**CURVE** is PATH's fifth row: 0 travels straight legs, 1 the full curve through the stops,
+between a blend (`ZoomPath.routePoint`). The overlay draws the same amount the animator travels.
+
 ### "Sluggish next to the preview, and stuck at the end" (2026-09-03)
 
 Both were the zoom's timing applied to real motion. The GIF's animated length is fixed at

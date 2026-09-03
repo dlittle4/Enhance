@@ -29,6 +29,8 @@ struct EditorSnapshot {
     /// PATH's STOP PAUSE, seconds parked at each interior stop. Output timing like
     /// `pauseDuration`, so it rides the snapshot beside it.
     let stopPause: Double
+    /// PATH's CURVE: 0 straight legs, 1 fully rounded.
+    let pathCurve: Double
     let tintColor: LaserColor
     let gradientStops: GradientStops
     /// PIXELATE's cell shape. A typed field rather than an entry in `parameterValues`,
@@ -220,6 +222,12 @@ class EditorViewModel {
     }
 
     var stopPauseLabel: String { ZoomPlayback.pauseText(stopPause) }
+
+    /// How much the route rounds its corners *(user's ask, 2026-09-03)*: 0 travels straight
+    /// legs between stops, 1 the full curve through them.
+    var pathCurve: Double = ZoomPathTiming.defaultCurve
+    var pathCurveLabel: String { pathCurve < 0.005 ? "SHARP" : "\(Int((pathCurve * 100).rounded()))%" }
+    var isPathCurveAtDefault: Bool { abs(pathCurve - ZoomPathTiming.defaultCurve) < 1e-6 }
 
     var isStopPauseAtDefault: Bool { abs(stopPause - ZoomPathTiming.defaultStopPause) < 1e-6 }
 
@@ -523,8 +531,9 @@ class EditorViewModel {
     /// before layout, and cannot infer it from opaque content.
     var editingRowCount: Int {
         switch selectedEffectCategory {
-        // Speed, pause, motion — built directly rather than declared. PATH adds STOP PAUSE.
-        case .zoomEffects:   return selectedAnimatorType == .path ? 4 : 3
+        // Speed, pause, motion — built directly rather than declared. PATH adds PAUSE AT
+        // STOPS and CURVE.
+        case .zoomEffects:   return selectedAnimatorType == .path ? 5 : 3
         case .visualEffects: return selectedVisualEffect?.parameters.count ?? 0
         case .faceFilters:   return selectedFaceFilter?.parameters.count ?? 0
         // FILL — which now carries its own swatches rather than pushing them into a second,
@@ -762,9 +771,20 @@ class EditorViewModel {
     private enum ZoomPathTouch { case stroke, stop(Int) }
     private var zoomPathTouch: ZoomPathTouch = .stroke
 
-    /// Touch-down in editing mode. A stop under the finger is picked up (a tap selects it, a
-    /// drag moves it); the route under the finger gets a new stop there, picked up the same
-    /// way; empty photo starts a freehand stroke as before.
+    /// A tap on empty photo places the next stop *(tap-only placement, user's call
+    /// 2026-09-03 — freehand strokes made too many stops to pause at or to edit)*. One undo
+    /// entry; the new stop is selected so it can be deleted straight away.
+    func addZoomStop(at point: CGPoint) {
+        pushUndo()
+        zoomPath.append(point, minimumSpacing: 0)
+        selectedZoomStop = zoomPath.stops.count - 1
+        noteZoomPathDrawn()
+        regenerateIfNeeded()
+    }
+
+    /// Touch-down on the route in editing mode. A stop under the finger is picked up (a tap
+    /// selects it, a drag moves it); the route under the finger gets a new stop there, picked
+    /// up the same way. Empty photo never reaches here — it pans, or taps to place.
     func beginZoomPathTouch(_ hit: ZoomPathHit, at point: CGPoint, minimumSpacing spacing: CGFloat) {
         beginZoomPathStroke()
         switch hit {
@@ -772,21 +792,20 @@ class EditorViewModel {
             zoomPathTouch = .stop(i)
             selectedZoomStop = i
         case .segment(let i, let f):
-            let inserted = zoomPath.insert(onSegment: i, f: f)
+            let inserted = zoomPath.insert(onSegment: i, f: f, curve: CGFloat(pathCurve))
             zoomPathTouch = .stop(inserted)
             selectedZoomStop = inserted
             HapticService.selection()
         case .none:
             zoomPathTouch = .stroke
             selectedZoomStop = nil
-            extendZoomPath(to: point, minimumSpacing: spacing)
         }
     }
 
     func moveZoomPathTouch(to point: CGPoint, minimumSpacing spacing: CGFloat) {
         switch zoomPathTouch {
         case .stop(let i): zoomPath.move(stop: i, to: point)
-        case .stroke:      extendZoomPath(to: point, minimumSpacing: spacing)
+        case .stroke:      break
         }
     }
 
@@ -820,8 +839,8 @@ class EditorViewModel {
         hasDrawnZoomPath = true
     }
 
-    static let zoomPathHintMessage = "DRAW A PATH ON THE PHOTO"
-    static let zoomPathDoneHintMessage = "TAP DONE, THEN PINCH TO SET THE ZOOM"
+    static let zoomPathHintMessage = "TAP THE PHOTO TO PLACE STOPS"
+    static let zoomPathDoneHintMessage = "PINCH TO SET THE ZOOM, THEN TAP DONE"
 
     var showsZoomPathHint: Bool {
         guard wantsZoomPath else { return false }
@@ -933,6 +952,7 @@ class EditorViewModel {
             laserAim: laserAim,
             zoomPath: zoomPath,
             stopPause: stopPause,
+            pathCurve: pathCurve,
             tintColor: tintColor,
             gradientStops: gradientStopsOverride ?? gradientStops,
             pixelShape: pixelShape,
@@ -954,6 +974,7 @@ class EditorViewModel {
         laserAim = snapshot.laserAim
         zoomPath = snapshot.zoomPath
         stopPause = snapshot.stopPause
+        pathCurve = snapshot.pathCurve
         selectedZoomStop = nil
         tintColor = snapshot.tintColor
         pixelShape = snapshot.pixelShape
@@ -1141,7 +1162,7 @@ class EditorViewModel {
                 path: zoomPath,
                 ease: CGFloat(tuning.pathEase),
                 dwell: CGFloat(pathTiming.dwell),
-                smoothing: tuning.pathSmoothing,
+                curve: CGFloat(pathCurve),
                 scaleRamp: CGFloat(tuning.pathScaleRamp)
             )
         } else {
@@ -1162,7 +1183,7 @@ class EditorViewModel {
         // starts at 3s, and comparing to the wrong baseline would show RESET on an untouched
         // editor and hide it on a genuinely edited one.
         let timingChanged = !isSpeedAtDefault || !isPauseAtDefault
-            || (selectedAnimatorType == .path && !isStopPauseAtDefault)
+            || (selectedAnimatorType == .path && (!isStopPauseAtDefault || !isPathCurveAtDefault))
         let base = selectedAnimatorType != defaultAnimatorType || hasActiveModifier || timingChanged
             || hasVisualEffect || hasFaceFilter || hasText
 
@@ -1228,6 +1249,7 @@ class EditorViewModel {
         isEditingZoomPath = false
         selectedZoomStop = nil
         stopPause = ZoomPathTiming.defaultStopPause
+        pathCurve = ZoomPathTiming.defaultCurve
         tintColor = .red
         pixelShape = .square
         gradientStops = .default

@@ -439,6 +439,16 @@ struct EditorView: View {
                     allowsZero: true,
                     valueText: viewModel.stopPauseLabel
                 )
+                // How much the camera rounds the corners between stops. 0 is a straight
+                // polyline; the overlay draws whatever this is, so the route on the photo is
+                // the route the GIF takes.
+                ParameterSliderRow(
+                    label: "CURVE",
+                    value: $viewModel.pathCurve,
+                    onCommit: { viewModel.onParameterDragEnded() },
+                    allowsZero: true,
+                    valueText: viewModel.pathCurveLabel
+                )
             }
             ParameterPickerRow(label: "MOTION") {
                 SegmentedToggle(
@@ -648,6 +658,8 @@ struct EditorView: View {
                     let contentSide = canvasSize * max(1, viewModel.currentScale)
                     viewModel.beginZoomPathTouch(hit, at: point, minimumSpacing: canvasStore.tuning.pathSampleSpacing / contentSide)
                 },
+                onZoomPathTap: { point in viewModel.addZoomStop(at: point) },
+                zoomPathCurve: CGFloat(viewModel.pathCurve),
                 onZoomPathPoint: { point in
                     // The lab's spacing is in canvas points on the *content*, so it is scaled by
                     // the zoom: at 2× the same 28pt of screen is half as much photo.
@@ -668,7 +680,7 @@ struct EditorView: View {
                         path: viewModel.zoomPath,
                         visibleRect: displayedRect,
                         canvasSize: canvasSize,
-                        smoothing: canvasStore.tuning.pathSmoothing,
+                        curve: CGFloat(viewModel.pathCurve),
                         isEditing: viewModel.isEditingZoomPath,
                         selectedStop: viewModel.selectedZoomStop,
                         onDone: { viewModel.finishZoomPath() },

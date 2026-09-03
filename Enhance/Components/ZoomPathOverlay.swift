@@ -12,7 +12,8 @@ struct ZoomPathOverlay: View {
     let path: ZoomPath
     let visibleRect: CGRect
     let canvasSize: CGFloat
-    let smoothing: Bool
+    /// The CURVE amount the route is drawn with — the same one the animator travels.
+    let curve: CGFloat
     /// Drawing mode: strokes extend the route and the chip reads DONE.
     let isEditing: Bool
     /// The stop a tap picked out, ringed, with DELETE STOP offered.
@@ -35,18 +36,13 @@ struct ZoomPathOverlay: View {
                 let points = path.stops.map(canvasPoint)
                 if points.count > 1 {
                     var route = Path()
-                    if smoothing {
-                        // Sample the same curve the animator travels, so what is drawn is
-                        // what the GIF does.
-                        let samples = stride(from: 0.0, through: 1.0, by: 1.0 / 96).map {
-                            canvasPoint(path.point(at: CGFloat($0), dwell: 0, smoothing: true) ?? .zero)
-                        }
-                        route.move(to: samples[0])
-                        for s in samples.dropFirst() { route.addLine(to: s) }
-                    } else {
-                        route.move(to: points[0])
-                        for p in points.dropFirst() { route.addLine(to: p) }
+                    // Sample the same curve the animator travels, so what is drawn is what
+                    // the GIF does.
+                    let samples = stride(from: 0.0, through: 1.0, by: 1.0 / 96).map {
+                        canvasPoint(path.point(at: CGFloat($0), dwell: 0, curve: curve) ?? .zero)
                     }
+                    route.move(to: samples[0])
+                    for s in samples.dropFirst() { route.addLine(to: s) }
                     // Finished routes sit back so the photo reads as the thing being framed.
                     let alpha: CGFloat = isEditing ? 1 : 0.55
                     context.stroke(route, with: .color(.black.opacity(0.45 * alpha)), style: StrokeStyle(lineWidth: 5, lineCap: .round, lineJoin: .round))

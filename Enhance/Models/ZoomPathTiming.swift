@@ -10,6 +10,8 @@ import Foundation
 /// PAUSE in seconds, the two knobs they asked for, and neither eats the other.
 enum ZoomPathTiming {
     static let defaultStopPause: Double = 0.25
+    /// CURVE's default: fully rounded, which is what the route always was.
+    static let defaultCurve: Double = 1.0
     /// Slider top. Three interior stops at the top land on the generator's 4s ceiling.
     static let maxStopPause: Double = 1.0
 
