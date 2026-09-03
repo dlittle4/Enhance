@@ -235,4 +235,10 @@ enum FeatureFlags {
     static let sliderOverdriveKey = "featureSliderOverdrive"
 
     static var sliderOverdrive: Bool { UserDefaults.standard.bool(forKey: sliderOverdriveKey) }
+
+    /// A PATH card on the ZOOM tab: draw a route on the photo and the GIF travels it, Ken Burns
+    /// style. See `ZoomPath`, `PathAnimator` and the PATH section of CANVAS LAB.
+    static let pathZoomKey = "featurePathZoom"
+
+    static var pathZoom: Bool { UserDefaults.standard.bool(forKey: pathZoomKey) }
 }

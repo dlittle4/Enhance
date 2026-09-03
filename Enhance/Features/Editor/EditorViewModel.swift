@@ -1,4 +1,5 @@
 import SwiftUI
+import os
 import Photos
 import CoreImage
 import ImageIO
@@ -22,6 +23,9 @@ struct EditorSnapshot {
     /// Where LAZER EYES points, or `nil` for the classic flare. Snapshotted so undo can put the
     /// beams back where they were, and so RESET and cancel clear it with everything else.
     let laserAim: LaserAim?
+    /// The PATH zoom's route. Snapshotted so undo steps back through drawing sessions and RESET
+    /// clears it with everything else.
+    let zoomPath: ZoomPath
     let tintColor: LaserColor
     let gradientStops: GradientStops
     /// PIXELATE's cell shape. A typed field rather than an entry in `parameterValues`,
@@ -177,6 +181,9 @@ class EditorViewModel {
     /// is the classic horizontal flare. Deliberately *not* cleared when another filter is
     /// chosen — coming back to LAZER EYES should find the beams where they were left.
     var laserAim: LaserAim? = nil
+    /// The route a PATH zoom travels. Drawn on the live canvas while the PATH card is selected;
+    /// kept when another zoom is chosen so coming back finds it.
+    var zoomPath = ZoomPath()
     var isDetectingFaces: Bool = false
     private let faceDetectionService = FaceDetectionService()
 
@@ -258,6 +265,8 @@ class EditorViewModel {
     /// ENHANCE shows the rendered result, as every other category does.
     var wantsLiveCanvas: Bool {
         switch selectedEffectCategory {
+        // PATH is drawn on the photo, so the photo has to be up while it is the selection.
+        case .zoomEffects: return wantsZoomPath
         case .faceFilters: return isEditingEffect
         case .text:        return isEnteringText || isEditingEffect
         default:           return false
@@ -499,6 +508,71 @@ class EditorViewModel {
         return true
     }
 
+    // MARK: - Zoom path
+
+    /// Whether a touch on the canvas lays down PATH stops: the experiment is on, the ZOOM tab is
+    /// up and the PATH card is the selection.
+    var wantsZoomPath: Bool {
+        FeatureFlags.pathZoom && selectedEffectCategory == .zoomEffects && selectedAnimatorType == .path
+    }
+
+    /// True between a finger landing to draw and lifting. Same discipline as the text and aim
+    /// sessions: one undo entry per stroke, history disabled meanwhile.
+    private(set) var isZoomPathActive = false
+    private var zoomPathEntrySnapshot: EditorSnapshot?
+
+    func beginZoomPathStroke() {
+        guard !isZoomPathActive else { return }
+        isZoomPathActive = true
+        zoomPathEntrySnapshot = currentSnapshot()
+        noteZoomPathDrawn()
+    }
+
+    /// Lays down a stop under the finger. `spacing` is in normalized units — the caller converts
+    /// the lab's point value against the canvas — so a slow drag still thins to a sensible route.
+    func extendZoomPath(to point: CGPoint, minimumSpacing spacing: CGFloat) {
+        zoomPath.append(point, minimumSpacing: spacing)
+        Self.pathLog.debug("stop \(point.x, privacy: .public),\(point.y, privacy: .public) spacing \(spacing, privacy: .public) visible \(self.visibleRect.origin.x, privacy: .public),\(self.visibleRect.origin.y, privacy: .public) \(self.visibleRect.width, privacy: .public)x\(self.visibleRect.height, privacy: .public) scale \(self.currentScale, privacy: .public)")
+    }
+
+    /// Debug-only, for QA of the stroke geometry — see the note on `AnimatedGifView`'s scrub log.
+    private static let pathLog = Logger(subsystem: "Enhance", category: "path")
+
+    func endZoomPathStroke() {
+        guard isZoomPathActive else { return }
+        isZoomPathActive = false
+        defer { zoomPathEntrySnapshot = nil }
+        if let entry = zoomPathEntrySnapshot, entry.zoomPath != zoomPath {
+            push(entry)
+            regenerateIfNeeded()
+        }
+    }
+
+    /// CLEAR on the canvas: one undo entry, back to an empty route.
+    func clearZoomPath() {
+        guard !zoomPath.isEmpty else { return }
+        pushUndo()
+        zoomPath = ZoomPath()
+        regenerateIfNeeded()
+    }
+
+    private(set) var hasDrawnZoomPath = false
+
+    func noteZoomPathDrawn() {
+        guard !hasDrawnZoomPath else { return }
+        hasDrawnZoomPath = true
+    }
+
+    static let zoomPathHintMessage = "DRAW A PATH ON THE PHOTO"
+
+    var showsZoomPathHint: Bool {
+        guard wantsZoomPath else { return false }
+        guard zoomPath.isEmpty, !hasDrawnZoomPath else { return false }
+        guard !isEditingEffect else { return false }
+        guard showControls else { return false }
+        return true
+    }
+
     func undo() {
         guard let snapshot = undoStack.popLast() else { return }
         redoStack.append(currentSnapshot())
@@ -589,6 +663,7 @@ class EditorViewModel {
             selectedFaceIndex: selectedFaceIndex,
             laserColor: laserColor,
             laserAim: laserAim,
+            zoomPath: zoomPath,
             tintColor: tintColor,
             gradientStops: gradientStopsOverride ?? gradientStops,
             pixelShape: pixelShape,
@@ -608,6 +683,7 @@ class EditorViewModel {
         selectedFaceIndex = snapshot.selectedFaceIndex
         laserColor = snapshot.laserColor
         laserAim = snapshot.laserAim
+        zoomPath = snapshot.zoomPath
         tintColor = snapshot.tintColor
         pixelShape = snapshot.pixelShape
         gradientStops = snapshot.gradientStops
@@ -787,7 +863,19 @@ class EditorViewModel {
     /// The modifier composes over whichever base is in play, which is what the two-`guard` shape
     /// obscured by returning early on a condition the modifier does not depend on.
     var activeAnimator: Animator {
-        let base: Animator = selectedAnimatorType?.animator ?? StaticAnimator()
+        let base: Animator
+        if selectedAnimatorType == .path {
+            let tuning = CanvasTuningStore.shared.tuning
+            base = PathAnimator(
+                path: zoomPath,
+                ease: CGFloat(tuning.pathEase),
+                dwell: CGFloat(tuning.pathDwell),
+                smoothing: tuning.pathSmoothing,
+                scaleRamp: CGFloat(tuning.pathScaleRamp)
+            )
+        } else {
+            base = selectedAnimatorType?.animator ?? StaticAnimator()
+        }
         guard let mod = selectedModifier, mod != .straight else { return base }
         return CompositeAnimator(base: base, modifier: mod.modifier)
     }
@@ -864,6 +952,7 @@ class EditorViewModel {
         selectedFaceIndex = nil
         laserColor = .red
         laserAim = nil
+        zoomPath = ZoomPath()
         tintColor = .red
         pixelShape = .square
         gradientStops = .default

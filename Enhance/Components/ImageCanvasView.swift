@@ -40,6 +40,20 @@ struct ImageCanvasView: View {
     var onLaserAimBegan: (() -> Void)? = nil
     var onLaserAimEnded: (() -> Void)? = nil
 
+    /// STEERABLE ZOOM: a one-finger touch lays down PATH stops. Shares the aim's recogniser and
+    /// two-finger pan; the two modes are exclusive by construction (different tabs).
+    var isZoomPathInteractive: Bool = false
+    /// Normalized, top-left-origin — `visibleRect` space. Called on touch-down and every move.
+    var onZoomPathPoint: ((CGPoint) -> Void)? = nil
+    /// The region of the photo the scroll view is showing **right now**, kept honest through
+    /// layout as well as scrolling. Distinct from `visibleRect`, which is the *framing* — an
+    /// existing GIF opens with its saved 3× framing in that binding while the live canvas shows
+    /// the whole photo at 1×, and `generationFraming` relies on the saved value surviving. An
+    /// overlay that draws on the photo needs what is on screen, not what will be generated.
+    var displayedRect: Binding<CGRect> = .constant(CGRect(x: 0, y: 0, width: 1, height: 1))
+    var onZoomPathBegan: (() -> Void)? = nil
+    var onZoomPathEnded: (() -> Void)? = nil
+
     /// Fired the first time — and every time — the user works the canvas by hand.
     ///
     /// Driven from the scroll view's `willBegin` delegate callbacks rather than from
@@ -80,6 +94,11 @@ struct ImageCanvasView: View {
                 laserAim: laserAim,
                 onLaserAimBegan: onLaserAimBegan,
                 onLaserAimEnded: onLaserAimEnded,
+                isZoomPathInteractive: isZoomPathInteractive,
+                onZoomPathPoint: onZoomPathPoint,
+                onZoomPathBegan: onZoomPathBegan,
+                onZoomPathEnded: onZoomPathEnded,
+                displayedRect: displayedRect,
                 canvasSize: canvasSize
             )
 
@@ -113,6 +132,11 @@ private struct ScrollableCanvasView: UIViewRepresentable {
     var laserAim: Binding<LaserAim?>
     var onLaserAimBegan: (() -> Void)?
     var onLaserAimEnded: (() -> Void)?
+    var isZoomPathInteractive: Bool
+    var onZoomPathPoint: ((CGPoint) -> Void)?
+    var onZoomPathBegan: (() -> Void)?
+    var onZoomPathEnded: (() -> Void)?
+    var displayedRect: Binding<CGRect>
     let canvasSize: CGFloat
 
     func makeCoordinator() -> Coordinator {
@@ -179,7 +203,12 @@ private struct ScrollableCanvasView: UIViewRepresentable {
         }
         context.coordinator.textHost = textHost
 
-        return CanvasContainerView(scrollView: scrollView, textHost: textHost)
+        let container = CanvasContainerView(scrollView: scrollView, textHost: textHost)
+        container.onLayout = { [weak coordinator = context.coordinator, weak scrollView] in
+            guard let coordinator, let scrollView else { return }
+            coordinator.publishDisplayedRect(scrollView)
+        }
+        return container
     }
 
     func updateUIView(_ container: CanvasContainerView, context: Context) {
@@ -198,7 +227,7 @@ private struct ScrollableCanvasView: UIViewRepresentable {
             textHost.update(overlay: textOverlay.wrappedValue, canvasSide: canvasSize)
         }
 
-        coordinator.setLaserAimInteractive(isLaserAimInteractive, in: container)
+        coordinator.setTouchInteractive(isLaserAimInteractive || isZoomPathInteractive, in: container)
     }
 
     private func configureContentSize(scrollView: UIScrollView, imageView: UIImageView) {
@@ -324,6 +353,33 @@ private struct ScrollableCanvasView: UIViewRepresentable {
             if !rectsAreClose(parent.visibleRect, newRect) {
                 parent.visibleRect = newRect
             }
+            if !rectsAreClose(parent.displayedRect.wrappedValue, newRect) {
+                parent.displayedRect.wrappedValue = newRect
+            }
+        }
+
+        /// What the scroll view shows, published without touching `visibleRect`. Called from the
+        /// container's layout, which is the one moment the framing binding must *not* follow the
+        /// scroll view (see `ImageCanvasView.displayedRect`).
+        func publishDisplayedRect(_ scrollView: UIScrollView) {
+            let contentW = scrollView.contentSize.width
+            let contentH = scrollView.contentSize.height
+            let viewW = scrollView.bounds.width
+            let viewH = scrollView.bounds.height
+            guard contentW > 0, contentH > 0, viewW > 0, viewH > 0 else { return }
+            let w = min(1.0, viewW / contentW)
+            let h = min(1.0, viewH / contentH)
+            let rect = CGRect(
+                x: max(0, min(1 - w, scrollView.contentOffset.x / contentW)),
+                y: max(0, min(1 - h, scrollView.contentOffset.y / contentH)),
+                width: w, height: h
+            )
+            guard !rectsAreClose(parent.displayedRect.wrappedValue, rect) else { return }
+            // Off the layout pass: writing SwiftUI state from inside layoutSubviews is a
+            // state-modified-during-update warning waiting to happen.
+            DispatchQueue.main.async { [weak self] in
+                self?.parent.displayedRect.wrappedValue = rect
+            }
         }
 
         private func rectsAreClose(_ a: CGRect, _ b: CGRect) -> Bool {
@@ -349,12 +405,13 @@ private struct ScrollableCanvasView: UIViewRepresentable {
 
         // MARK: Lazer aim
 
-        /// Turns the aim on or off, and moves the photo's pan to two fingers while it is on.
+        /// Turns the one-finger canvas touch (aim or path) on or off, and moves the photo's pan
+        /// to two fingers while it is on.
         ///
         /// The pan's touch count is the only scroll-view setting touched, and it is restored
-        /// the moment aiming ends, so every other category keeps the one-finger pan it has
+        /// the moment the mode ends, so every other category keeps the one-finger pan it has
         /// always had. Pinch is a separate recogniser and is never changed.
-        func setLaserAimInteractive(_ interactive: Bool, in container: CanvasContainerView) {
+        func setTouchInteractive(_ interactive: Bool, in container: CanvasContainerView) {
             guard let aimRecognizer, aimRecognizer.isEnabled != interactive else { return }
             aimRecognizer.isEnabled = interactive
             container.scrollView.panGestureRecognizer.minimumNumberOfTouches = interactive ? 2 : 1
@@ -362,6 +419,7 @@ private struct ScrollableCanvasView: UIViewRepresentable {
 
         @objc func handleAim(_ recognizer: UILongPressGestureRecognizer) {
             guard let imageView else { return }
+            if parent.isZoomPathInteractive { handlePath(recognizer, in: imageView); return }
 
             switch recognizer.state {
             case .began:
@@ -391,6 +449,37 @@ private struct ScrollableCanvasView: UIViewRepresentable {
                 parent.onLaserAimEnded?()
             case .cancelled, .failed:
                 parent.onLaserAimEnded?()
+            default:
+                break
+            }
+        }
+
+        /// The PATH stroke. Unlike the aim, touch-down publishes immediately: a tap is a stop,
+        /// and a stop under the first finger of a pinch is one undo away rather than a flicked
+        /// target. A second finger still surrenders the rest of the stroke to the pinch.
+        private func handlePath(_ recognizer: UILongPressGestureRecognizer, in imageView: UIImageView) {
+            func normalized() -> CGPoint? {
+                let size = imageView.bounds.size
+                guard size.width > 0, size.height > 0 else { return nil }
+                let p = recognizer.location(in: imageView)
+                return CGPoint(x: p.x / size.width, y: p.y / size.height)
+            }
+            switch recognizer.state {
+            case .began:
+                aimSurrenderedToPinch = false
+                parent.onInteraction?()
+                parent.onZoomPathBegan?()
+                HapticService.light()
+                if let p = normalized() { parent.onZoomPathPoint?(p) }
+            case .changed:
+                guard !aimSurrenderedToPinch else { return }
+                if recognizer.numberOfTouches > 1 { aimSurrenderedToPinch = true; return }
+                if let p = normalized() { parent.onZoomPathPoint?(p) }
+            case .ended:
+                if !aimSurrenderedToPinch { HapticService.medium() }
+                parent.onZoomPathEnded?()
+            case .cancelled, .failed:
+                parent.onZoomPathEnded?()
             default:
                 break
             }
@@ -582,6 +671,8 @@ final class CanvasContainerView: UIView {
     let scrollView: UIScrollView
     private let textHost: TextOverlayHostView
     private var router = TextTouchRouter()
+    /// Fired after the scroll view has its frame, so the displayed region can be published.
+    var onLayout: (() -> Void)?
 
     init(scrollView: UIScrollView, textHost: TextOverlayHostView) {
         self.scrollView = scrollView
@@ -597,6 +688,7 @@ final class CanvasContainerView: UIView {
         super.layoutSubviews()
         scrollView.frame = bounds
         textHost.frame = bounds
+        onLayout?()
     }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {

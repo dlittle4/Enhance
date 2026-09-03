@@ -15,6 +15,7 @@ struct CanvasLabView: View {
 
     @AppStorage(FeatureFlags.scrubPreviewKey) private var scrubFlag = false
     @AppStorage(FeatureFlags.sliderOverdriveKey) private var overdriveFlag = false
+    @AppStorage(FeatureFlags.pathZoomKey) private var pathFlag = false
 
     /// The demo slider's value. Local: it drives nothing but the row itself.
     @State private var demoValue: Double = 0.8
@@ -32,6 +33,8 @@ struct CanvasLabView: View {
                     divider
                     scrubSection
                     divider
+                    pathSection
+                    divider
                     actions
                 }
                 .padding(.horizontal, 16)
@@ -48,6 +51,56 @@ struct CanvasLabView: View {
                 .foregroundColor(.white)
             labToggle("SCRUB THE PREVIEW", isOn: $scrubFlag)
             labToggle("SLIDER OVERDRIVE", isOn: $overdriveFlag)
+            labToggle("STEERABLE ZOOM (PATH)", isOn: $pathFlag)
+        }
+    }
+
+    private var pathSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("PATH")
+                .font(.silkscreenSectionTitle)
+                .foregroundColor(.white)
+
+            Text("JUDGE IN THE EDITOR — PICK PATH, DRAW ON THE PHOTO")
+                .font(.silkscreenSmall)
+                .foregroundColor(.textPrimary)
+
+            ParameterSliderRow(
+                label: "EASE",
+                value: normalized(tuning.pathEase, in: 0...1),
+                allowsZero: true,
+                valueText: String(format: "%.2f", store.tuning.pathEase)
+            )
+            ParameterSliderRow(
+                label: "DWELL",
+                value: normalized(tuning.pathDwell, in: 0...0.3),
+                allowsZero: true,
+                valueText: String(format: "%.2f", store.tuning.pathDwell)
+            )
+            ParameterSliderRow(
+                label: "ZOOM RAMP",
+                value: normalized(tuning.pathScaleRamp, in: 0...1),
+                allowsZero: true,
+                valueText: store.tuning.pathScaleRamp < 0.01 ? "HOLD" : String(format: "%.2f", store.tuning.pathScaleRamp)
+            )
+            ParameterSliderRow(
+                label: "SPACING",
+                value: normalized(tuning.pathSampleSpacing, in: 8...80),
+                valueText: "\(Int(store.tuning.pathSampleSpacing))PT"
+            )
+
+            Text("CORNERS")
+                .font(.silkscreenSubheadline)
+                .foregroundColor(.textPrimary)
+
+            SegmentedToggle(
+                items: [true, false],
+                selection: Binding(
+                    get: { store.tuning.pathSmoothing },
+                    set: { store.tuning.pathSmoothing = $0 }
+                ),
+                label: { $0 ? "ROUNDED" : "SHARP" }
+            )
         }
     }
 

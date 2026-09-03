@@ -72,6 +72,7 @@ struct SettingsView: View {
     @AppStorage(FeatureFlags.laserAimKey) private var laserAim: Bool = false
     @AppStorage(FeatureFlags.scrubPreviewKey) private var scrubPreview: Bool = false
     @AppStorage(FeatureFlags.sliderOverdriveKey) private var sliderOverdrive: Bool = false
+    @AppStorage(FeatureFlags.pathZoomKey) private var pathZoom: Bool = false
 
     @State private var showCanvasLab = false
 
@@ -178,6 +179,7 @@ struct SettingsView: View {
             experimentRow("AIM THE LAZERS", isOn: $laserAim)
             experimentRow("SCRUB THE PREVIEW", isOn: $scrubPreview)
             experimentRow("SLIDER OVERDRIVE", isOn: $sliderOverdrive)
+            experimentRow("STEERABLE ZOOM (PATH)", isOn: $pathZoom)
         }
     }
 

@@ -48,6 +48,9 @@ struct EditorView: View {
     /// SLIDER OVERDRIVE's ceiling and glitch rate, for the effect rows. Observed so a change in
     /// CANVAS LAB re-renders the rows.
     @ObservedObject private var canvasStore = CanvasTuningStore.shared
+    /// The region of the photo the live canvas is showing, for overlays drawn on it. See
+    /// `ImageCanvasView.displayedRect` for why this is not `viewModel.visibleRect`.
+    @State private var displayedRect = CGRect(x: 0, y: 0, width: 1, height: 1)
     @AppStorage(FeatureFlags.motionTabScaleKey) private var motionTabScale = false
     @AppStorage(FeatureFlags.motionCategorySwitchKey) private var motionCategorySwitch = false
     @AppStorage(FeatureFlags.motionTilePressKey) private var motionTilePress = false
@@ -438,6 +441,7 @@ struct EditorView: View {
                 let historyEnabled = !viewModel.isEditingEffect
                     && !viewModel.isTextGestureActive
                     && !viewModel.isLaserAimActive
+                    && !viewModel.isZoomPathActive
 
                 if viewModel.hasNonDefaultSettings {
                     Button {
@@ -616,11 +620,32 @@ struct EditorView: View {
                 laserAim: $viewModel.laserAim,
                 onLaserAimBegan: { viewModel.beginLaserAim() },
                 onLaserAimEnded: { viewModel.endLaserAim() },
+                isZoomPathInteractive: viewModel.wantsZoomPath,
+                onZoomPathPoint: { point in
+                    // The lab's spacing is in canvas points on the *content*, so it is scaled by
+                    // the zoom: at 2× the same 28pt of screen is half as much photo.
+                    let contentSide = canvasSize * max(1, viewModel.currentScale)
+                    viewModel.extendZoomPath(to: point, minimumSpacing: canvasStore.tuning.pathSampleSpacing / contentSide)
+                },
+                displayedRect: $displayedRect,
+                onZoomPathBegan: { viewModel.beginZoomPathStroke() },
+                onZoomPathEnded: { viewModel.endZoomPathStroke() },
                 onInteraction: { viewModel.noteCanvasInteraction() },
                 onInteractionEnded: { viewModel.commitZoomCardFraming() },
                 canvasSize: canvasSize
             )
             .frame(width: canvasSize, height: canvasSize)
+            .overlay {
+                if viewModel.wantsZoomPath {
+                    ZoomPathOverlay(
+                        path: viewModel.zoomPath,
+                        visibleRect: displayedRect,
+                        canvasSize: canvasSize,
+                        smoothing: canvasStore.tuning.pathSmoothing,
+                        onClear: { viewModel.clearZoomPath() }
+                    )
+                }
+            }
             // The picture only — the border stays visible as the flight's landing ring.
             // This is the camera capture's branch of the cover (`.newImage` renders live
             // immediately); the existing-GIF branch above carries the same gate.
@@ -738,7 +763,7 @@ struct EditorView: View {
 
     private func zoomEffectsGrid(cardSize: CGFloat) -> some View {
         EffectCarousel(
-            items: EffectChoice.gallery(AnimatorType.allCases),
+            items: EffectChoice.gallery(AnimatorType.selectable),
             scrollTo: EffectChoice(viewModel.selectedAnimatorType),
             contentInset: canvasInset,
             cascade: cardCascade
@@ -1678,12 +1703,16 @@ struct EditorView: View {
                 // ranks below the zoom hint, which is the one with a consequence.
                 toastLabel(EditorViewModel.laserHintMessage)
                     .transition(.opacity)
+            } else if viewModel.showsZoomPathHint {
+                toastLabel(EditorViewModel.zoomPathHintMessage)
+                    .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showSaveMessage)
         .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showsZoomHint)
         .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showsTextHint)
         .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showsLaserHint)
+        .animation(.easeInOut(duration: AppConstants.Animation.standard), value: viewModel.showsZoomPathHint)
         .frame(maxHeight: .infinity, alignment: .bottom)
         .padding(.bottom, AppConstants.Spacing.grid)
     }

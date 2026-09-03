@@ -1142,3 +1142,28 @@ Both flags live in `FeatureFlags` (off by default) and their knobs in `CanvasTun
       "secret too much mode" as asked.
 - [x] Verified on the SE 3: dragging CHROMA SHIFT's INTENSITY to the screen edge read a red
       glitching "22".
+
+### STEERABLE ZOOM — the PATH card (same day)
+
+- [x] `AnimatorType.path`, shown only while `FeatureFlags.pathZoom` is on
+      (`AnimatorType.selectable`); `allCases` keeps it so the framing and generator tests stay
+      total. `ZoomCardFraming.fraction(.path)` is 0.9.
+- [x] `ZoomPath` — stops in `visibleRect` space (normalized, top-left), thinned on append by a
+      spacing the editor converts from CANVAS LAB's points against the zoomed content. Arc-length
+      parameterised so a long leg and a short leg move at one speed; optional dwell at interior
+      stops; Catmull-Rom through the stops so a tap lands exactly where tapped.
+- [x] `PathAnimator` holds the pinched magnification and moves the centre along the route, with
+      EASE, DWELL, CORNERS and ZOOM RAMP from the lab; empty route degrades to ZOOM IN. The
+      centre is clamped to what the pinch could reach, so a stop at the photo's edge does not
+      frame the void beyond it — seen on the SE 3 as a black band on the last frame before the
+      clamp existed.
+- [x] Drawing shares the aim's recogniser and two-finger pan (`ImageCanvasView`); the stroke is
+      an undo session like the others; CLEAR PATH sits on the canvas; a hint until first use.
+- [x] **`ImageCanvasView.displayedRect`** — new, and the finding of the day. `visibleRect` is the
+      *framing*: an existing GIF opens with its saved 3× rect in that binding while the live
+      canvas shows the whole photo at 1×, and `generationFraming` relies on the saved value
+      surviving. The first overlay drew through it and landed 140pt off. The canvas now also
+      publishes the rect it is actually showing, refreshed on layout as well as scroll, and
+      overlays that draw *on the photo* read that instead.
+- [x] Verified on the SE 3: the overlay matches the stroke; the regenerated GIF's frames travel
+      head → cat → sofa at the saved 3.4×.

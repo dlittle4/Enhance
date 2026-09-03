@@ -28,6 +28,9 @@ enum ZoomCardFraming {
         // thumbnail, since the beat is a shader rather than a camera move. A distinct value is
         // kept so the fraction table stays total and the distinctness tests keep their meaning.
         case .heartBeat: return 0.75
+        // PATH holds the pinched magnification throughout, so its card shows nearly that —
+        // short of ZOOM IN's 1 so the two stay distinct in the table.
+        case .path: return 0.9
         }
     }
 

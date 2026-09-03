@@ -35,12 +35,30 @@ struct CanvasTuning: Codable, Equatable {
     /// 0 is a steady red number.
     var overdriveGlitchRate: Double
 
+    // MARK: Path
+
+    /// 0 travels at constant speed; 1 eases the whole journey in and out.
+    var pathEase: Double
+    /// Fraction of the GIF spent parked at each interior stop.
+    var pathDwell: Double
+    /// Whether the route rounds its corners (Catmull-Rom through the stops).
+    var pathSmoothing: Bool
+    /// 0 holds the pinched magnification; 1 ramps from the whole photo up to it over the route.
+    var pathScaleRamp: Double
+    /// Minimum distance between stops laid down by a drag, in canvas points.
+    var pathSampleSpacing: Double
+
     static let `default` = CanvasTuning(
         scrubSpan: 300,
         scrubTickEvery: 4,
         overdriveMax: 1.5,
         overdriveGain: 4,
-        overdriveGlitchRate: 0.5
+        overdriveGlitchRate: 0.5,
+        pathEase: 0.6,
+        pathDwell: 0.1,
+        pathSmoothing: true,
+        pathScaleRamp: 0,
+        pathSampleSpacing: 28
     )
 
     // MARK: - Scrub arithmetic
@@ -66,7 +84,12 @@ struct CanvasTuning: Codable, Equatable {
             scrubTickEvery: \(Self.number(scrubTickEvery)),
             overdriveMax: \(Self.number(overdriveMax)),
             overdriveGain: \(Self.number(overdriveGain)),
-            overdriveGlitchRate: \(Self.number(overdriveGlitchRate))
+            overdriveGlitchRate: \(Self.number(overdriveGlitchRate)),
+            pathEase: \(Self.number(pathEase)),
+            pathDwell: \(Self.number(pathDwell)),
+            pathSmoothing: \(pathSmoothing),
+            pathScaleRamp: \(Self.number(pathScaleRamp)),
+            pathSampleSpacing: \(Self.number(pathSampleSpacing))
         )
         """
     }
