@@ -55,6 +55,18 @@ struct CanvasTuning: Codable, Equatable {
     /// H.264 average bitrate, in megabits per second.
     var videoBitrateMbps: Double
 
+    // MARK: Burst
+
+    /// Longest a held shutter records, in seconds. The GIF's own duration is SPEED's business;
+    /// this is how much real motion there is to play.
+    var burstDuration: Double
+    /// Frames kept per second while recording. The tap runs at the camera's rate; this thins.
+    var burstFPS: Double
+    /// Side of the square each frame is normalized to. Memory is `side² × 4 × frames`; 720 at
+    /// 18 frames is ~37MB, which a device handles and the generator's 600px output never sees
+    /// past.
+    var burstFrameSide: Double
+
     static let `default` = CanvasTuning(
         scrubSpan: 300,
         scrubTickEvery: 4,
@@ -67,7 +79,10 @@ struct CanvasTuning: Codable, Equatable {
         pathScaleRamp: 0,
         pathSampleSpacing: 28,
         videoLoops: 3,
-        videoBitrateMbps: 6
+        videoBitrateMbps: 6,
+        burstDuration: 1.5,
+        burstFPS: 12,
+        burstFrameSide: 720
     )
 
     // MARK: - Scrub arithmetic
@@ -100,7 +115,10 @@ struct CanvasTuning: Codable, Equatable {
             pathScaleRamp: \(Self.number(pathScaleRamp)),
             pathSampleSpacing: \(Self.number(pathSampleSpacing)),
             videoLoops: \(Self.number(videoLoops)),
-            videoBitrateMbps: \(Self.number(videoBitrateMbps))
+            videoBitrateMbps: \(Self.number(videoBitrateMbps)),
+            burstDuration: \(Self.number(burstDuration)),
+            burstFPS: \(Self.number(burstFPS)),
+            burstFrameSide: \(Self.number(burstFrameSide))
         )
         """
     }

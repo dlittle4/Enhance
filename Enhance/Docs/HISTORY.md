@@ -1185,3 +1185,29 @@ Both flags live in `FeatureFlags` (off by default) and their knobs in `CanvasTun
 - [x] Tests: the schedule honours per-frame delays and loop count; a synthetic 4-frame GIF at
       3 loops exports to a movie whose `AVAsset` duration is 1.2s and whose track is the GIF's
       frame size; garbage input throws.
+
+### BURST CAPTURE — hold the shutter (same day)
+
+- [x] Behind `FeatureFlags.burstCapture` (needs IN-APP CAMERA). A 0.3s press on the shutter arms
+      a burst: `CameraViewModel.beginBurst` turns on the same frame tap the resolve intro uses
+      and keeps frames at LENGTH / FRAMES-PER-SEC from Settings, auto-stopping at the length;
+      lifting ends it. Fewer than four frames is treated as a tap, so a quick press still takes
+      a photo. Frames are square-cropped and scaled to one exact side (`burstFrameSide`).
+- [x] The shutter keeps its `Button` for the tap and takes a long-press-then-drag as a
+      simultaneous gesture for the hold; the Button's action yields while a burst owns the
+      shutter, since touch-up fires regardless of how long the touch took. A red ring on the
+      shutter is the recording cue.
+- [x] `BurstFrame` (image + faces) and a new `GIFGenerating.generateGIF(frames:…)` requirement
+      with a default that collapses to the still path, so the test stubs are untouched.
+      `GIFGenerator` maps output frame → burst frame linearly (`burstIndex`), so SPEED plays the
+      motion faster or slower rather than cutting it; the hold is the burst's last frame. One
+      face pass per burst frame, built on demand and cached.
+- [x] The editor adopts the burst (`adoptBurst`) and detects faces per frame in the background;
+      a frame whose detection has not landed uses frame 0's faces. Both generation sites go
+      through `renderGIF`, which picks the frames overload when a burst exists.
+- [x] `MockCameraService` sweeps a marker across the card at 15fps while frames are on, so a
+      simulator burst is a stack of distinct frames.
+
+**Known limits, recorded rather than solved:** the live canvas and every thumbnail show frame 0
+only; BACKGROUND ONLY and BIG HEAD use frame 0's mask for every frame; a burst is not persisted
+with a saved GIF (reopening edits the GIF as a still). Memory: 18 frames at 720px is ~37MB.

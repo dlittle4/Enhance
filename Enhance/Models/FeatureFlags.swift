@@ -249,4 +249,12 @@ enum FeatureFlags {
     static let videoExportKey = "featureVideoExport"
 
     static var videoExport: Bool { UserDefaults.standard.bool(forKey: videoExportKey) }
+
+    /// Hold the in-app camera's shutter to capture a burst of real frames; the GIF is built
+    /// from them, effects on top, so a face filter rides a face that actually moves. Needs
+    /// IN-APP CAMERA. See `CameraViewModel.beginBurst`, `BurstFrame`, and the burst knobs in
+    /// Settings (`CanvasTuning.burstDuration` / `burstFPS`).
+    static let burstCaptureKey = "featureBurstCapture"
+
+    static var burstCapture: Bool { UserDefaults.standard.bool(forKey: burstCaptureKey) }
 }

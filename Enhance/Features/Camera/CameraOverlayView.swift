@@ -25,11 +25,15 @@ struct CameraOverlayView: View {
     static let launchAnchor = UnitPoint(x: 0.10, y: 0.85)
 
     let viewModel: CameraViewModel
+    @AppStorage(FeatureFlags.burstCaptureKey) private var burstCapture = false
+    @ObservedObject private var canvasStore = CanvasTuningStore.shared
     /// True while the gallery's flyer is carrying the captured photo — the freeze frame hides
     /// beneath it, the same one-visible-copy rule the grid cell follows.
     let photoInFlight: Bool
     let onClose: () -> Void
     let onCapture: (UIImage) -> Void
+    /// BURST CAPTURE's handoff: the normalized frames, first of which is also the capture.
+    var onCaptureBurst: ([UIImage]) -> Void = { _ in }
     /// The frozen capture's frame in global coordinates, reported on layout — the flight's
     /// launch pad. Measured on the freeze itself (which carries no entrance transform) rather
     /// than the viewfinder card, whose launch morph scales it.
@@ -366,8 +370,35 @@ struct CameraOverlayView: View {
         .accessibilityIdentifier("camera-close")
     }
 
+    /// Hold-to-burst, under `FeatureFlags.burstCapture`. A long press arms the burst while the
+    /// finger is down; the drag that follows exists only to learn when it lifts. The Button
+    /// still fires on that lift — UIKit's touch-up-inside does not care how long the touch
+    /// took — so its action yields whenever a burst owns the shutter.
+    private var burstGesture: some Gesture {
+        LongPressGesture(minimumDuration: 0.3)
+            .sequenced(before: DragGesture(minimumDistance: 0))
+            .onChanged { value in
+                if case .second(true, nil) = value, burstCapture, !viewModel.isBursting {
+                    HapticService.heavy()
+                    viewModel.beginBurst(fps: canvasStore.tuning.burstFPS, duration: canvasStore.tuning.burstDuration)
+                }
+            }
+            .onEnded { _ in
+                guard viewModel.isBursting else { return }
+                Task {
+                    if let frames = await viewModel.endBurst() {
+                        HapticService.success()
+                        onCaptureBurst(frames)
+                    }
+                }
+            }
+    }
+
     private var shutterButton: some View {
         Button {
+            // A lift that ends a burst (or a burst that already auto-stopped into a capture)
+            // is not a photo.
+            guard !viewModel.isBursting, viewModel.capturedBurst == nil else { return }
             HapticService.medium()
             Task {
                 await viewModel.capture()
@@ -391,8 +422,18 @@ struct CameraOverlayView: View {
             }
             .frame(width: 62, height: 62)
             .modifier(GlassSquare(cornerRadius: AppConstants.Spacing.grid + 3))
+            .overlay {
+                // The recording cue: a red ring that breathes while frames are being kept.
+                if viewModel.isBursting {
+                    RoundedRectangle(cornerRadius: AppConstants.Spacing.grid + 3, style: .continuous)
+                        .stroke(Color.overdrive, lineWidth: 3)
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeInOut(duration: 0.15), value: viewModel.isBursting)
         }
         .buttonStyle(EnhancePressButtonStyle())
+        .simultaneousGesture(burstGesture)
         .disabled(viewModel.isCapturing || viewModel.sessionState != .running)
         .accessibilityLabel("Take photo")
         .accessibilityIdentifier("camera-shutter")

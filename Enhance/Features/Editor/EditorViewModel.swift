@@ -192,6 +192,65 @@ class EditorViewModel {
     var isDetectingFaces: Bool = false
     private let faceDetectionService = FaceDetectionService()
 
+    // MARK: - Burst capture (`FeatureFlags.burstCapture`)
+
+    /// The camera's burst, normalized; `image` is its first frame. Nil for an ordinary photo.
+    private(set) var burstFrames: [UIImage]?
+    /// Faces per burst frame, filled in the background once the burst arrives. Empty entries
+    /// mean "not yet" and the generator falls back to frame 0's faces for them.
+    private(set) var burstFaces: [[DetectedFace]] = []
+    private var burstDetection: Task<Void, Never>?
+
+    /// Hands the editor a burst. Detection runs per frame off the main actor — ~18 Vision
+    /// passes take a couple of seconds on device, well inside the time it takes to pick an
+    /// effect — and each result lands as it finishes, so a GIF generated mid-way is not held.
+    func adoptBurst(_ frames: [UIImage]?) {
+        burstDetection?.cancel()
+        burstFaces = []
+        guard let frames, frames.count > 1 else { burstFrames = nil; return }
+        burstFrames = frames
+        burstFaces = Array(repeating: [], count: frames.count)
+        let service = faceDetectionService
+        burstDetection = Task { [weak self] in
+            for (index, frame) in frames.enumerated() {
+                if Task.isCancelled { return }
+                let faces = await service.detectFaces(in: frame)
+                await MainActor.run {
+                    guard let self, index < self.burstFaces.count else { return }
+                    self.burstFaces[index] = faces
+                }
+            }
+        }
+    }
+
+    /// The one call both generation paths make. A burst goes through the frames overload with
+    /// the per-frame faces; a still takes the path it always has. Reads the view model on
+    /// whatever queue the caller is on, as the two sites always did.
+    func renderGIF(image: UIImage, animator: Animator, scale: CGFloat, rect: CGRect) -> Data? {
+        if let frames = burstSourceFrames {
+            return gifGenerator.generateGIF(
+                frames: frames, currentScale: scale, visibleRect: rect, animator: animator,
+                speed: playbackSpeed, pauseDuration: pauseDuration,
+                visualEffects: activeVisualEffectList, faceEffect: activeFaceEffect,
+                textOverlay: textOverlay
+            )
+        }
+        return gifGenerator.generateGIF(
+            from: image, currentScale: scale, visibleRect: rect, animator: animator,
+            speed: playbackSpeed, pauseDuration: pauseDuration,
+            visualEffects: activeVisualEffectList, faceEffect: activeFaceEffect,
+            detectedFaces: activeFaces, textOverlay: textOverlay
+        )
+    }
+
+    /// What the generator gets for a burst: every frame with its faces, or nil for a still.
+    var burstSourceFrames: [BurstFrame]? {
+        guard let burstFrames else { return nil }
+        return burstFrames.enumerated().map { index, image in
+            BurstFrame(image: image, faces: index < burstFaces.count ? burstFaces[index] : [])
+        }
+    }
+
     // MARK: - Subject segmentation (ROADMAP §2f)
 
     /// The subject/background mask for the current photo, in its pixel space. `nil` means
@@ -1650,7 +1709,10 @@ class EditorViewModel {
     /// Whether the user can generate without zooming in — true when a visual
     /// effect, face filter, or modifier is applied that will animate on its own.
     private var hasEffectsWithoutZoom: Bool {
-        selectedVisualEffect != nil || selectedFaceFilter != nil || selectedModifier != nil
+        // A burst is motion on its own: NO ZOOM with nothing else selected is still a GIF worth
+        // making when the frames themselves move.
+        burstFrames != nil
+            || selectedVisualEffect != nil || selectedFaceFilter != nil || selectedModifier != nil
             || textOverlay?.isActive == true
     }
 
@@ -1725,15 +1787,9 @@ class EditorViewModel {
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             let animator = activeAnimator
             
-            if let gifData = gifGenerator.generateGIF(
-                from: imageToUse, currentScale: generationScale,
-                visibleRect: generationVisibleRect, animator: animator,
-                speed: playbackSpeed,
-                pauseDuration: pauseDuration,
-                visualEffects: activeVisualEffectList,
-                faceEffect: activeFaceEffect,
-                detectedFaces: activeFaces,
-                textOverlay: textOverlay,
+            if let gifData = self.renderGIF(
+                image: imageToUse, animator: animator,
+                scale: generationScale, rect: generationVisibleRect
             ) {
                 let tempDir = FileManager.default.temporaryDirectory
                 let fileURL = tempDir.appendingPathComponent("\(UUID().uuidString).gif")
@@ -1773,15 +1829,9 @@ class EditorViewModel {
         DispatchQueue.global(qos: .userInitiated).async { [self] in
             let animator = activeAnimator
             
-            if let gifData = gifGenerator.generateGIF(
-                from: sourceImg, currentScale: generationScale,
-                visibleRect: generationVisibleRect, animator: animator,
-                speed: playbackSpeed,
-                pauseDuration: pauseDuration,
-                visualEffects: activeVisualEffectList,
-                faceEffect: activeFaceEffect,
-                detectedFaces: activeFaces,
-                textOverlay: textOverlay,
+            if let gifData = self.renderGIF(
+                image: sourceImg, animator: animator,
+                scale: generationScale, rect: generationVisibleRect
             ) {
                 let tempDir = FileManager.default.temporaryDirectory
                 let fileURL = tempDir.appendingPathComponent("\(UUID().uuidString).gif")

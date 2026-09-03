@@ -74,6 +74,7 @@ struct SettingsView: View {
     @AppStorage(FeatureFlags.sliderOverdriveKey) private var sliderOverdrive: Bool = false
     @AppStorage(FeatureFlags.pathZoomKey) private var pathZoom: Bool = false
     @AppStorage(FeatureFlags.videoExportKey) private var videoExport: Bool = false
+    @AppStorage(FeatureFlags.burstCaptureKey) private var burstCapture: Bool = false
     @ObservedObject private var canvasStore = CanvasTuningStore.shared
 
     @State private var showCanvasLab = false
@@ -186,6 +187,10 @@ struct SettingsView: View {
             if videoExport {
                 videoExportControls
             }
+            experimentRow("BURST CAPTURE (HOLD SHUTTER)", isOn: $burstCapture)
+            if burstCapture {
+                burstControls
+            }
         }
     }
 
@@ -207,6 +212,24 @@ struct SettingsView: View {
                 label: "REVEAL TIME",
                 value: normalized($motionStore.tuning.cameraRevealTime, in: 0.2...3),
                 valueText: String(format: "%.2fS", motionStore.tuning.cameraRevealTime)
+            )
+        }
+        .padding(.leading, 34)
+        .padding(.top, 2)
+        .padding(.bottom, 10)
+    }
+
+    private var burstControls: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ParameterSliderRow(
+                label: "LENGTH",
+                value: normalized($canvasStore.tuning.burstDuration, in: 0.5...3),
+                valueText: String(format: "%.1fS", canvasStore.tuning.burstDuration)
+            )
+            ParameterSliderRow(
+                label: "FRAMES / SEC",
+                value: normalized($canvasStore.tuning.burstFPS, in: 4...24),
+                valueText: "\(Int(canvasStore.tuning.burstFPS.rounded()))"
             )
         }
         .padding(.leading, 34)

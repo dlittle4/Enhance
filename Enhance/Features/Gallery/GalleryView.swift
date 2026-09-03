@@ -100,6 +100,8 @@ struct GalleryView: View {
     /// launch pad for the capture flight, the way a tapped cell's frame is for the grid's.
     /// Written only between a capture and the camera's teardown.
     @State private var cameraFreezeRect: CGRect = .zero
+    /// BURST CAPTURE frames waiting for the editor the camera handoff is about to create.
+    @State private var pendingBurst: [UIImage]? = nil
 
     @StateObject private var deviceMotion = DeviceMotionService()
 
@@ -850,6 +852,11 @@ struct GalleryView: View {
                     // reopen has already replaced it, and that request must die stale.
                     onClose: { [token = cameraLaunchToken] in closeCameraIfCurrent(token) },
                     onCapture: presentEditorFromCamera,
+                    onCaptureBurst: { frames in
+                        guard let first = frames.first else { return }
+                        pendingBurst = frames
+                        presentEditorFromCamera(first)
+                    },
                     onFreezeFrameChange: { cameraFreezeRect = $0 }
                 )
                 .id(cameraLaunchToken)
@@ -916,6 +923,8 @@ struct GalleryView: View {
         if reduceMotion {
             // No flight: the editor fades in on its own and the camera goes quietly.
             selectPhoto(image)
+            editorViewModel?.adoptBurst(pendingBurst)
+            pendingBurst = nil
             dismissCameraAfterHandoff()
             return
         }
@@ -925,6 +934,8 @@ struct GalleryView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             guard isCameraPresented else { return }
             editorViewModel = EditorViewModel(content: .newImage(image))
+            editorViewModel?.adoptBurst(pendingBurst)
+            pendingBurst = nil
             if cameraFreezeRect != .zero {
                 zoomFlight = ZoomFlight(
                     hiddenCellIndex: nil,

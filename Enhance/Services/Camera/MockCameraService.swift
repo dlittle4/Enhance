@@ -53,6 +53,31 @@ final class MockCameraService: CameraServing {
     func setPreviewFrames(_ enabled: Bool) {
         previewFramesEnabled = enabled
         deliverFrameIfEnabled()
+        // BURST CAPTURE on the simulator needs frames that *change*: a marker sweeps across the
+        // card at 15fps while delivery is on, so a burst is a stack of distinct frames and
+        // the editor's GIF visibly moves.
+        liveTimer?.invalidate()
+        liveTimer = nil
+        if enabled {
+            liveTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 15.0, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.deliverLiveFrame() }
+            }
+        }
+    }
+
+    private var liveTimer: Timer?
+    private var liveTick = 0
+
+    private func deliverLiveFrame() {
+        guard previewFramesEnabled, state == .running else { return }
+        liveTick += 1
+        let frame = Self.renderFrame(
+            size: CGSize(width: 800, height: 800),
+            position: position,
+            zoomLabel: zoomOptions[currentZoomIndex].label,
+            markerPhase: Double(liveTick % 45) / 45
+        )
+        if let cg = frame.cgImage { onPreviewFrame?(cg) }
     }
 
     func cycleZoom() {
@@ -109,7 +134,7 @@ final class MockCameraService: CameraServing {
 
     /// A gradient card with a watermark, standing in for the live feed. The zoom label is
     /// painted in so cycling the pill visibly changes the "feed".
-    private static func renderFrame(size: CGSize, position: CameraPosition, zoomLabel: String) -> UIImage {
+    private static func renderFrame(size: CGSize, position: CameraPosition, zoomLabel: String, markerPhase: Double? = nil) -> UIImage {
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         format.opaque = true
@@ -148,6 +173,14 @@ final class MockCameraService: CameraServing {
                     x: (size.width - textSize.width) / 2,
                     y: size.height * 0.42 + CGFloat(index) * textSize.height * 1.4
                 ))
+            }
+
+            if let markerPhase {
+                let r = size.width * 0.06
+                let x = size.width * 0.1 + CGFloat(markerPhase) * size.width * 0.8
+                let y = size.height * 0.25 + sin(CGFloat(markerPhase) * .pi * 2) * size.height * 0.06
+                cgContext.setFillColor(UIColor.white.withAlphaComponent(0.9).cgColor)
+                cgContext.fillEllipse(in: CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2))
             }
         }
     }

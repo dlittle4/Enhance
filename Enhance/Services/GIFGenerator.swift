@@ -53,6 +53,27 @@ public class GIFGenerator: GIFGenerating {
     }
     
     func generateGIF(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double = 1.0, pauseDuration: Double = 1.0, visualEffects: [VisualEffect] = [], faceEffect: FaceEffect? = nil, detectedFaces: [DetectedFace] = [], textOverlay: TextOverlay? = nil) -> Data? {
+        generateGIF(
+            from: image, currentScale: currentScale, visibleRect: visibleRect, animator: animator,
+            speed: speed, pauseDuration: pauseDuration, visualEffects: visualEffects,
+            faceEffect: faceEffect, detectedFaces: detectedFaces, textOverlay: textOverlay,
+            burst: nil
+        )
+    }
+
+    /// BURST CAPTURE. Frame 0 is the context's image (sizes, draw rect, face-pass scale); the
+    /// rest ride through `burst` and are swapped in per output frame.
+    func generateGIF(frames: [BurstFrame], currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double, pauseDuration: Double, visualEffects: [VisualEffect], faceEffect: FaceEffect?, textOverlay: TextOverlay?) -> Data? {
+        guard let first = frames.first else { return nil }
+        return generateGIF(
+            from: first.image, currentScale: currentScale, visibleRect: visibleRect, animator: animator,
+            speed: speed, pauseDuration: pauseDuration, visualEffects: visualEffects,
+            faceEffect: faceEffect, detectedFaces: first.faces, textOverlay: textOverlay,
+            burst: frames.count > 1 ? frames : nil
+        )
+    }
+
+    private func generateGIF(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double, pauseDuration: Double, visualEffects: [VisualEffect], faceEffect: FaceEffect?, detectedFaces: [DetectedFace], textOverlay: TextOverlay?, burst: [BurstFrame]?) -> Data? {
         guard let context = prepareDrawingContext(from: image, currentScale: currentScale, visibleRect: visibleRect, speed: speed, pauseDuration: pauseDuration) else {
             return nil
         }
@@ -63,6 +84,20 @@ public class GIFGenerator: GIFGenerating {
         }
 
         let facePass = prepareFaceEffectPass(context: context, effect: faceEffect, faces: detectedFaces)
+
+        // One face pass per burst frame, built on demand and kept: a frame is reused when the
+        // output has more frames than the burst, and its pass must not be rebuilt each time.
+        let burstSource = burst.map { BurstSource(frames: $0, fallbackFaces: detectedFaces) }
+        func burstPass(_ index: Int) -> FaceEffectPass? {
+            guard let burstSource else { return facePass }
+            let frame = burstSource.frames[index]
+            if let cached = burstSource.passes[index] { return cached }
+            let faces = frame.faces.isEmpty ? burstSource.fallbackFaces : frame.faces
+            let pass = prepareFaceEffectPass(context: context, effect: faceEffect, faces: faces, source: frame.image)
+            burstSource.passes[index] = pass
+            return pass
+        }
+        let burstFrames = burst
 
         // Stage 4 of the pipeline: text is composited after the face → zoom → visual-effect passes,
         // in the output frame's own coordinates, so it stays crisp and frame-anchored rather than
@@ -75,8 +110,10 @@ public class GIFGenerator: GIFGenerating {
                 .map { TextPass(raster: $0, overlay: overlay) }
         }
 
-        addAnimatedFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects, facePass: facePass, textPass: textPass)
-        addPauseFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects, facePass: facePass, textPass: textPass)
+        addAnimatedFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects, facePass: facePass, textPass: textPass, burst: burstFrames, burstPass: burstPass)
+        // The hold is on the burst's last frame: the person as they were when the shutter lifted.
+        let lastIndex = (burstFrames?.count ?? 1) - 1
+        addPauseFrames(to: destination, context: context, animator: animator, visualEffects: visualEffects, facePass: burstFrames == nil ? facePass : burstPass(lastIndex), textPass: textPass, sourceImage: burstFrames?.last?.image)
 
         if CGImageDestinationFinalize(destination) {
             return data as Data
@@ -142,7 +179,7 @@ public class GIFGenerator: GIFGenerating {
         return destination
     }
 
-    private func addAnimatedFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?, textPass: TextPass?) {
+    private func addAnimatedFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?, textPass: TextPass?, burst: [BurstFrame]? = nil, burstPass: ((Int) -> FaceEffectPass?)? = nil) {
         for i in 0..<context.frameCount {
             autoreleasepool {
                 let frameProgress = CGFloat(i) / CGFloat(context.frameCount - 1)
@@ -153,7 +190,13 @@ public class GIFGenerator: GIFGenerating {
                     outputSize: context.outputSize
                 )
 
-                let sourceForFrame = faceEffectedSource(pass: facePass, progress: frameProgress, frameIndex: i)
+                // Which real frame this output frame shows: the burst stretched or squeezed to
+                // the GIF's length, so SPEED plays the motion faster or slower rather than
+                // cutting it short.
+                let burstIndex = burst.map { Self.burstIndex(forOutputFrame: i, of: context.frameCount, burstCount: $0.count) }
+                let passForFrame = burstIndex.flatMap { burstPass?($0) } ?? facePass
+                let plainSource = burstIndex.map { burst![$0].image }
+                let sourceForFrame = faceEffectedSource(pass: passForFrame, progress: frameProgress, frameIndex: i) ?? plainSource
                 if let frameImage = createFrameImage(transform: transform, context: context, sourceOverride: sourceForFrame) {
                     let geometry = frameGeometry(params: frameParams, transform: transform, context: context)
                     let effected = applyVisualEffects(frameImage, effects: visualEffects, progress: frameProgress, frameIndex: i, geometry: geometry)
@@ -173,13 +216,13 @@ public class GIFGenerator: GIFGenerating {
         }
     }
 
-    private func addPauseFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?, textPass: TextPass?) {
+    private func addPauseFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?, textPass: TextPass?, sourceImage: UIImage? = nil) {
         let finalParams = animator.animationParameters(for: 1.0, in: context)
         let finalTransform = calculateTransformForFrame(
             params: finalParams, drawRect: context.drawRect, outputSize: context.outputSize
         )
 
-        let sourceForFrame = faceEffectedSource(pass: facePass, progress: 1.0, frameIndex: context.frameCount)
+        let sourceForFrame = faceEffectedSource(pass: facePass, progress: 1.0, frameIndex: context.frameCount) ?? sourceImage
         if let finalFrameImage = createFrameImage(transform: finalTransform, context: context, sourceOverride: sourceForFrame) {
             let geometry = frameGeometry(params: finalParams, transform: finalTransform, context: context)
             let effected = applyVisualEffects(finalFrameImage, effects: visualEffects, progress: 1.0, frameIndex: context.frameCount, geometry: geometry)
@@ -222,10 +265,30 @@ public class GIFGenerator: GIFGenerating {
     /// to. A source pixel's greatest magnification is `fillScale × maxZoom`: below 1 the
     /// generator is downsampling anyway, so shrinking the source by that factor first is free
     /// of visible cost. Above 1 it is already upsampling and the source is left alone.
-    private func prepareFaceEffectPass(context: DrawingContext, effect: FaceEffect?, faces: [DetectedFace]) -> FaceEffectPass? {
-        guard let effect, !faces.isEmpty, let cgImage = context.normalizedImage.cgImage else { return nil }
+    /// Maps an output frame onto the burst: frame 0 → burst 0, the last → the burst's last,
+    /// linearly between. Pure, so the stretch is testable.
+    static func burstIndex(forOutputFrame i: Int, of frameCount: Int, burstCount: Int) -> Int {
+        guard burstCount > 1, frameCount > 1 else { return 0 }
+        let t = Double(i) / Double(frameCount - 1)
+        return min(burstCount - 1, max(0, Int((t * Double(burstCount - 1)).rounded())))
+    }
 
-        let sourceWidth = context.normalizedImage.size.width
+    /// Per-frame face passes for a burst, and the faces to use when a frame has none.
+    private final class BurstSource {
+        let frames: [BurstFrame]
+        let fallbackFaces: [DetectedFace]
+        var passes: [Int: FaceEffectPass] = [:]
+        init(frames: [BurstFrame], fallbackFaces: [DetectedFace]) {
+            self.frames = frames
+            self.fallbackFaces = fallbackFaces
+        }
+    }
+
+    private func prepareFaceEffectPass(context: DrawingContext, effect: FaceEffect?, faces: [DetectedFace], source: UIImage? = nil) -> FaceEffectPass? {
+        let sourceImage = source.map(fixImageOrientation) ?? context.normalizedImage
+        guard let effect, !faces.isEmpty, let cgImage = sourceImage.cgImage else { return nil }
+
+        let sourceWidth = sourceImage.size.width
         guard sourceWidth > 0 else { return nil }
         // drawRect is the source laid into the output at zoom 1, so this is fillScale.
         let fillScale = context.drawRect.width / sourceWidth
