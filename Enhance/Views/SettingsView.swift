@@ -73,6 +73,8 @@ struct SettingsView: View {
     @AppStorage(FeatureFlags.scrubPreviewKey) private var scrubPreview: Bool = false
     @AppStorage(FeatureFlags.sliderOverdriveKey) private var sliderOverdrive: Bool = false
     @AppStorage(FeatureFlags.pathZoomKey) private var pathZoom: Bool = false
+    @AppStorage(FeatureFlags.videoExportKey) private var videoExport: Bool = false
+    @ObservedObject private var canvasStore = CanvasTuningStore.shared
 
     @State private var showCanvasLab = false
 
@@ -180,6 +182,10 @@ struct SettingsView: View {
             experimentRow("SCRUB THE PREVIEW", isOn: $scrubPreview)
             experimentRow("SLIDER OVERDRIVE", isOn: $sliderOverdrive)
             experimentRow("STEERABLE ZOOM (PATH)", isOn: $pathZoom)
+            experimentRow("MP4 EXPORT", isOn: $videoExport)
+            if videoExport {
+                videoExportControls
+            }
         }
     }
 
@@ -201,6 +207,26 @@ struct SettingsView: View {
                 label: "REVEAL TIME",
                 value: normalized($motionStore.tuning.cameraRevealTime, in: 0.2...3),
                 valueText: String(format: "%.2fS", motionStore.tuning.cameraRevealTime)
+            )
+        }
+        .padding(.leading, 34)
+        .padding(.top, 2)
+        .padding(.bottom, 10)
+    }
+
+    /// MP4 EXPORT's two knobs, shown under its row like the camera reveal's — a lab is overkill
+    /// for a loop count and a bitrate.
+    private var videoExportControls: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ParameterSliderRow(
+                label: "LOOPS",
+                value: normalized($canvasStore.tuning.videoLoops, in: 1...8),
+                valueText: "\(Int(canvasStore.tuning.videoLoops.rounded()))×"
+            )
+            ParameterSliderRow(
+                label: "QUALITY",
+                value: normalized($canvasStore.tuning.videoBitrateMbps, in: 1...16),
+                valueText: String(format: "%.0f MBPS", canvasStore.tuning.videoBitrateMbps)
             )
         }
         .padding(.leading, 34)

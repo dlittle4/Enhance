@@ -1167,3 +1167,21 @@ Both flags live in `FeatureFlags` (off by default) and their knobs in `CanvasTun
       overlays that draw *on the photo* read that instead.
 - [x] Verified on the SE 3: the overlay matches the stroke; the regenerated GIF's frames travel
       head → cat → sofa at the saved 3.4×.
+
+### MP4 EXPORT (same day)
+
+- [x] `VideoExporter.exportMP4` transcodes the finished GIF — not the generator's frames, so a
+      reopened asset exports without a second render and the movie is exactly the preview —
+      to H.264 via `AVAssetWriter`, one video frame per GIF frame at that frame's own delay, the
+      loop laid down LOOPS times. Even dimensions enforced; a millisecond clock so centisecond
+      delays are exact.
+- [x] Behind `FeatureFlags.videoExport`. SHARE becomes a chooser (GIF / VIDEO), SAVE always
+      opens the sheet and gains SAVE VIDEO TO PHOTOS. Videos go to the camera roll, **not** the
+      MY GIFS album, which the gallery reads as GIF-only — the storage question ROADMAP §3
+      parked stickers on stays parked; this is the cheap half.
+- [x] LOOPS and QUALITY (Mbps) sit under the experiment's row in Settings, from `CanvasTuning`;
+      a lab was overkill for two numbers.
+- [x] `ShareSheet` takes a file URL and a `UTType` as well as GIF bytes.
+- [x] Tests: the schedule honours per-frame delays and loop count; a synthetic 4-frame GIF at
+      3 loops exports to a movie whose `AVAsset` duration is 1.2s and whose track is the GIF's
+      frame size; garbage input throws.

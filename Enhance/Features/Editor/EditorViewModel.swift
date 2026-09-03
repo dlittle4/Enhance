@@ -124,6 +124,11 @@ class EditorViewModel {
     var playbackSpeed: Double = ZoomPlayback.defaultSpeed
     var pauseDuration: Double = ZoomPlayback.defaultPause
     var showSaveSheet: Bool = false
+    /// MP4 EXPORT: the SHARE chooser (GIF or video), and the exported movie to hand the share
+    /// sheet. `videoShareURL` drives a `.sheet(item:)`, so setting it presents.
+    var showShareChooser: Bool = false
+    var videoShareURL: ExportedVideo? = nil
+    var isExportingVideo: Bool = false
     var hasModifiedSettings: Bool = false
     var selectedEffectCategory: EffectCategory = .zoomEffects
     var selectedVisualEffect: VisualEffectType? = nil
@@ -1809,6 +1814,66 @@ class EditorViewModel {
         }
     }
     
+    // MARK: - MP4 export
+
+    /// The GIF bytes SHARE would send: the fresh render, else the reopened asset's file.
+    var shareableGIFData: Data? {
+        if let generatedGIF { return generatedGIF }
+        if let url = existingGifURL { return try? Data(contentsOf: url) }
+        return nil
+    }
+
+    /// Transcodes the current GIF with the experiment's loop count and quality, off the main
+    /// thread, and hands back the file. One toast while it runs; errors surface as a toast too.
+    func exportVideo(completion: @escaping (URL?) -> Void) {
+        guard let data = shareableGIFData else {
+            showToast("Error: No GIF to export")
+            completion(nil)
+            return
+        }
+        let tuning = CanvasTuningStore.shared.tuning
+        isExportingVideo = true
+        showToast("Exporting video...")
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let result = try? await VideoExporter.exportMP4(
+                gifData: data,
+                loops: Int(tuning.videoLoops.rounded()),
+                bitrateMbps: tuning.videoBitrateMbps
+            )
+            await MainActor.run {
+                guard let self else { return }
+                self.isExportingVideo = false
+                if result == nil { self.showToast("Error: Video export failed") }
+                else { self.showSaveMessage = false }
+                completion(result)
+            }
+        }
+    }
+
+    func shareVideo() {
+        exportVideo { [weak self] url in
+            guard let self, let url else { return }
+            self.videoShareURL = ExportedVideo(url: url)
+        }
+    }
+
+    func saveVideoToLibrary(photoManager: PhotoManager) {
+        exportVideo { [weak self] url in
+            guard let self, let url else { return }
+            self.showToast("Saving video...")
+            photoManager.saveVideoToLibrary(fileURL: url) { [weak self] success, error in
+                guard let self else { return }
+                if success {
+                    HapticService.success()
+                    self.showToast("Video saved to Photos")
+                } else {
+                    HapticService.error()
+                    self.showToast("Error: \(error?.localizedDescription ?? "Could not save video")")
+                }
+            }
+        }
+    }
+
     func saveGIFToLibrary(photoManager: PhotoManager) {
         // `generatedGifURL`, never a fallback to `existingGifURL`. Saving on an existing GIF
         // means saving a *new copy of the edit*; if regeneration never produced a file, the

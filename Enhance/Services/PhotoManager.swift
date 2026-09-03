@@ -102,6 +102,25 @@ class PhotoManager: NSObject, ObservableObject {
         )
     }
     
+    /// MP4 EXPORT: saves a movie to the camera roll — deliberately *not* the MY GIFS album,
+    /// which the gallery reads as GIF-only. Same authorization dance as the GIF save.
+    func saveVideoToLibrary(fileURL: URL, completion: @escaping (Bool, Error?) -> Void) {
+        let perform = {
+            PHPhotoLibrary.shared().performChanges({
+                PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: fileURL)
+            }) { success, error in
+                DispatchQueue.main.async { completion(success, error) }
+            }
+        }
+        if permissions.isAuthorized {
+            perform()
+        } else {
+            permissions.requestAuthorization { granted in
+                if granted { perform() } else { completion(false, NSError(domain: "PhotoLibraryNotAuthorized", code: 1)) }
+            }
+        }
+    }
+
     func forceRefreshGifs() {
         gifLibrary.forceRefreshGifs()
     }

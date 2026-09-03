@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct EditorView: View {
     @Bindable var viewModel: EditorViewModel
@@ -48,6 +49,8 @@ struct EditorView: View {
     /// SLIDER OVERDRIVE's ceiling and glitch rate, for the effect rows. Observed so a change in
     /// CANVAS LAB re-renders the rows.
     @ObservedObject private var canvasStore = CanvasTuningStore.shared
+    /// MP4 EXPORT: SAVE and SHARE grow a video option while this is on.
+    @AppStorage(FeatureFlags.videoExportKey) private var videoExport = false
     /// The region of the photo the live canvas is showing, for overlays drawn on it. See
     /// `ImageCanvasView.displayedRect` for why this is not `viewModel.visibleRect`.
     @State private var displayedRect = CGRect(x: 0, y: 0, width: 1, height: 1)
@@ -314,6 +317,12 @@ struct EditorView: View {
             } else if let gifURL = viewModel.existingGifURL, let gifData = try? Data(contentsOf: gifURL) {
                 ShareSheet(gifData: gifData)
             }
+        }
+        .sheet(isPresented: $viewModel.showShareChooser) {
+            shareChooserContent
+        }
+        .sheet(item: $viewModel.videoShareURL) { video in
+            ShareSheet(fileURL: video.url, fileType: .mpeg4Movie)
         }
     }
 
@@ -1525,7 +1534,11 @@ struct EditorView: View {
         HStack(spacing: 8) {
             if photoManager.isAuthorized {
                 Button {
+                    // With MP4 EXPORT on, SAVE always asks — a fresh photo otherwise saves the
+                    // GIF straight away, which leaves the video option nowhere to live.
                     if case .existingGif = viewModel.content {
+                        viewModel.showSaveSheet = true
+                    } else if videoExport {
                         viewModel.showSaveSheet = true
                     } else {
                         viewModel.saveGIFToLibrary(photoManager: photoManager)
@@ -1543,7 +1556,11 @@ struct EditorView: View {
             }
 
             Button {
-                viewModel.showShareSheet = true
+                if videoExport {
+                    viewModel.showShareChooser = true
+                } else {
+                    viewModel.showShareSheet = true
+                }
             } label: {
                 Text("SHARE")
                     .font(.silkscreenButtonLabel)
@@ -1559,9 +1576,45 @@ struct EditorView: View {
 
     // MARK: - Save Sheet Content
 
+    /// MP4 EXPORT's SHARE chooser. GIF first: it is what the app is for.
+    private var shareChooserContent: some View {
+        BottomSheet(isPresented: $viewModel.showShareChooser, title: "SHARE AS") {
+            VStack(spacing: 16) {
+                sheetButton("GIF") {
+                    viewModel.showShareChooser = false
+                    // Let the chooser dismiss before the share sheet presents, or SwiftUI
+                    // drops the second presentation.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                        viewModel.showShareSheet = true
+                    }
+                }
+                sheetButton(viewModel.isExportingVideo ? "EXPORTING…" : "VIDEO (MP4)") {
+                    viewModel.showShareChooser = false
+                    viewModel.shareVideo()
+                }
+                .disabled(viewModel.isExportingVideo)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+        }
+    }
+
+    private func sheetButton(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.silkscreenButtonLabel)
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 60)
+                .surface(.control)
+        }
+        .buttonStyle(.plain)
+    }
+
     private var saveSheetContent: some View {
         BottomSheet(isPresented: $viewModel.showSaveSheet, title: "SELECT AN OPTION") {
             VStack(spacing: 16) {
+                if case .existingGif = viewModel.content {
                 Button {
                     viewModel.showSaveSheet = false
                     viewModel.updateOriginalGIF(photoManager: photoManager)
@@ -1592,6 +1645,20 @@ struct EditorView: View {
                         .surface(.control)
                 }
                 .buttonStyle(.plain)
+                } else {
+                    // A fresh photo: the sheet only exists because MP4 EXPORT asked for it.
+                    sheetButton("SAVE GIF") {
+                        viewModel.showSaveSheet = false
+                        viewModel.saveGIFToLibrary(photoManager: photoManager)
+                    }
+                }
+
+                if videoExport {
+                    sheetButton("SAVE VIDEO TO PHOTOS") {
+                        viewModel.showSaveSheet = false
+                        viewModel.saveVideoToLibrary(photoManager: photoManager)
+                    }
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 16)

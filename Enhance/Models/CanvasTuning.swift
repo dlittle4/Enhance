@@ -48,6 +48,13 @@ struct CanvasTuning: Codable, Equatable {
     /// Minimum distance between stops laid down by a drag, in canvas points.
     var pathSampleSpacing: Double
 
+    // MARK: Video
+
+    /// How many times the GIF's loop plays in an exported MP4.
+    var videoLoops: Double
+    /// H.264 average bitrate, in megabits per second.
+    var videoBitrateMbps: Double
+
     static let `default` = CanvasTuning(
         scrubSpan: 300,
         scrubTickEvery: 4,
@@ -58,7 +65,9 @@ struct CanvasTuning: Codable, Equatable {
         pathDwell: 0.1,
         pathSmoothing: true,
         pathScaleRamp: 0,
-        pathSampleSpacing: 28
+        pathSampleSpacing: 28,
+        videoLoops: 3,
+        videoBitrateMbps: 6
     )
 
     // MARK: - Scrub arithmetic
@@ -89,7 +98,9 @@ struct CanvasTuning: Codable, Equatable {
             pathDwell: \(Self.number(pathDwell)),
             pathSmoothing: \(pathSmoothing),
             pathScaleRamp: \(Self.number(pathScaleRamp)),
-            pathSampleSpacing: \(Self.number(pathSampleSpacing))
+            pathSampleSpacing: \(Self.number(pathSampleSpacing)),
+            videoLoops: \(Self.number(videoLoops)),
+            videoBitrateMbps: \(Self.number(videoBitrateMbps))
         )
         """
     }

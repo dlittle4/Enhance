@@ -241,4 +241,12 @@ enum FeatureFlags {
     static let pathZoomKey = "featurePathZoom"
 
     static var pathZoom: Bool { UserDefaults.standard.bool(forKey: pathZoomKey) }
+
+    /// SAVE and SHARE gain video options: the finished GIF is transcoded to an H.264 `.mp4` by
+    /// `VideoExporter`, played `CanvasTuning.videoLoops` times. Videos save to the camera roll
+    /// rather than the MY GIFS album, which stays GIF-only — the storage question ROADMAP §3
+    /// parked stickers on is left parked.
+    static let videoExportKey = "featureVideoExport"
+
+    static var videoExport: Bool { UserDefaults.standard.bool(forKey: videoExportKey) }
 }
