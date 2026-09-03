@@ -44,29 +44,42 @@ struct CanvasTuningTests {
     }
 
     @Test func filmstripCentresTheCurrentThumbLargestAndShrinksOutward() {
+        let style = ScrubStripStyle(thumb: 40, falloffPerStep: 0.1, minimumScale: 0.5, tiltPerStep: 0.1, fadePerStep: 0.05, gap: 2, entranceRise: 18)
         // The centred thumb is full size; each step away shrinks to a floor.
-        #expect(ScrubFilmstripView.scale(forDistance: 0) == 1)
-        #expect(ScrubFilmstripView.scale(forDistance: 1) < 1)
-        #expect(ScrubFilmstripView.scale(forDistance: -1) == ScrubFilmstripView.scale(forDistance: 1))
-        #expect(ScrubFilmstripView.scale(forDistance: 3) < ScrubFilmstripView.scale(forDistance: 2))
-        #expect(ScrubFilmstripView.scale(forDistance: 40) == ScrubFilmstripView.minimumScale)
+        #expect(style.scale(forDistance: 0) == 1)
+        #expect(style.scale(forDistance: 1) < 1)
+        #expect(style.scale(forDistance: -1) == style.scale(forDistance: 1))
+        #expect(style.scale(forDistance: 3) < style.scale(forDistance: 2))
+        #expect(style.scale(forDistance: 40) == 0.5)
 
         // Index 3 of 9 sits at width/2; neighbours abut at their scaled widths, so the pitch
         // shrinks with distance and the row is symmetric about the centre.
         let width: CGFloat = 300
-        let centres = ScrubFilmstripView.centres(count: 9, index: 3, thumb: 40, width: width)
+        let centres = style.centres(count: 9, index: 3, width: width)
         #expect(centres.count == 9)
         #expect(abs(centres[3] - 150) < 1e-9)
         let step1 = centres[4] - centres[3]
         let step2 = centres[5] - centres[4]
         #expect(step1 > step2, "pitch tightens toward the edges")
         #expect(abs((centres[3] - centres[2]) - step1) < 1e-9, "symmetric")
-        #expect(ScrubFilmstripView.centres(count: 0, index: 0, thumb: 40, width: width).isEmpty)
+        #expect(style.centres(count: 0, index: 0, width: width).isEmpty)
+
+        // Zero shrink is a flat row at one pitch.
+        let flat = ScrubStripStyle(thumb: 40, falloffPerStep: 0, minimumScale: 0.5, tiltPerStep: 0, fadePerStep: 0, gap: 2, entranceRise: 0)
+        let flatCentres = flat.centres(count: 5, index: 2, width: width)
+        #expect(abs((flatCentres[3] - flatCentres[2]) - 42) < 1e-9)
+    }
+
+    @Test func tuningExposesTheStripStyle() {
+        let style = CanvasTuning.default.scrubStripStyle
+        #expect(style.thumb == 40)
+        #expect(style.falloffPerStep == 0.05)
+        #expect(style == ScrubStripStyle.default)
     }
 
     @Test func snippetNamesEveryKnob() {
         let snippet = CanvasTuning.default.swiftSnippet
-        for name in ["scrubSpan", "scrubTickEvery", "scrubStripThumb", "overdriveMax", "overdriveGain", "overdriveGlitchRate"] {
+        for name in ["scrubSpan", "scrubTickEvery", "scrubStripThumb", "scrubStripFalloff", "scrubStripTilt", "scrubStripRise", "overdriveMax", "overdriveGain", "overdriveGlitchRate"] {
             #expect(snippet.contains(name), Comment(rawValue: name))
         }
     }

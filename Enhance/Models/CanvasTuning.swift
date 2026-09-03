@@ -21,6 +21,22 @@ struct CanvasTuning: Codable, Equatable {
 
     /// Side of each thumb in the filmstrip that appears under a scrubbing finger, in points.
     var scrubStripThumb: Double
+    /// The filmstrip's look, as sliders *(user's ask, 2026-09-03)* — see `ScrubStripStyle`.
+    /// Shrink per step from the centre, the size floor, tilt per step (radians), fade per step,
+    /// the gap between thumbs, and how far the strip rises on entrance.
+    var scrubStripFalloff: Double
+    var scrubStripMinScale: Double
+    var scrubStripTilt: Double
+    var scrubStripFade: Double
+    var scrubStripGap: Double
+    var scrubStripRise: Double
+
+    var scrubStripStyle: ScrubStripStyle {
+        ScrubStripStyle(
+            thumb: scrubStripThumb, falloffPerStep: scrubStripFalloff, minimumScale: scrubStripMinScale,
+            tiltPerStep: scrubStripTilt, fadePerStep: scrubStripFade, gap: scrubStripGap, entranceRise: scrubStripRise
+        )
+    }
 
     // MARK: Overdrive
 
@@ -74,6 +90,12 @@ struct CanvasTuning: Codable, Equatable {
         scrubSpan: 300,
         scrubTickEvery: 4,
         scrubStripThumb: 40,
+        scrubStripFalloff: 0.05,
+        scrubStripMinScale: 0.72,
+        scrubStripTilt: 0.06,
+        scrubStripFade: 0.05,
+        scrubStripGap: 3,
+        scrubStripRise: 18,
         overdriveMax: 1.5,
         overdriveGain: 4,
         overdriveGlitchRate: 0.5,
@@ -101,6 +123,12 @@ struct CanvasTuning: Codable, Equatable {
         scrubSpan = try c.decode(Double.self, forKey: .scrubSpan)
         scrubTickEvery = try c.decode(Double.self, forKey: .scrubTickEvery)
         scrubStripThumb = try c.decodeIfPresent(Double.self, forKey: .scrubStripThumb) ?? d.scrubStripThumb
+        scrubStripFalloff = try c.decodeIfPresent(Double.self, forKey: .scrubStripFalloff) ?? d.scrubStripFalloff
+        scrubStripMinScale = try c.decodeIfPresent(Double.self, forKey: .scrubStripMinScale) ?? d.scrubStripMinScale
+        scrubStripTilt = try c.decodeIfPresent(Double.self, forKey: .scrubStripTilt) ?? d.scrubStripTilt
+        scrubStripFade = try c.decodeIfPresent(Double.self, forKey: .scrubStripFade) ?? d.scrubStripFade
+        scrubStripGap = try c.decodeIfPresent(Double.self, forKey: .scrubStripGap) ?? d.scrubStripGap
+        scrubStripRise = try c.decodeIfPresent(Double.self, forKey: .scrubStripRise) ?? d.scrubStripRise
         overdriveMax = try c.decode(Double.self, forKey: .overdriveMax)
         overdriveGain = try c.decodeIfPresent(Double.self, forKey: .overdriveGain) ?? d.overdriveGain
         overdriveGlitchRate = try c.decode(Double.self, forKey: .overdriveGlitchRate)
@@ -116,8 +144,13 @@ struct CanvasTuning: Codable, Equatable {
         burstFrameSide = try c.decodeIfPresent(Double.self, forKey: .burstFrameSide) ?? d.burstFrameSide
     }
 
-    init(scrubSpan: Double, scrubTickEvery: Double, scrubStripThumb: Double, overdriveMax: Double, overdriveGain: Double, overdriveGlitchRate: Double, pathEase: Double, pathDwell: Double, pathSmoothing: Bool, pathScaleRamp: Double, pathSampleSpacing: Double, videoLoops: Double, videoBitrateMbps: Double, burstDuration: Double, burstFPS: Double, burstFrameSide: Double) {
+    init(scrubSpan: Double, scrubTickEvery: Double, scrubStripThumb: Double,
+         scrubStripFalloff: Double, scrubStripMinScale: Double, scrubStripTilt: Double,
+         scrubStripFade: Double, scrubStripGap: Double, scrubStripRise: Double, overdriveMax: Double, overdriveGain: Double, overdriveGlitchRate: Double, pathEase: Double, pathDwell: Double, pathSmoothing: Bool, pathScaleRamp: Double, pathSampleSpacing: Double, videoLoops: Double, videoBitrateMbps: Double, burstDuration: Double, burstFPS: Double, burstFrameSide: Double) {
         self.scrubSpan = scrubSpan; self.scrubTickEvery = scrubTickEvery; self.scrubStripThumb = scrubStripThumb
+        self.scrubStripFalloff = scrubStripFalloff; self.scrubStripMinScale = scrubStripMinScale
+        self.scrubStripTilt = scrubStripTilt; self.scrubStripFade = scrubStripFade
+        self.scrubStripGap = scrubStripGap; self.scrubStripRise = scrubStripRise
         self.overdriveMax = overdriveMax; self.overdriveGain = overdriveGain; self.overdriveGlitchRate = overdriveGlitchRate
         self.pathEase = pathEase; self.pathDwell = pathDwell; self.pathSmoothing = pathSmoothing
         self.pathScaleRamp = pathScaleRamp; self.pathSampleSpacing = pathSampleSpacing
@@ -147,6 +180,12 @@ struct CanvasTuning: Codable, Equatable {
             scrubSpan: \(Self.number(scrubSpan)),
             scrubTickEvery: \(Self.number(scrubTickEvery)),
             scrubStripThumb: \(Self.number(scrubStripThumb)),
+            scrubStripFalloff: \(Self.number(scrubStripFalloff)),
+            scrubStripMinScale: \(Self.number(scrubStripMinScale)),
+            scrubStripTilt: \(Self.number(scrubStripTilt)),
+            scrubStripFade: \(Self.number(scrubStripFade)),
+            scrubStripGap: \(Self.number(scrubStripGap)),
+            scrubStripRise: \(Self.number(scrubStripRise)),
             overdriveMax: \(Self.number(overdriveMax)),
             overdriveGain: \(Self.number(overdriveGain)),
             overdriveGlitchRate: \(Self.number(overdriveGlitchRate)),

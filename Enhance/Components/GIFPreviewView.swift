@@ -20,7 +20,7 @@ struct GIFPreviewView: View {
             isScrubInteractive: scrubPreview,
             scrubSpan: canvasStore.tuning.scrubSpan,
             scrubTickEvery: Int(canvasStore.tuning.scrubTickEvery.rounded()),
-            scrubStripThumb: canvasStore.tuning.scrubStripThumb
+            scrubStrip: canvasStore.tuning.scrubStripStyle
         )
         .background(Color.black.opacity(0.03))
     }

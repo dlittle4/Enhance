@@ -46,8 +46,8 @@ struct AnimatedGifView: UIViewRepresentable {
     var scrubSpan: Double = 300
     /// Frames between haptic ticks while scrubbing.
     var scrubTickEvery: Int = 4
-    /// Thumb side of the filmstrip shown under a scrubbing finger.
-    var scrubStripThumb: Double = 40
+    /// The look of the filmstrip shown under a scrubbing finger.
+    var scrubStrip: ScrubStripStyle = .default
 
     @State private var isLoading = true
 
@@ -91,7 +91,7 @@ struct AnimatedGifView: UIViewRepresentable {
         let filmstrip = ScrubFilmstripView()
         filmstrip.translatesAutoresizingMaskIntoConstraints = false
         containerView.addSubview(filmstrip)
-        let stripHeight = filmstrip.heightAnchor.constraint(equalToConstant: ScrubFilmstripView.height(forThumb: CGFloat(scrubStripThumb)))
+        let stripHeight = filmstrip.heightAnchor.constraint(equalToConstant: ScrubFilmstripView.height(forThumb: CGFloat(scrubStrip.thumb)))
         NSLayoutConstraint.activate([
             filmstrip.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 10),
             filmstrip.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -10),
@@ -347,10 +347,9 @@ struct AnimatedGifView: UIViewRepresentable {
             scrubSpan = view.scrubSpan
             scrubTickEvery = max(1, view.scrubTickEvery)
             scrubRecognizer?.isEnabled = view.isScrubInteractive
-            let thumb = CGFloat(max(16, view.scrubStripThumb))
-            if filmstrip?.thumbSide != thumb {
-                filmstrip?.thumbSide = thumb
-                filmstripHeight?.constant = ScrubFilmstripView.height(forThumb: thumb)
+            if let filmstrip, filmstrip.style != view.scrubStrip {
+                filmstrip.style = view.scrubStrip
+                filmstripHeight?.constant = ScrubFilmstripView.height(forThumb: CGFloat(view.scrubStrip.thumb))
             }
         }
 
@@ -459,13 +458,13 @@ struct AnimatedGifViewWithLoading: View {
     var isScrubInteractive: Bool = false
     var scrubSpan: Double = 300
     var scrubTickEvery: Int = 4
-    var scrubStripThumb: Double = 40
+    var scrubStrip: ScrubStripStyle = .default
 
     var body: some View {
         AnimatedGifView(
             url: url, contentMode: contentMode, lowQuality: lowQuality, isVisible: isVisible,
             playbackSpeed: playbackSpeed, isScrubInteractive: isScrubInteractive,
-            scrubSpan: scrubSpan, scrubTickEvery: scrubTickEvery, scrubStripThumb: scrubStripThumb
+            scrubSpan: scrubSpan, scrubTickEvery: scrubTickEvery, scrubStrip: scrubStrip
         )
     }
 }

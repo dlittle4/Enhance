@@ -131,10 +131,49 @@ struct CanvasLabView: View {
                 value: normalized(tuning.scrubTickEvery, in: 1...12),
                 valueText: "\(Int(store.tuning.scrubTickEvery.rounded())) FR"
             )
+            Text("FILMSTRIP")
+                .font(.silkscreenSubheadline)
+                .foregroundColor(.textPrimary)
+
             ParameterSliderRow(
-                label: "FILMSTRIP THUMB",
+                label: "THUMB",
                 value: normalized(tuning.scrubStripThumb, in: 24...72),
                 valueText: "\(Int(store.tuning.scrubStripThumb))PT"
+            )
+            ParameterSliderRow(
+                label: "SHRINK PER STEP",
+                value: normalized(tuning.scrubStripFalloff, in: 0...0.2),
+                allowsZero: true,
+                valueText: "\(Int((store.tuning.scrubStripFalloff * 100).rounded()))%"
+            )
+            ParameterSliderRow(
+                label: "SMALLEST",
+                value: normalized(tuning.scrubStripMinScale, in: 0.3...1),
+                valueText: "\(Int((store.tuning.scrubStripMinScale * 100).rounded()))%"
+            )
+            ParameterSliderRow(
+                label: "TILT PER STEP",
+                value: normalized(tuning.scrubStripTilt, in: 0...0.3),
+                allowsZero: true,
+                valueText: "\(Int((store.tuning.scrubStripTilt * 180 / .pi).rounded()))°"
+            )
+            ParameterSliderRow(
+                label: "FADE PER STEP",
+                value: normalized(tuning.scrubStripFade, in: 0...0.2),
+                allowsZero: true,
+                valueText: "\(Int((store.tuning.scrubStripFade * 100).rounded()))%"
+            )
+            ParameterSliderRow(
+                label: "GAP",
+                value: normalized(tuning.scrubStripGap, in: 0...10),
+                allowsZero: true,
+                valueText: "\(Int(store.tuning.scrubStripGap))PT"
+            )
+            ParameterSliderRow(
+                label: "RISE",
+                value: normalized(tuning.scrubStripRise, in: 0...40),
+                allowsZero: true,
+                valueText: "\(Int(store.tuning.scrubStripRise))PT"
             )
         }
     }
