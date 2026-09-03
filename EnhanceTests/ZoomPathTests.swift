@@ -4,6 +4,9 @@ import UIKit
 @testable import Enhance
 
 /// STEERABLE ZOOM: the route model, the animator that travels it, and the editor session.
+/// Serialized: three cases flip `FeatureFlags.pathZoomKey` in the shared defaults, and in
+/// parallel one can read the other's value mid-flight.
+@Suite(.serialized)
 struct ZoomPathTests {
 
     private func route(_ pts: [(CGFloat, CGFloat)]) -> ZoomPath {

@@ -19,6 +19,9 @@ struct CanvasTuning: Codable, Equatable {
     /// which at 25fps is a buzz rather than a series of detents.
     var scrubTickEvery: Double
 
+    /// Side of each thumb in the filmstrip that appears under a scrubbing finger, in points.
+    var scrubStripThumb: Double
+
     // MARK: Overdrive
 
     /// How far a slider may be dragged past its end, as a multiple of full scale. 1.5 reads as
@@ -70,6 +73,7 @@ struct CanvasTuning: Codable, Equatable {
     static let `default` = CanvasTuning(
         scrubSpan: 300,
         scrubTickEvery: 4,
+        scrubStripThumb: 40,
         overdriveMax: 1.5,
         overdriveGain: 4,
         overdriveGlitchRate: 0.5,
@@ -84,6 +88,42 @@ struct CanvasTuning: Codable, Equatable {
         burstFPS: 12,
         burstFrameSide: 720
     )
+
+    // MARK: - Decoding
+
+    /// Knobs added after a blob was saved decode to their defaults rather than failing the
+    /// whole blob — otherwise every lab value would silently reset on the first launch after
+    /// a new knob ships. Only the late additions are `decodeIfPresent`; the original set is
+    /// required, as before.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = CanvasTuning.default
+        scrubSpan = try c.decode(Double.self, forKey: .scrubSpan)
+        scrubTickEvery = try c.decode(Double.self, forKey: .scrubTickEvery)
+        scrubStripThumb = try c.decodeIfPresent(Double.self, forKey: .scrubStripThumb) ?? d.scrubStripThumb
+        overdriveMax = try c.decode(Double.self, forKey: .overdriveMax)
+        overdriveGain = try c.decodeIfPresent(Double.self, forKey: .overdriveGain) ?? d.overdriveGain
+        overdriveGlitchRate = try c.decode(Double.self, forKey: .overdriveGlitchRate)
+        pathEase = try c.decodeIfPresent(Double.self, forKey: .pathEase) ?? d.pathEase
+        pathDwell = try c.decodeIfPresent(Double.self, forKey: .pathDwell) ?? d.pathDwell
+        pathSmoothing = try c.decodeIfPresent(Bool.self, forKey: .pathSmoothing) ?? d.pathSmoothing
+        pathScaleRamp = try c.decodeIfPresent(Double.self, forKey: .pathScaleRamp) ?? d.pathScaleRamp
+        pathSampleSpacing = try c.decodeIfPresent(Double.self, forKey: .pathSampleSpacing) ?? d.pathSampleSpacing
+        videoLoops = try c.decodeIfPresent(Double.self, forKey: .videoLoops) ?? d.videoLoops
+        videoBitrateMbps = try c.decodeIfPresent(Double.self, forKey: .videoBitrateMbps) ?? d.videoBitrateMbps
+        burstDuration = try c.decodeIfPresent(Double.self, forKey: .burstDuration) ?? d.burstDuration
+        burstFPS = try c.decodeIfPresent(Double.self, forKey: .burstFPS) ?? d.burstFPS
+        burstFrameSide = try c.decodeIfPresent(Double.self, forKey: .burstFrameSide) ?? d.burstFrameSide
+    }
+
+    init(scrubSpan: Double, scrubTickEvery: Double, scrubStripThumb: Double, overdriveMax: Double, overdriveGain: Double, overdriveGlitchRate: Double, pathEase: Double, pathDwell: Double, pathSmoothing: Bool, pathScaleRamp: Double, pathSampleSpacing: Double, videoLoops: Double, videoBitrateMbps: Double, burstDuration: Double, burstFPS: Double, burstFrameSide: Double) {
+        self.scrubSpan = scrubSpan; self.scrubTickEvery = scrubTickEvery; self.scrubStripThumb = scrubStripThumb
+        self.overdriveMax = overdriveMax; self.overdriveGain = overdriveGain; self.overdriveGlitchRate = overdriveGlitchRate
+        self.pathEase = pathEase; self.pathDwell = pathDwell; self.pathSmoothing = pathSmoothing
+        self.pathScaleRamp = pathScaleRamp; self.pathSampleSpacing = pathSampleSpacing
+        self.videoLoops = videoLoops; self.videoBitrateMbps = videoBitrateMbps
+        self.burstDuration = burstDuration; self.burstFPS = burstFPS; self.burstFrameSide = burstFrameSide
+    }
 
     // MARK: - Scrub arithmetic
 
@@ -106,6 +146,7 @@ struct CanvasTuning: Codable, Equatable {
         static let tuned = CanvasTuning(
             scrubSpan: \(Self.number(scrubSpan)),
             scrubTickEvery: \(Self.number(scrubTickEvery)),
+            scrubStripThumb: \(Self.number(scrubStripThumb)),
             overdriveMax: \(Self.number(overdriveMax)),
             overdriveGain: \(Self.number(overdriveGain)),
             overdriveGlitchRate: \(Self.number(overdriveGlitchRate)),
