@@ -212,7 +212,7 @@ struct EffectLabTests {
         // Copied from EFFECTS LAB. Paste each block over the declaration it names.
 
         // VisualEffectType.swift — replace `retired`:
-        static let retired: Set<VisualEffectType> = [.heatHaze, .caustic, .stretch, .monotone, .duotone, .bloom, .inversion, .vintageGrain, .popArt]
+        static let retired: Set<VisualEffectType> = [.heatHaze, .caustic, .stretch, .pulse, .monotone, .duotone, .bloom, .inversion, .vintageGrain, .popArt]
 
         // FaceFilterType.swift — replace `retired`:
         static let retired: Set<FaceFilterType> = [.squeeze, .fadeToBW]
@@ -239,7 +239,7 @@ struct EffectLabTests {
         let store = EffectLabStore(defaults: scratchDefaults(), tables: .empty)
         store.setEnabled(false, for: VisualEffectType.lensDistortion)
         store.setEnabled(false, for: FaceFilterType.lensDistortion)
-        #expect(store.swiftSnippet.contains("Set<VisualEffectType> = [.lensDistortion, .caustic, .stretch, .monotone"))
+        #expect(store.swiftSnippet.contains("Set<VisualEffectType> = [.lensDistortion, .caustic, .stretch, .pulse, .monotone"))
         #expect(store.swiftSnippet.contains("Set<FaceFilterType> = [.fadeToBW, .lensDistortion]"))
         #expect(!store.swiftSnippet.contains("\"LENS\""))
     }
@@ -362,9 +362,12 @@ struct EffectLabTests {
     /// the user, and they must arrive with the same modifier every other card has.
     @Test
     func retiredVisualEffects_alsoEndWithBackgroundOnly() {
-        for type in VisualEffectType.retired {
+        // HEART BEAT is retired only to keep it off the IMAGE carousel — it runs from the ZOOM
+        // tab, which offers no subject mask, so it is the one retired effect without the toggle.
+        for type in VisualEffectType.retired where type != .pulse {
             #expect(type.parameters.last?.id == EffectParameter.backgroundOnlyID, "\(type.rawValue)")
         }
+        #expect(VisualEffectType.pulse.parameters.last?.id != EffectParameter.backgroundOnlyID)
         #expect(VisualEffectType.subjectEcho.parameters.last?.id != EffectParameter.backgroundOnlyID)
     }
 
