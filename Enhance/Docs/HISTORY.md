@@ -1259,3 +1259,16 @@ ticking at 12Hz on an `@Observable` re-evaluated the whole editor body and re-ra
 `updateFaceMarkers` twelve times a second. It moved into `ImageCanvasView`'s coordinator
 (`updatePlayback`), which swaps `imageView.image` on its own timer; SwiftUI is not involved
 in a frame change at all. `EditorViewModel.canvasPlaybackFrames` just says *what* to play.
+
+### "Sluggish next to the preview, and stuck at the end" (2026-09-03)
+
+Both were the zoom's timing applied to real motion. The GIF's animated length is fixed at
+`1s / SPEED`, and SPEED's default is 0.5×, so an 18-frame, 1.5s burst was stretched over 50
+output frames — every real frame doubled or tripled unevenly, which reads as judder — and then
+held on its last frame for the no-zoom default pause of **3 seconds**, which on a person
+mid-movement reads as the GIF hanging.
+
+A burst now plays **one output frame per real frame** at the capture interval over SPEED
+(`GIFGenerator.burstTiming`; the frames overload takes `frameInterval`), and opens at 1× with
+no pause (`defaultPlaybackSpeed` / `defaultPauseDuration` know about bursts). A speed or pause
+the user already moved is kept. The zoom, if one is selected, now rides the burst's own length.

@@ -20,8 +20,12 @@ protocol GIFGenerating {
 
     /// BURST CAPTURE: the same GIF, built from a stack of real frames played through in order.
     /// A protocol requirement with a default so the test stubs need not know about bursts.
+    /// - Parameter frameInterval: seconds between the burst's real frames as captured. The
+    ///   GIF plays one output frame per real frame at this interval over `speed`, so the motion
+    ///   keeps its own cadence rather than being stretched to the zoom's fixed length.
     func generateGIF(
         frames: [BurstFrame],
+        frameInterval: Double?,
         currentScale: CGFloat,
         visibleRect: CGRect,
         animator: Animator,
@@ -36,6 +40,7 @@ protocol GIFGenerating {
 extension GIFGenerating {
     func generateGIF(
         frames: [BurstFrame],
+        frameInterval: Double?,
         currentScale: CGFloat,
         visibleRect: CGRect,
         animator: Animator,

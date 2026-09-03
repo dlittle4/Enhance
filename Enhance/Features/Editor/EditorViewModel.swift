@@ -97,7 +97,21 @@ class EditorViewModel {
     /// The PAUSE a GIF should start at, which depends on whether it zooms — see
     /// `ZoomPlayback.noZoomPause` for why the two differ.
     var defaultPauseDuration: Double {
-        selectedAnimatorType == nil ? ZoomPlayback.noZoomPause : ZoomPlayback.defaultPause
+        // A burst is motion that ends where the shutter lifted; a hold on that frame reads
+        // as the GIF getting stuck, so its default is no pause at all (device pass,
+        // 2026-09-03). The slider still adds one.
+        if burstFrames != nil { return 0 }
+        return selectedAnimatorType == nil ? ZoomPlayback.noZoomPause : ZoomPlayback.defaultPause
+    }
+
+    /// 1× for a burst — its frames play at the rate they were taken — and the zoom's slower
+    /// default otherwise.
+    var defaultPlaybackSpeed: Double {
+        burstFrames != nil ? 1.0 : ZoomPlayback.defaultSpeed
+    }
+
+    var isSpeedAtDefault: Bool {
+        abs(playbackSpeed - defaultPlaybackSpeed) < 1e-6
     }
 
     /// Whether PAUSE is still at whatever the current selection's default is. Tolerant for the
@@ -254,8 +268,19 @@ class EditorViewModel {
         burstDetection?.cancel()
         burstFaces = []
         stopBurstPreview()
-        guard let frames, frames.count > 1 else { burstFrames = nil; return }
+        // Untouched timing follows the burst's defaults (real time, no hold); a speed or
+        // pause the user already set is theirs and stays.
+        let carryPause = isPauseAtDefault
+        let carrySpeed = isSpeedAtDefault
+        guard let frames, frames.count > 1 else {
+            burstFrames = nil
+            if carryPause { pauseDuration = defaultPauseDuration }
+            if carrySpeed { playbackSpeed = defaultPlaybackSpeed }
+            return
+        }
         burstFrames = frames
+        if carryPause { pauseDuration = defaultPauseDuration }
+        if carrySpeed { playbackSpeed = defaultPlaybackSpeed }
         burstFaces = Array(repeating: [], count: frames.count)
         burstPreviewFPS = CanvasTuningStore.shared.tuning.burstFPS
         let service = burstDetectionService
@@ -285,7 +310,8 @@ class EditorViewModel {
     func renderGIF(image: UIImage, animator: Animator, scale: CGFloat, rect: CGRect, burst: [BurstFrame]?) -> Data? {
         if let frames = burst {
             return gifGenerator.generateGIF(
-                frames: frames, currentScale: scale, visibleRect: rect, animator: animator,
+                frames: frames, frameInterval: 1 / max(1, burstPreviewFPS),
+                currentScale: scale, visibleRect: rect, animator: animator,
                 speed: playbackSpeed, pauseDuration: pauseDuration,
                 visualEffects: activeVisualEffectList, faceEffect: activeFaceEffect,
                 textOverlay: textOverlay
@@ -1010,7 +1036,7 @@ class EditorViewModel {
         // PAUSE compares against the *selection's* default, not a fixed 1s — a no-zoom GIF
         // starts at 3s, and comparing to the wrong baseline would show RESET on an untouched
         // editor and hide it on a genuinely edited one.
-        let timingChanged = !ZoomPlayback.isDefaultSpeed(playbackSpeed) || !isPauseAtDefault
+        let timingChanged = !isSpeedAtDefault || !isPauseAtDefault
         let base = selectedAnimatorType != defaultAnimatorType || hasActiveModifier || timingChanged
             || hasVisualEffect || hasFaceFilter || hasText
 

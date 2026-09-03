@@ -74,18 +74,21 @@ public class GIFGenerator: GIFGenerating {
 
     /// BURST CAPTURE. Frame 0 is the context's image (sizes, draw rect, face-pass scale); the
     /// rest ride through `burst` and are swapped in per output frame.
-    func generateGIF(frames: [BurstFrame], currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double, pauseDuration: Double, visualEffects: [VisualEffect], faceEffect: FaceEffect?, textOverlay: TextOverlay?) -> Data? {
+    func generateGIF(frames: [BurstFrame], frameInterval: Double? = nil, currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double, pauseDuration: Double, visualEffects: [VisualEffect], faceEffect: FaceEffect?, textOverlay: TextOverlay?) -> Data? {
         guard let first = frames.first else { return nil }
         return generateGIF(
             from: first.image, currentScale: currentScale, visibleRect: visibleRect, animator: animator,
             speed: speed, pauseDuration: pauseDuration, visualEffects: visualEffects,
             faceEffect: faceEffect, detectedFaces: first.faces, textOverlay: textOverlay,
-            burst: frames.count > 1 ? frames : nil
+            burst: frames.count > 1 ? frames : nil, burstInterval: frameInterval
         )
     }
 
-    private func generateGIF(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double, pauseDuration: Double, visualEffects: [VisualEffect], faceEffect: FaceEffect?, detectedFaces: [DetectedFace], textOverlay: TextOverlay?, burst: [BurstFrame]?) -> Data? {
-        guard let context = prepareDrawingContext(from: image, currentScale: currentScale, visibleRect: visibleRect, speed: speed, pauseDuration: pauseDuration) else {
+    private func generateGIF(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double, pauseDuration: Double, visualEffects: [VisualEffect], faceEffect: FaceEffect?, detectedFaces: [DetectedFace], textOverlay: TextOverlay?, burst: [BurstFrame]?, burstInterval: Double? = nil) -> Data? {
+        guard let context = prepareDrawingContext(
+            from: image, currentScale: currentScale, visibleRect: visibleRect, speed: speed, pauseDuration: pauseDuration,
+            burstFrameCount: burst?.count, burstInterval: burstInterval
+        ) else {
             return nil
         }
 
@@ -156,7 +159,16 @@ public class GIFGenerator: GIFGenerating {
 
     // MARK: - Private Helpers
 
-    private func prepareDrawingContext(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, speed: Double = 1.0, pauseDuration: Double = 1.0) -> DrawingContext? {
+    /// One output frame per real frame at its own interval: the GIF's animated length becomes
+    /// the burst's length over `speed`, and no real frame is doubled or dropped. Nil for a
+    /// still, or for a burst with no interval, keeps the zoom's fixed-length timing.
+    static func burstTiming(frameCount: Int?, interval: Double?, speed: Double) -> (frameCount: Int, delay: Double)? {
+        guard let frameCount, frameCount > 1, let interval, interval > 0 else { return nil }
+        // GIF delays are centiseconds and anything under 0.02 is replayed at 0.1 by browsers.
+        return (frameCount, max(0.02, interval / speed))
+    }
+
+    private func prepareDrawingContext(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, speed: Double = 1.0, pauseDuration: Double = 1.0, burstFrameCount: Int? = nil, burstInterval: Double? = nil) -> DrawingContext? {
         let effectiveScale = max(1.0, currentScale)
         let normalizedImage = fixImageOrientation(image)
         let outputSize = CGSize(width: outputDimension, height: outputDimension)
@@ -167,8 +179,12 @@ public class GIFGenerator: GIFGenerating {
 
         let clampedSpeed = max(0.25, min(4.0, speed))
         let duration = animationDuration / clampedSpeed
-        let computedFrameCount = max(12, Int(duration / targetFrameDelay))
-        let computedDelay = duration / Double(computedFrameCount)
+        var computedFrameCount = max(12, Int(duration / targetFrameDelay))
+        var computedDelay = duration / Double(computedFrameCount)
+        if let timing = Self.burstTiming(frameCount: burstFrameCount, interval: burstInterval, speed: clampedSpeed) {
+            computedFrameCount = timing.frameCount
+            computedDelay = timing.delay
+        }
 
         let clampedPause = max(0.0, min(5.0, pauseDuration))
         let computedPauseFrames = max(1, Int(clampedPause / targetFrameDelay))

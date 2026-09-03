@@ -195,6 +195,58 @@ struct BurstCaptureTests {
         #expect(vm.canvasPlaybackFrames == nil)
     }
 
+    /// One GIF frame per real frame, at the capture interval over the speed — no stretching.
+    @Test func burstGIFPlaysOneFrameSourceFrameAtItsOwnInterval() throws {
+        let frames = (0..<6).map { BurstFrame(image: UIImage(cgImage: frame(CGFloat($0) / 6))) }
+        let data = try #require(GIFGenerator().generateGIF(
+            frames: frames, frameInterval: 1.0 / 12.0, currentScale: 1,
+            visibleRect: CGRect(x: 0, y: 0, width: 1, height: 1), animator: StaticAnimator(),
+            speed: 1, pauseDuration: 0, visualEffects: [], faceEffect: nil, textOverlay: nil
+        ))
+        let source = try #require(CGImageSourceCreateWithData(data as CFData, nil))
+        // Six animated frames plus the one minimum pause frame.
+        #expect(CGImageSourceGetCount(source) == 7)
+        let delay = AnimatedGifView.frameDurationAtIndex(0, source: source)
+        #expect(abs(delay - 1.0 / 12.0) < 0.011, "delay \(delay)")
+
+        // SPEED 2× halves the interval; the frame count holds.
+        let fast = try #require(GIFGenerator().generateGIF(
+            frames: frames, frameInterval: 1.0 / 12.0, currentScale: 1,
+            visibleRect: CGRect(x: 0, y: 0, width: 1, height: 1), animator: StaticAnimator(),
+            speed: 2, pauseDuration: 0, visualEffects: [], faceEffect: nil, textOverlay: nil
+        ))
+        let fastSource = try #require(CGImageSourceCreateWithData(fast as CFData, nil))
+        #expect(CGImageSourceGetCount(fastSource) == 7)
+        #expect(AnimatedGifView.frameDurationAtIndex(0, source: fastSource) < delay)
+    }
+
+    @Test func burstTimingFallsBackWithoutAnInterval() {
+        #expect(GIFGenerator.burstTiming(frameCount: 18, interval: nil, speed: 1) == nil)
+        #expect(GIFGenerator.burstTiming(frameCount: 1, interval: 0.1, speed: 1) == nil)
+        let t = GIFGenerator.burstTiming(frameCount: 18, interval: 1.0 / 12.0, speed: 0.5)
+        #expect(t?.frameCount == 18)
+        #expect(abs((t?.delay ?? 0) - 1.0 / 6.0) < 1e-9)
+    }
+
+    /// A burst opens in real time with no hold, unless the user had already moved either.
+    @MainActor
+    @Test func adoptingABurstSetsRealTimeAndNoPauseButKeepsUserTiming() {
+        let a = UIImage(cgImage: frame(0.1))
+        let b = UIImage(cgImage: frame(0.5))
+        let vm = EditorViewModel(content: .newImage(a))
+        vm.adoptBurst([a, b])
+        #expect(vm.playbackSpeed == 1.0)
+        #expect(vm.pauseDuration == 0)
+        #expect(vm.isPauseAtDefault && vm.isSpeedAtDefault)
+
+        let vm2 = EditorViewModel(content: .newImage(a))
+        vm2.playbackSpeed = 2.0
+        vm2.pauseDuration = 4.0
+        vm2.adoptBurst([a, b])
+        #expect(vm2.playbackSpeed == 2.0)
+        #expect(vm2.pauseDuration == 4.0)
+    }
+
     /// The generator is handed a snapshot of the burst rather than reading the live arrays.
     @MainActor
     @Test func burstSourceFramesSnapshotCarriesEveryFrame() {
