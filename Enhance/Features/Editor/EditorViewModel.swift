@@ -234,7 +234,10 @@ class EditorViewModel {
     /// PATH's timing resolved: the stops' parking time is *added* to the journey rather than
     /// carved out of it, by handing the generator a slower effective speed. See `ZoomPathTiming`.
     private var pathTiming: ZoomPathTiming.Resolved {
-        ZoomPathTiming.resolve(speed: playbackSpeed, stopPause: stopPause, stopCount: zoomPath.stops.count)
+        ZoomPathTiming.resolve(
+            speed: playbackSpeed, stopPause: stopPause, stopCount: zoomPath.stops.count,
+            zoomsIn: generationFraming.scale > 1.01
+        )
     }
 
     /// What the generator is told for SPEED. PATH lengthens the GIF to fit its stop pauses.
@@ -1163,7 +1166,7 @@ class EditorViewModel {
                 ease: CGFloat(tuning.pathEase),
                 dwell: CGFloat(pathTiming.dwell),
                 curve: CGFloat(pathCurve),
-                scaleRamp: CGFloat(tuning.pathScaleRamp)
+                leadIn: CGFloat(pathTiming.leadIn)
             )
         } else {
             base = selectedAnimatorType?.animator ?? StaticAnimator()

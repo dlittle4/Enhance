@@ -6,6 +6,8 @@ import UniformTypeIdentifiers
 public class GIFGenerator: GIFGenerating {
     
     private let outputDimension: CGFloat = 600.0
+    /// The slowest SPEED the generator accepts: a 10s animated length.
+    static let minimumSpeed: Double = 0.1
     private let targetFrameDelay: Double = 0.04
     private let animationDuration: Double = 1.0
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
@@ -177,7 +179,9 @@ public class GIFGenerator: GIFGenerating {
             drawRect: drawRect, visibleRect: visibleRect, currentScale: effectiveScale
         )
 
-        let clampedSpeed = max(0.25, min(4.0, speed))
+        // The slider spans 0.25…4× (`ZoomPlayback`); the floor here is lower because PATH
+        // lengthens the GIF for its stop pauses and lead-in (`ZoomPathTiming`), up to 10s.
+        let clampedSpeed = max(Self.minimumSpeed, min(4.0, speed))
         let duration = animationDuration / clampedSpeed
         var computedFrameCount = max(12, Int(duration / targetFrameDelay))
         var computedDelay = duration / Double(computedFrameCount)

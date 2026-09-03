@@ -14,21 +14,22 @@ public struct PathAnimator: Animator {
     let dwell: CGFloat
     /// How much the route rounds its corners: 0 straight legs, 1 fully curved (the CURVE slider).
     let curve: CGFloat
-    /// 0 holds the pinched magnification throughout; 1 ramps from the whole photo up to it over
-    /// the journey.
-    let scaleRamp: CGFloat
+    /// Fraction of the journey spent zooming from the whole photo in to the first stop, before
+    /// the route begins — so the zoom-in is finished by the first stop rather than smeared over
+    /// the whole path *(user's call, 2026-09-03)*. 0 starts at the pinched magnification.
+    let leadIn: CGFloat
 
-    init(path: ZoomPath, ease: CGFloat = 0.6, dwell: CGFloat = 0.1, smoothing: Bool = true, scaleRamp: CGFloat = 0) {
-        self.init(path: path, ease: ease, dwell: dwell, curve: smoothing ? 1 : 0, scaleRamp: scaleRamp)
+    init(path: ZoomPath, ease: CGFloat = 0.6, dwell: CGFloat = 0.1, smoothing: Bool = true, leadIn: CGFloat = 0) {
+        self.init(path: path, ease: ease, dwell: dwell, curve: smoothing ? 1 : 0, leadIn: leadIn)
     }
 
-    init(path: ZoomPath, ease: CGFloat, dwell: CGFloat, curve: CGFloat, scaleRamp: CGFloat) {
+    init(path: ZoomPath, ease: CGFloat, dwell: CGFloat, curve: CGFloat, leadIn: CGFloat) {
         self.path = path
         self.ease = max(0, min(1, ease))
         // Up to 0.9 of the journey may be parked in total; `ZoomPath.point` caps the sum.
         self.dwell = max(0, min(0.9, dwell))
         self.curve = max(0, min(1, curve))
-        self.scaleRamp = max(0, min(1, scaleRamp))
+        self.leadIn = max(0, min(0.9, leadIn))
     }
 
     public func animationParameters(for progress: CGFloat, in context: GIFGenerator.DrawingContext) -> GIFGenerator.AnimationParameters {
@@ -36,18 +37,29 @@ public struct PathAnimator: Animator {
             return interpolate(from: context.fullViewParams, to: context.userZoomParams, progress: easeInOut(progress))
         }
         let clamped = max(0, min(1, progress))
-        let t = easeInOut(clamped) * ease + clamped * (1 - ease)
-        let stop = path.point(at: t, dwell: dwell, curve: curve) ?? CGPoint(x: 0.5, y: 0.5)
-
-        // Log-scale ramp, like `interpolate`, so a ramp reads as uniform zoom speed.
         let target = max(1, context.userZoomParams.scale)
-        let scale = scaleRamp > 0 ? pow(target, 1 - scaleRamp + scaleRamp * t) : target
-
         let rect = context.drawRect
-        let centre = Self.clampedCenter(stop, scale: scale, drawRect: rect, outputSize: context.outputSize)
-        let centerX = rect.origin.x + centre.x * rect.width
-        let centerY = rect.origin.y + centre.y * rect.height
-        return GIFGenerator.AnimationParameters(scale: scale, centerX: centerX, centerY: centerY)
+
+        func params(at stop: CGPoint, scale: CGFloat) -> GIFGenerator.AnimationParameters {
+            let centre = Self.clampedCenter(stop, scale: scale, drawRect: rect, outputSize: context.outputSize)
+            return GIFGenerator.AnimationParameters(
+                scale: scale,
+                centerX: rect.origin.x + centre.x * rect.width,
+                centerY: rect.origin.y + centre.y * rect.height
+            )
+        }
+
+        // The lead-in: the whole photo zooming in to the first stop — ZOOM IN's own move —
+        // done before the route starts. `interpolate` runs the scale in log space, so it reads
+        // as uniform zoom speed.
+        if leadIn > 0, clamped < leadIn, let first = path.stops.first {
+            let u = easeInOut(clamped / leadIn)
+            return interpolate(from: context.fullViewParams, to: params(at: first, scale: target), progress: u)
+        }
+        let travelled = leadIn > 0 ? (clamped - leadIn) / (1 - leadIn) : clamped
+        let t = easeInOut(travelled) * ease + travelled * (1 - ease)
+        let stop = path.point(at: t, dwell: dwell, curve: curve) ?? CGPoint(x: 0.5, y: 0.5)
+        return params(at: stop, scale: target)
     }
 
     /// Keeps the frame inside the photo. A stop near an edge is where the *finger* went, but a

@@ -366,7 +366,9 @@ struct AnimatedGifView: UIViewRepresentable {
         @objc private func tick(_ link: CADisplayLink) {
             guard !frames.isEmpty, !isHeld else { return }
             accumulated += link.targetTimestamp - link.timestamp
-            let step = frameDuration / playbackSpeed
+            // The GIF's own delays already carry SPEED (the generator wrote them), so the
+            // player must not apply it again — that double-applied it to a PATH's stop pauses.
+            let step = frameDuration
             var advanced = false
             while accumulated >= step {
                 accumulated -= step

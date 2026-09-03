@@ -71,12 +71,6 @@ struct CanvasLabView: View {
                 allowsZero: true,
                 valueText: String(format: "%.2f", store.tuning.pathEase)
             )
-            ParameterSliderRow(
-                label: "ZOOM RAMP",
-                value: normalized(tuning.pathScaleRamp, in: 0...1),
-                allowsZero: true,
-                valueText: store.tuning.pathScaleRamp < 0.01 ? "HOLD" : String(format: "%.2f", store.tuning.pathScaleRamp)
-            )
         }
     }
 

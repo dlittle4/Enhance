@@ -95,7 +95,7 @@ struct ZoomPathTests {
     }
 
     @Test func pathAnimatorRampsScaleWhenAsked() {
-        let animator = PathAnimator(path: route([(0, 0), (1, 1)]), ease: 0, dwell: 0, smoothing: false, scaleRamp: 1)
+        let animator = PathAnimator(path: route([(0, 0), (1, 1)]), ease: 0, dwell: 0, smoothing: false, leadIn: 0.5)
         #expect(abs(animator.animationParameters(for: 0, in: context()).scale - 1) < 1e-9)
         #expect(abs(animator.animationParameters(for: 1, in: context()).scale - 2) < 1e-9)
     }
@@ -303,17 +303,43 @@ struct ZoomPathTests {
     @Test func stopPauseLengthensTheGIFRatherThanEatingTheTravel() {
         // No interior stops: nothing to park at, speed passes through.
         let two = ZoomPathTiming.resolve(speed: 1, stopPause: 0.5, stopCount: 2)
-        #expect(two.speed == 1 && two.dwell == 0)
+        #expect(two.speed == 1 && two.dwell == 0 && two.leadIn == 0)
 
         // 1s of travel plus two stops at 0.5s: a 2s GIF, a quarter of it parked at each stop.
         let four = ZoomPathTiming.resolve(speed: 1, stopPause: 0.5, stopCount: 4)
         #expect(abs(four.speed - 0.5) < 1e-9)
         #expect(abs(four.dwell - 0.25) < 1e-9)
 
-        // Past the generator's 4s ceiling the pauses shrink to fit.
-        let long = ZoomPathTiming.resolve(speed: 0.5, stopPause: 1.0, stopCount: 6)
-        #expect(abs(long.speed - 0.25) < 1e-9)
-        #expect(abs(long.dwell - (2.0 / 4) / 4) < 1e-9)
+        // SPEED changes the travel, never the pauses: at 2× the stops still park for 0.5s.
+        let fast = ZoomPathTiming.resolve(speed: 2, stopPause: 0.5, stopCount: 4)
+        #expect(abs(fast.dwell / fast.speed - 0.5) < 1e-9)
+
+        // A zoom-in adds one travel's worth before the route, finished by the first stop.
+        let zoomed = ZoomPathTiming.resolve(speed: 1, stopPause: 0, stopCount: 3, zoomsIn: true)
+        #expect(abs(zoomed.speed - 0.5) < 1e-9)
+        #expect(abs(zoomed.leadIn - 0.5) < 1e-9)
+
+        // Past the 10s ceiling the pauses shrink to fit; lead-in and travel keep their shape.
+        let long = ZoomPathTiming.resolve(speed: 0.5, stopPause: 3.0, stopCount: 6, zoomsIn: true)
+        #expect(abs(1 / long.speed - ZoomPathTiming.maxLength) < 1e-9)
+        #expect(abs(long.leadIn - 2.0 / 10) < 1e-9)
+        #expect(abs(long.dwell - (10.0 - 4.0) / 4 / 10) < 1e-9)
+    }
+
+    @Test func leadInZoomsFromTheWholePhotoToTheFirstStopBeforeTravelling() {
+        let path = route([(0.2, 0.2), (0.8, 0.8)])
+        let animator = PathAnimator(path: path, ease: 0, dwell: 0, smoothing: false, leadIn: 0.5)
+        let start = animator.animationParameters(for: 0, in: context())
+        let arrived = animator.animationParameters(for: 0.5, in: context())
+        let end = animator.animationParameters(for: 1, in: context())
+        #expect(abs(start.scale - 1) < 1e-6, "opens on the whole photo")
+        #expect(abs(arrived.scale - 2) < 1e-6, "at the pinched magnification by the first stop")
+        #expect(abs(end.scale - 2) < 1e-6)
+        // The first stop is reached exactly when the lead-in ends, then the route carries on.
+        let atFirstStop = PathAnimator(path: path, ease: 0, dwell: 0, smoothing: false, leadIn: 0)
+            .animationParameters(for: 0, in: context())
+        #expect(abs(arrived.centerX - atFirstStop.centerX) < 1e-6)
+        #expect(abs(arrived.centerY - atFirstStop.centerY) < 1e-6)
     }
 
     @MainActor

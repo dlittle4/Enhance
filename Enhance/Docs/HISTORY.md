@@ -1300,6 +1300,23 @@ the GIF. The lab's SPACING and CORNERS knobs retired.
 **CURVE** is PATH's fifth row: 0 travels straight legs, 1 the full curve through the stops,
 between a blend (`ZoomPath.routePoint`). The overlay draws the same amount the animator travels.
 
+### PATH timing, second pass (2026-09-03)
+
+Three device-pass notes, one of them a bug of this session's own making:
+
+- **"SPEED speeds up the pauses too."** It did not, in the file — the *preview* did. The scrub
+  player added earlier divided every frame delay by `playbackSpeed`, but the generator had
+  already written SPEED into the GIF's delays, so the editor replayed a PATH GIF (and every
+  other) at SPEED squared. `AnimatedGifView` now plays the delays as written.
+- **The zoom-in finishes by the first stop.** `PathAnimator.leadIn` replaces the lab's scale
+  ramp: one travel's worth of time before the route, zooming from the whole photo to the first
+  stop with ZOOM IN's own curve, then the route runs at the pinched magnification. Skipped at
+  1×, where it would be a still. The lab's ZOOM RAMP row retired.
+- **Stops can pause up to 3s.** `ZoomPathTiming.maxStopPause` is 3; to fit, the generator's
+  speed floor dropped from 0.25 to 0.1 (`GIFGenerator.minimumSpeed`, a 10s ceiling — the
+  slider's 0.25 floor is unchanged). Over the ceiling the pauses shrink first; lead-in and
+  travel keep their shape.
+
 ### "Sluggish next to the preview, and stuck at the end" (2026-09-03)
 
 Both were the zoom's timing applied to real motion. The GIF's animated length is fixed at
