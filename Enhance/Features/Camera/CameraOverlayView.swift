@@ -140,6 +140,13 @@ struct CameraOverlayView: View {
         .task { await viewModel.openCamera() }
         .onDisappear { viewModel.close() }
         .onChange(of: hasEntered) { _, _ in startResolveIfReady() }
+        // The burst handoff, keyed on state rather than on any gesture ending — see
+        // `CameraViewModel.pendingBurstHandoff` for the freeze this replaces.
+        .onChange(of: viewModel.burstHandoffToken) { _, _ in
+            guard let frames = viewModel.takePendingBurstHandoff() else { return }
+            HapticService.success()
+            onCaptureBurst(frames)
+        }
         // Nil-to-frame is the start signal; the Bool keeps this from firing per frame.
         .onChange(of: viewModel.previewFrame == nil) { _, _ in startResolveIfReady() }
         .onChange(of: viewModel.sessionState) { _, newState in
@@ -384,27 +391,32 @@ struct CameraOverlayView: View {
                 }
             }
             .onEnded { _ in
-                // Either the lift ends the burst, or the auto-stop already did and left the
-                // frames waiting. Both hand off here; neither is a photo.
-                if viewModel.isBursting {
-                    Task {
-                        if let frames = await viewModel.endBurst() {
-                            HapticService.success()
-                            onCaptureBurst(frames)
-                        }
-                    }
-                } else if let frames = viewModel.takePendingBurstHandoff() {
-                    HapticService.success()
-                    onCaptureBurst(frames)
-                }
+                // One of three ways a burst ends; see `finishBurstIfNeeded`. This one is not
+                // guaranteed to fire (the Button's touch-up can cancel it), which is why the
+                // handoff itself lives on `burstHandoffToken` rather than here.
+                finishBurstIfNeeded()
             }
+    }
+
+    /// Ends a running burst. Called from the hold gesture's end, from the shutter's touch-up,
+    /// and by the view model's own auto-stop — whichever comes first; the rest are no-ops
+    /// behind `isBursting`. The handoff to the editor is not here: it fires from
+    /// `burstHandoffToken`, so it happens however the burst ended.
+    private func finishBurstIfNeeded() {
+        guard viewModel.isBursting else { return }
+        Task { await viewModel.endBurst() }
     }
 
     private var shutterButton: some View {
         Button {
-            // A lift that ends a burst (or a burst that already auto-stopped into a capture)
-            // is not a photo.
-            guard !viewModel.isBursting, viewModel.capturedBurst == nil else { return }
+            // The lift that ends a burst is not a photo — and it is the *reliable* lift signal,
+            // since the Button's touch-up fires whether or not the hold gesture gets its end.
+            if viewModel.isBursting {
+                finishBurstIfNeeded()
+                return
+            }
+            // A burst that already ended into a capture is not a photo either.
+            guard viewModel.capturedBurst == nil else { return }
             HapticService.medium()
             Task {
                 await viewModel.capture()
@@ -429,11 +441,32 @@ struct CameraOverlayView: View {
             .frame(width: 62, height: 62)
             .modifier(GlassSquare(cornerRadius: AppConstants.Spacing.grid + 3))
             .overlay {
-                // The recording cue: a red ring that breathes while frames are being kept.
+                // The recording cue: a red ring while frames are being kept, and the count of
+                // frames so far riding above the shutter — the number climbing is what says
+                // "this is recording" in a way a static ring did not (device pass, 2026-09-03).
                 if viewModel.isBursting {
                     RoundedRectangle(cornerRadius: AppConstants.Spacing.grid + 3, style: .continuous)
                         .stroke(Color.overdrive, lineWidth: 3)
                         .transition(.opacity)
+                }
+            }
+            .overlay(alignment: .top) {
+                if viewModel.isBursting {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(Color.overdrive)
+                            .frame(width: 8, height: 8)
+                        Text(String(format: "%02d", viewModel.burstFrameCount))
+                            .font(.silkscreenSmall)
+                            .foregroundColor(.white)
+                            .monospacedDigit()
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.black.opacity(0.7)))
+                    .offset(y: -30)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    .allowsHitTesting(false)
                 }
             }
             .animation(.easeInOut(duration: 0.15), value: viewModel.isBursting)

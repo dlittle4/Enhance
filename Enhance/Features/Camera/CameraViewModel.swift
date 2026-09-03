@@ -70,13 +70,19 @@ final class CameraViewModel {
     private var burstAutoStop: Task<Void, Never>?
     /// The normalized burst, alongside `capturedImage` (its first frame). Set by `endBurst`.
     private(set) var capturedBurst: [UIImage]?
-    /// A burst the auto-stop finished while the finger was still down, waiting for the lift
-    /// to hand it to the editor. The gesture's end consumes it via `takePendingBurstHandoff`.
+    /// A finished burst waiting to be handed to the editor, whichever path ended it — the lift,
+    /// the shutter's touch-up, or the auto-stop. The overlay watches `burstHandoffToken` and
+    /// consumes it via `takePendingBurstHandoff`.
     ///
-    /// Without this a hold past `burstDuration` froze the viewfinder and went nowhere: the
-    /// auto-stop set `capturedImage`, and the lift found `isBursting` already false and
-    /// returned — the first thing the device pass turned up.
+    /// **Never driven by a gesture's end.** The first fix waited for the hold gesture's
+    /// `onEnded`, and the viewfinder still froze on device: the shutter is a `Button`, and when
+    /// its own touch-up recognises, SwiftUI *cancels* the simultaneous hold rather than ending
+    /// it, so `onEnded` never fires. State, not gesture callbacks, is what the handoff keys on.
     private var pendingBurstHandoff: [UIImage]?
+    /// Bumped whenever `pendingBurstHandoff` is set, so a view can `onChange` it.
+    private(set) var burstHandoffToken = 0
+    /// Frames kept so far in the current burst — the overlay's counter.
+    private(set) var burstFrameCount = 0
 
     /// The frames a finished-but-unhanded burst is holding, cleared on read.
     func takePendingBurstHandoff() -> [UIImage]? {
@@ -95,13 +101,13 @@ final class CameraViewModel {
         burstLastKeptAt = nil
         burstFPS = max(1, fps)
         burstDuration = max(0.2, duration)
+        burstFrameCount = 0
+        HapticService.prepareSelection()
         service.setPreviewFrames(true)
         burstAutoStop = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(Int(duration * 1000)))
             guard !Task.isCancelled, let self, self.isBursting else { return }
-            if let frames = await self.endBurst() {
-                self.pendingBurstHandoff = frames
-            }
+            await self.endBurst()
         }
     }
 
@@ -112,6 +118,11 @@ final class CameraViewModel {
         if let last = burstLastKeptAt, now.timeIntervalSince(last) < 1 / burstFPS { return }
         burstLastKeptAt = now
         burstRaw.append(frame)
+        burstFrameCount = burstRaw.count
+        // One tick per kept frame — the burst's own rate under the finger, the way a slider's
+        // detents tick, so holding the shutter feels like frames being taken rather than a
+        // button being held.
+        HapticService.selection()
     }
 
     /// Stops recording and, with enough frames, normalizes them into the capture. Fewer than
@@ -138,6 +149,8 @@ final class CameraViewModel {
             capturedImage = first
         }
         capturedBurst = frames
+        pendingBurstHandoff = frames
+        burstHandoffToken += 1
         return frames
     }
 

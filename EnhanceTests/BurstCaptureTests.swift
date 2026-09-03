@@ -151,9 +151,28 @@ struct BurstCaptureTests {
         #expect(!vm.isBursting)
         #expect(vm.capturedImage != nil)
 
+        #expect(vm.burstHandoffToken == 1)
         let handed = vm.takePendingBurstHandoff()
         #expect(handed?.count == 6)
         #expect(vm.takePendingBurstHandoff() == nil, "consumed once")
+    }
+
+    /// A burst the lift ends is handed off the same way — the token bumps, not a callback.
+    @MainActor
+    @Test func aBurstTheLiftEndsBumpsTheHandoffTokenAndCountsFrames() async throws {
+        let camera = StubCamera()
+        let vm = CameraViewModel(service: camera, authorizationStatus: { .authorized }, requestAccess: { true })
+        vm.beginBurst(fps: 1000, duration: 5)
+        for i in 0..<5 {
+            camera.onPreviewFrame?(frame(CGFloat(i) / 5))
+            try await Task.sleep(for: .milliseconds(5))
+        }
+        #expect(vm.burstFrameCount == 5)
+        #expect(vm.burstHandoffToken == 0)
+        let frames = await vm.endBurst()
+        #expect(frames?.count == 5)
+        #expect(vm.burstHandoffToken == 1)
+        #expect(vm.takePendingBurstHandoff()?.count == 5)
     }
 
     /// The live canvas plays the burst: with no effect it shows the raw frame under the
