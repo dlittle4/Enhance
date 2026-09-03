@@ -72,6 +72,7 @@ struct SettingsView: View {
     @AppStorage(FeatureFlags.laserAimKey) private var laserAim: Bool = false
     @AppStorage(FeatureFlags.scrubPreviewKey) private var scrubPreview: Bool = false
     @AppStorage(FeatureFlags.sliderOverdriveKey) private var sliderOverdrive: Bool = false
+    @AppStorage(FeatureFlags.squareCornersKey) private var squareCorners: Bool = false
     @AppStorage(FeatureFlags.pathZoomKey) private var pathZoom: Bool = false
     @AppStorage(FeatureFlags.videoExportKey) private var videoExport: Bool = false
     @AppStorage(FeatureFlags.burstCaptureKey) private var burstCapture: Bool = false
@@ -182,6 +183,7 @@ struct SettingsView: View {
             experimentRow("AIM THE LAZERS", isOn: $laserAim)
             experimentRow("SCRUB THE PREVIEW", isOn: $scrubPreview)
             experimentRow("SLIDER OVERDRIVE", isOn: $sliderOverdrive)
+            experimentRow("SQUARE CORNERS", isOn: $squareCorners)
             experimentRow("STEERABLE ZOOM (PATH)", isOn: $pathZoom)
             experimentRow("MP4 EXPORT", isOn: $videoExport)
             if videoExport {

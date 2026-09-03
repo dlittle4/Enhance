@@ -120,7 +120,7 @@ struct EffectLabView: View {
                         .foregroundColor(.textPrimary)
                         .padding(8)
                         .background(Color.black.opacity(0.6))
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.standard, style: .continuous))
                 }
             }
             .frame(height: 260)
@@ -215,7 +215,7 @@ struct EffectLabView: View {
             .frame(height: 36)
             .background(isSelected ? mintGreen : Color.surfaceControl)
             .opacity(isOn || isSelected ? 1 : 0.45)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.standard, style: .continuous))
             .contentShape(Rectangle())
             .onTapGesture {
                 HapticService.selection()

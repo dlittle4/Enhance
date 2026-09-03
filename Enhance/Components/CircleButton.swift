@@ -26,7 +26,7 @@ struct CircleButton: View {
             Circle()
                 .foregroundColor(.clear)
                 .overlay(
-                    ButtonGradientBackground(cornerRadius: 30, borderWidth: 4, showsBorder: showBorder)
+                    ButtonGradientBackground(cornerRadius: AppConstants.CornerRadius.circle, borderWidth: 4, showsBorder: showBorder)
                         .clipShape(Circle())
                 )
 
@@ -35,7 +35,7 @@ struct CircleButton: View {
             // rounded-rect ring with a circular one and got their intersection, which is four
             // arcs rather than a ring.
             if showBorder {
-                ButtonGradientBorder(cornerRadius: 30, lineWidth: 4)
+                ButtonGradientBorder(cornerRadius: AppConstants.CornerRadius.circle, lineWidth: 4)
             }
             
             // "X" text on top

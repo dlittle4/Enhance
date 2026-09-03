@@ -287,7 +287,7 @@ final class FaceMarkerView: UIView {
         labelLayer.isHidden = true
 
         let isSelected = marker.legacyIsSelected
-        let path = UIBezierPath(roundedRect: bounds, cornerRadius: 8 / effectiveScale).cgPath
+        let path = UIBezierPath(roundedRect: bounds, cornerRadius: AppConstants.CornerRadius.standard / effectiveScale).cgPath
 
         borderLayer.path = path
         borderLayer.fillColor = UIColor.clear.cgColor

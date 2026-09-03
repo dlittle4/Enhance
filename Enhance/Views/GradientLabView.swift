@@ -148,9 +148,9 @@ struct GradientLabView: View {
                 tuning: preset.tuning
             )
             .frame(width: 64, height: 44)
-            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.standard, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: AppConstants.CornerRadius.standard, style: .continuous)
                     .strokeBorder(mintGreen, lineWidth: isActive(preset) ? 3 : 0)
             )
 
@@ -198,7 +198,7 @@ struct GradientLabView: View {
                 .foregroundColor(mintGreen)
                 .frame(width: 64, height: 44)
                 .background(Color.surfaceControl)
-                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.standard, style: .continuous))
         }
         .buttonStyle(.plain)
         // Keeps the row's baseline aligned with the titled swatches beside it.
@@ -347,7 +347,7 @@ struct GradientLabView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(isOn.wrappedValue ? Color.enhanceMint : Color.surfaceControl)
-                .clipShape(Capsule())
+                .clipShape(RoundedRectangle(cornerRadius: AppConstants.CornerRadius.pill, style: .continuous))
         }
         .buttonStyle(.plain)
     }

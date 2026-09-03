@@ -123,14 +123,14 @@ struct PermissionDeniedView: View {
                     .foregroundColor(.white)
                     .frame(width: 200, height: 60)
                     .background(buttonColor)
-                    .cornerRadius(8)
+                    .cornerRadius(AppConstants.CornerRadius.standard)
             }
             .enhanceButtonAnimation()
             .padding(.top, 16)
         }
         .padding(32)
         .background(Color.white)
-        .cornerRadius(16)
+        .cornerRadius(AppConstants.CornerRadius.card)
         .shadow(radius: 10)
     }
 }

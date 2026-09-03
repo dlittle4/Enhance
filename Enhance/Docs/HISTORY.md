@@ -1317,6 +1317,23 @@ Three device-pass notes, one of them a bug of this session's own making:
   slider's 0.25 floor is unchanged). Over the ceiling the pauses shrink first; lead-in and
   travel keep their shape.
 
+### Scrub filmstrip, and SQUARE CORNERS (2026-09-03)
+
+**Filmstrip.** A hold on the preview now shows `ScrubFilmstripView` along the bottom: every
+frame as a thumb, the current one under a mint bracket with a `10 / 38` counter, sliding with
+the finger and fading toward the edges. UIKit inside the scrub player, so no SwiftUI
+re-evaluation per frame. FILMSTRIP THUMB in CANVAS LAB sets the size. `CanvasTuning` gained a
+hand-written `init(from:)` so a blob saved before a knob existed decodes with that knob's
+default instead of failing — which used to reset every lab value on the first launch after a
+new knob shipped.
+
+**SQUARE CORNERS** *(user's ask)*: one experiment flag that zeroes every radius. All 28 literal
+radii, seven `.cornerRadius(n)` modifiers, six `Capsule()`s and the camera's Spacing-as-radius
+shapes now go through `AppConstants.CornerRadius` (new steps `tiny`/`chip`/`small`/`medium`/
+`pill`, and `resolve(_:)` for odd values), whose tokens are computed and read the flag. Circles
+stay circles. Read at body time, so a screen already on the stack repaints on its next
+evaluation, not the instant the toggle flips.
+
 ### "Sluggish next to the preview, and stuck at the end" (2026-09-03)
 
 Both were the zoom's timing applied to real motion. The GIF's animated length is fixed at

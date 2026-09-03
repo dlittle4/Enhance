@@ -31,9 +31,31 @@ struct CanvasTuningTests {
         #expect(defaults.data(forKey: CanvasTuningStore.storageKey) == nil)
     }
 
+    /// A blob saved before a knob existed must still decode — with that knob at its default —
+    /// rather than resetting every lab value.
+    @Test func blobWithoutNewerKnobsDecodesToTheirDefaults() throws {
+        let old = """
+        {"scrubSpan": 420, "scrubTickEvery": 3, "overdriveMax": 1.2, "overdriveGlitchRate": 0.1}
+        """
+        let tuning = try JSONDecoder().decode(CanvasTuning.self, from: Data(old.utf8))
+        #expect(tuning.scrubSpan == 420)
+        #expect(tuning.scrubStripThumb == CanvasTuning.default.scrubStripThumb)
+        #expect(tuning.burstFPS == CanvasTuning.default.burstFPS)
+    }
+
+    @Test func filmstripCentresTheCurrentThumb() {
+        // Thumb 40, gap 2: index 0 sits with its centre at width/2.
+        let width: CGFloat = 300
+        let x0 = ScrubFilmstripView.contentOffset(forIndex: 0, thumb: 40, width: width)
+        #expect(abs((x0 + 20) - 150) < 1e-9)
+        // Each further index slides the strip one pitch (42pt) to the left.
+        let x5 = ScrubFilmstripView.contentOffset(forIndex: 5, thumb: 40, width: width)
+        #expect(abs((x0 - x5) - 5 * 42) < 1e-9)
+    }
+
     @Test func snippetNamesEveryKnob() {
         let snippet = CanvasTuning.default.swiftSnippet
-        for name in ["scrubSpan", "scrubTickEvery", "overdriveMax", "overdriveGain", "overdriveGlitchRate"] {
+        for name in ["scrubSpan", "scrubTickEvery", "scrubStripThumb", "overdriveMax", "overdriveGain", "overdriveGlitchRate"] {
             #expect(snippet.contains(name), Comment(rawValue: name))
         }
     }

@@ -482,28 +482,28 @@ struct GradientViews_Previews: PreviewProvider {
                 Text("MESH (default)").foregroundColor(.white)
                 SimpleGradientBackground()
                     .frame(height: 60)
-                    .cornerRadius(8)
+                    .cornerRadius(AppConstants.CornerRadius.standard)
 
                 Text("STATIC").foregroundColor(.white)
                 SimpleGradientBackground(
                     style: .resolve(staticOn: true, ditherOn: false, tuning: .default)
                 )
                     .frame(height: 60)
-                    .cornerRadius(8)
+                    .cornerRadius(AppConstants.CornerRadius.standard)
 
                 Text("DITHER").foregroundColor(.white)
                 SimpleGradientBackground(
                     style: .resolve(staticOn: false, ditherOn: true, tuning: .default)
                 )
                     .frame(height: 60)
-                    .cornerRadius(8)
+                    .cornerRadius(AppConstants.CornerRadius.standard)
 
                 Text("BOTH").foregroundColor(.white)
                 SimpleGradientBackground(
                     style: .resolve(staticOn: true, ditherOn: true, tuning: .default)
                 )
                     .frame(height: 60)
-                    .cornerRadius(8)
+                    .cornerRadius(AppConstants.CornerRadius.standard)
             }
 
             Divider().background(Color.white)

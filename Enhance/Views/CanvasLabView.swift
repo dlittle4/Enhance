@@ -131,6 +131,11 @@ struct CanvasLabView: View {
                 value: normalized(tuning.scrubTickEvery, in: 1...12),
                 valueText: "\(Int(store.tuning.scrubTickEvery.rounded())) FR"
             )
+            ParameterSliderRow(
+                label: "FILMSTRIP THUMB",
+                value: normalized(tuning.scrubStripThumb, in: 24...72),
+                valueText: "\(Int(store.tuning.scrubStripThumb))PT"
+            )
         }
     }
 

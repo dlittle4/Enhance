@@ -46,6 +46,8 @@ struct AnimatedGifView: UIViewRepresentable {
     var scrubSpan: Double = 300
     /// Frames between haptic ticks while scrubbing.
     var scrubTickEvery: Int = 4
+    /// Thumb side of the filmstrip shown under a scrubbing finger.
+    var scrubStripThumb: Double = 40
 
     @State private var isLoading = true
 
@@ -83,6 +85,21 @@ struct AnimatedGifView: UIViewRepresentable {
         containerView.addGestureRecognizer(scrub)
         context.coordinator.scrubRecognizer = scrub
         context.coordinator.imageView = imageView
+
+        // The filmstrip cue, hidden until a hold. Pinned to the bottom of the GIF, inset so
+        // it reads as chrome over the picture rather than a bar cut off it.
+        let filmstrip = ScrubFilmstripView()
+        filmstrip.translatesAutoresizingMaskIntoConstraints = false
+        containerView.addSubview(filmstrip)
+        let stripHeight = filmstrip.heightAnchor.constraint(equalToConstant: ScrubFilmstripView.height(forThumb: CGFloat(scrubStripThumb)))
+        NSLayoutConstraint.activate([
+            filmstrip.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 10),
+            filmstrip.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -10),
+            filmstrip.bottomAnchor.constraint(equalTo: containerView.bottomAnchor, constant: -10),
+            stripHeight
+        ])
+        context.coordinator.filmstrip = filmstrip
+        context.coordinator.filmstripHeight = stripHeight
         context.coordinator.apply(self)
 
         context.coordinator.currentURL = url
@@ -293,6 +310,8 @@ struct AnimatedGifView: UIViewRepresentable {
 
         weak var imageView: UIImageView?
         weak var scrubRecognizer: UILongPressGestureRecognizer?
+        weak var filmstrip: ScrubFilmstripView?
+        var filmstripHeight: NSLayoutConstraint?
 
         private(set) var frames: [UIImage] = []
         private var frameDuration: Double = 0.04
@@ -328,6 +347,11 @@ struct AnimatedGifView: UIViewRepresentable {
             scrubSpan = view.scrubSpan
             scrubTickEvery = max(1, view.scrubTickEvery)
             scrubRecognizer?.isEnabled = view.isScrubInteractive
+            let thumb = CGFloat(max(16, view.scrubStripThumb))
+            if filmstrip?.thumbSide != thumb {
+                filmstrip?.thumbSide = thumb
+                filmstripHeight?.constant = ScrubFilmstripView.height(forThumb: thumb)
+            }
         }
 
         func adoptFrames(_ images: [UIImage], totalDuration: Double) {
@@ -391,6 +415,11 @@ struct AnimatedGifView: UIViewRepresentable {
                 lastTickIndex = frameIndex
                 HapticService.prepareSelection()
                 HapticService.light()
+                if let filmstrip {
+                    filmstrip.setFrames(frames)
+                    filmstrip.show(index: frameIndex, animated: false)
+                    filmstrip.setVisible(true)
+                }
                 log.debug("hold began at frame \(self.frameIndex, privacy: .public) of \(self.frames.count, privacy: .public)")
             case .changed:
                 let target = CanvasTuning.scrubbedFrame(
@@ -399,6 +428,7 @@ struct AnimatedGifView: UIViewRepresentable {
                 guard target != frameIndex else { return }
                 frameIndex = target
                 imageView?.image = frames[target]
+                filmstrip?.show(index: target, animated: true)
                 // Ticks keyed to frames crossed, not to gesture updates, so the detents follow
                 // the GIF's own rhythm rather than the touch sample rate. Distance is measured
                 // the short way round the loop so a wrap does not fire a burst.
@@ -411,6 +441,7 @@ struct AnimatedGifView: UIViewRepresentable {
             case .ended, .cancelled, .failed:
                 isHeld = false
                 accumulated = 0
+                filmstrip?.setVisible(false)
                 log.debug("hold ended at frame \(self.frameIndex, privacy: .public), started \(self.scrubStartIndex, privacy: .public)")
             default:
                 break
@@ -428,12 +459,13 @@ struct AnimatedGifViewWithLoading: View {
     var isScrubInteractive: Bool = false
     var scrubSpan: Double = 300
     var scrubTickEvery: Int = 4
+    var scrubStripThumb: Double = 40
 
     var body: some View {
         AnimatedGifView(
             url: url, contentMode: contentMode, lowQuality: lowQuality, isVisible: isVisible,
             playbackSpeed: playbackSpeed, isScrubInteractive: isScrubInteractive,
-            scrubSpan: scrubSpan, scrubTickEvery: scrubTickEvery
+            scrubSpan: scrubSpan, scrubTickEvery: scrubTickEvery, scrubStripThumb: scrubStripThumb
         )
     }
 }
@@ -455,7 +487,7 @@ struct AnimatedGifView_Previews: PreviewProvider {
             )
             .frame(width: 300, height: 300)
             .background(Color.gray.opacity(0.2))
-            .cornerRadius(8)
+            .cornerRadius(AppConstants.CornerRadius.standard)
 
             Text("Note: Actual GIFs will only display in simulator or device")
                 .font(.caption)
