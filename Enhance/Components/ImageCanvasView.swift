@@ -7,6 +7,11 @@ import UIKit
 /// `FaceMarkerOptions` for the experiments that change it.
 struct ImageCanvasView: View {
     let image: UIImage
+    /// BURST CAPTURE: frames for the canvas to cycle at `playbackFPS` in place of `image`.
+    /// Played by the coordinator on its own timer so SwiftUI is never re-evaluated for a
+    /// frame change. `image` still supplies the geometry and the still shown when nil.
+    var playbackFrames: [UIImage]? = nil
+    var playbackFPS: Double = 12
     @Binding var scale: CGFloat
     @Binding var visibleRect: CGRect
     var faceMarkers: [FaceMarker] = []
@@ -77,6 +82,8 @@ struct ImageCanvasView: View {
         ZStack {
             ScrollableCanvasView(
                 image: image,
+                playbackFrames: playbackFrames,
+                playbackFPS: playbackFPS,
                 scale: $scale,
                 visibleRect: $visibleRect,
                 faceMarkers: faceMarkers,
@@ -115,6 +122,8 @@ struct ImageCanvasView: View {
 
 private struct ScrollableCanvasView: UIViewRepresentable {
     let image: UIImage
+    var playbackFrames: [UIImage]?
+    var playbackFPS: Double
     @Binding var scale: CGFloat
     @Binding var visibleRect: CGRect
     var faceMarkers: [FaceMarker]
@@ -216,9 +225,7 @@ private struct ScrollableCanvasView: UIViewRepresentable {
         coordinator.parent = self
 
         if let imageView = coordinator.imageView {
-            if imageView.image !== image {
-                imageView.image = image
-            }
+            coordinator.updatePlayback(frames: playbackFrames, fps: playbackFPS, still: image, on: imageView)
             coordinator.updateFaceMarkers(on: imageView)
         }
 
@@ -257,6 +264,40 @@ private struct ScrollableCanvasView: UIViewRepresentable {
         /// target must not chase the recogniser's (now averaged) location.
         private var aimSurrenderedToPinch = false
 
+        // MARK: Burst playback
+
+        private var playbackFrames: [UIImage] = []
+        private var playbackIndex = 0
+        private var playbackTimer: Timer?
+
+        /// Shows `still`, or cycles `frames` at `fps`. A new stack (a different first frame or
+        /// count) restarts from its first frame; the same stack keeps its place, so SwiftUI
+        /// re-evaluating the canvas for an unrelated reason does not stutter the playback.
+        func updatePlayback(frames: [UIImage]?, fps: Double, still: UIImage, on imageView: UIImageView) {
+            guard let frames, frames.count > 1 else {
+                if playbackTimer != nil {
+                    playbackTimer?.invalidate()
+                    playbackTimer = nil
+                    playbackFrames = []
+                    playbackIndex = 0
+                }
+                if imageView.image !== still { imageView.image = still }
+                return
+            }
+            let sameStack = frames.count == playbackFrames.count && frames.first === playbackFrames.first
+            if sameStack, playbackTimer != nil { return }
+            playbackTimer?.invalidate()
+            playbackFrames = frames
+            playbackIndex = min(playbackIndex, frames.count - 1)
+            imageView.image = frames[playbackIndex]
+            let interval = 1 / max(1, fps)
+            playbackTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self, weak imageView] _ in
+                guard let self, let imageView, !self.playbackFrames.isEmpty else { return }
+                self.playbackIndex = (self.playbackIndex + 1) % self.playbackFrames.count
+                imageView.image = self.playbackFrames[self.playbackIndex]
+            }
+        }
+
         private var faceMarkerViews: [FaceMarkerView] = []
         private let spotlight = FaceSpotlightLayer()
 
@@ -269,6 +310,7 @@ private struct ScrollableCanvasView: UIViewRepresentable {
 
         deinit {
             autoHideTimer?.invalidate()
+            playbackTimer?.invalidate()
         }
 
         init(parent: ScrollableCanvasView) {

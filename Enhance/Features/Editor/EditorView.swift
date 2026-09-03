@@ -601,6 +601,8 @@ struct EditorView: View {
         borderedCanvas {
             ImageCanvasView(
                 image: viewModel.canvasImage ?? image,
+                playbackFrames: viewModel.canvasPlaybackFrames,
+                playbackFPS: viewModel.burstPreviewFPS,
                 scale: $viewModel.currentScale,
                 visibleRect: $viewModel.visibleRect,
                 faceMarkers: activeFaceMarkers,

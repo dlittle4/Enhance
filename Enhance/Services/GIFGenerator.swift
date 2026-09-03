@@ -10,6 +10,17 @@ public class GIFGenerator: GIFGenerating {
     private let animationDuration: Double = 1.0
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
 
+    /// How many animated frames render at once. The face pass is one whole-image Core Image
+    /// render per frame and was serial; on a six-core phone that left most of the machine
+    /// idle while the GIF took seconds. Frames are independent — each is a pure function of
+    /// its index — so they render in chunks of this many via `concurrentPerform` and are
+    /// added to the destination in order. 1 is the old serial loop, kept for comparison.
+    private let concurrency: Int
+
+    public init(concurrency: Int = max(1, min(8, ProcessInfo.processInfo.activeProcessorCount))) {
+        self.concurrency = concurrency
+    }
+
     public struct AnimationParameters {
         public let scale: CGFloat
         public let centerX: CGFloat
@@ -85,17 +96,25 @@ public class GIFGenerator: GIFGenerating {
 
         let facePass = prepareFaceEffectPass(context: context, effect: faceEffect, faces: detectedFaces)
 
-        // One face pass per burst frame, built on demand and kept: a frame is reused when the
-        // output has more frames than the burst, and its pass must not be rebuilt each time.
+        // One face pass per burst frame, built **up front** for every index the output will
+        // touch and then only read: the frame loop is concurrent, and a lazily-filled
+        // dictionary would be a race. A frame is reused when the output has more frames than
+        // the burst, and its pass is built once.
         let burstSource = burst.map { BurstSource(frames: $0, fallbackFaces: detectedFaces) }
+        if let burstSource {
+            var needed = Set((0..<context.frameCount).map {
+                Self.burstIndex(forOutputFrame: $0, of: context.frameCount, burstCount: burstSource.frames.count)
+            })
+            needed.insert(burstSource.frames.count - 1)
+            for index in needed.sorted() {
+                let frame = burstSource.frames[index]
+                let faces = frame.faces.isEmpty ? burstSource.fallbackFaces : frame.faces
+                burstSource.passes[index] = prepareFaceEffectPass(context: context, effect: faceEffect, faces: faces, source: frame.image)
+            }
+        }
         func burstPass(_ index: Int) -> FaceEffectPass? {
             guard let burstSource else { return facePass }
-            let frame = burstSource.frames[index]
-            if let cached = burstSource.passes[index] { return cached }
-            let faces = frame.faces.isEmpty ? burstSource.fallbackFaces : frame.faces
-            let pass = prepareFaceEffectPass(context: context, effect: faceEffect, faces: faces, source: frame.image)
-            burstSource.passes[index] = pass
-            return pass
+            return burstSource.passes[index] ?? nil
         }
         let burstFrames = burst
 
@@ -180,40 +199,65 @@ public class GIFGenerator: GIFGenerating {
     }
 
     private func addAnimatedFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?, textPass: TextPass?, burst: [BurstFrame]? = nil, burstPass: ((Int) -> FaceEffectPass?)? = nil) {
-        for i in 0..<context.frameCount {
-            autoreleasepool {
-                let frameProgress = CGFloat(i) / CGFloat(context.frameCount - 1)
-                let frameParams = animator.animationParameters(for: frameProgress, in: context)
+        let frameProperties: [String: Any] = [
+            kCGImagePropertyGIFDictionary as String: [
+                kCGImagePropertyGIFDelayTime as String: context.frameDelay,
+                kCGImagePropertyGIFHasGlobalColorMap as String: true
+            ]
+        ]
 
-                let transform = calculateTransformForFrame(
-                    params: frameParams, drawRect: context.drawRect,
-                    outputSize: context.outputSize
-                )
-
-                // Which real frame this output frame shows: the burst stretched or squeezed to
-                // the GIF's length, so SPEED plays the motion faster or slower rather than
-                // cutting it short.
-                let burstIndex = burst.map { Self.burstIndex(forOutputFrame: i, of: context.frameCount, burstCount: $0.count) }
-                let passForFrame = burstIndex.flatMap { burstPass?($0) } ?? facePass
-                let plainSource = burstIndex.map { burst![$0].image }
-                let sourceForFrame = faceEffectedSource(pass: passForFrame, progress: frameProgress, frameIndex: i) ?? plainSource
-                if let frameImage = createFrameImage(transform: transform, context: context, sourceOverride: sourceForFrame) {
-                    let geometry = frameGeometry(params: frameParams, transform: transform, context: context)
-                    let effected = applyVisualEffects(frameImage, effects: visualEffects, progress: frameProgress, frameIndex: i, geometry: geometry)
-                    // The text entrance consumes the same `frameProgress` the zoom does, so the two
-                    // are choreographed by construction. `frameProgress` runs 0…1 across the moving
-                    // frames, which is exactly the normalized progress the presets expect.
-                    let outputImage = composited(effected, textPass: textPass, progress: frameProgress)
-                    let frameProperties: [String: Any] = [
-                        kCGImagePropertyGIFDictionary as String: [
-                            kCGImagePropertyGIFDelayTime as String: context.frameDelay,
-                            kCGImagePropertyGIFHasGlobalColorMap as String: true
-                        ]
-                    ]
-                    CGImageDestinationAddImage(destination, outputImage, frameProperties as CFDictionary)
+        // Chunks of `concurrency` frames render at once and land in the destination in index
+        // order. Chunked rather than all-at-once so a 100-frame slow GIF never holds 100
+        // finished 600px frames in memory at the same time.
+        let chunk = max(1, concurrency)
+        var start = 0
+        while start < context.frameCount {
+            let count = min(chunk, context.frameCount - start)
+            var rendered = [CGImage?](repeating: nil, count: count)
+            let lock = NSLock()
+            DispatchQueue.concurrentPerform(iterations: count) { k in
+                let image = autoreleasepool {
+                    renderAnimatedFrame(start + k, context: context, animator: animator, visualEffects: visualEffects, facePass: facePass, textPass: textPass, burst: burst, burstPass: burstPass)
+                }
+                lock.lock()
+                rendered[k] = image
+                lock.unlock()
+            }
+            for image in rendered {
+                if let image {
+                    CGImageDestinationAddImage(destination, image, frameProperties as CFDictionary)
                 }
             }
+            start += count
         }
+    }
+
+    /// One animated frame, a pure function of its index — which is what lets the frames
+    /// render concurrently. Every input is read-only here: the burst passes are built before
+    /// the loop, the contexts are thread-safe, and the UIGraphics context is per thread.
+    private func renderAnimatedFrame(_ i: Int, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?, textPass: TextPass?, burst: [BurstFrame]?, burstPass: ((Int) -> FaceEffectPass?)?) -> CGImage? {
+        let frameProgress = CGFloat(i) / CGFloat(context.frameCount - 1)
+        let frameParams = animator.animationParameters(for: frameProgress, in: context)
+
+        let transform = calculateTransformForFrame(
+            params: frameParams, drawRect: context.drawRect,
+            outputSize: context.outputSize
+        )
+
+        // Which real frame this output frame shows: the burst stretched or squeezed to
+        // the GIF's length, so SPEED plays the motion faster or slower rather than
+        // cutting it short.
+        let burstIndex = burst.map { Self.burstIndex(forOutputFrame: i, of: context.frameCount, burstCount: $0.count) }
+        let passForFrame = burstIndex.flatMap { burstPass?($0) } ?? facePass
+        let plainSource = burstIndex.map { burst![$0].image }
+        let sourceForFrame = faceEffectedSource(pass: passForFrame, progress: frameProgress, frameIndex: i) ?? plainSource
+        guard let frameImage = createFrameImage(transform: transform, context: context, sourceOverride: sourceForFrame) else { return nil }
+        let geometry = frameGeometry(params: frameParams, transform: transform, context: context)
+        let effected = applyVisualEffects(frameImage, effects: visualEffects, progress: frameProgress, frameIndex: i, geometry: geometry)
+        // The text entrance consumes the same `frameProgress` the zoom does, so the two
+        // are choreographed by construction. `frameProgress` runs 0…1 across the moving
+        // frames, which is exactly the normalized progress the presets expect.
+        return composited(effected, textPass: textPass, progress: frameProgress)
     }
 
     private func addPauseFrames(to destination: CGImageDestination, context: DrawingContext, animator: Animator, visualEffects: [VisualEffect], facePass: FaceEffectPass?, textPass: TextPass?, sourceImage: UIImage? = nil) {

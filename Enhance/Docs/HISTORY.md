@@ -1235,3 +1235,27 @@ and three things were wrong — two of them races that only a real burst could r
 off-main with that frame's faces, double-buffered so a slider drag never flashes a
 half-rendered stack. With no effect on, the raw frames cycle; while a stack renders, frame 0's
 preview holds. Detection finishing triggers one more render so filters follow every face.
+
+### "The GIF is really slow" with a face effect on a burst (2026-09-03) — measured, not guessed
+
+A timing probe run **on the iPhone 17 Pro** (deleted after; `GIFGenerator` with an aimed,
+pulsing LAZER EYES, 720px source, NO ZOOM, 0.5s pause):
+
+| case | speed 1× | speed 0.25× |
+|---|---|---|
+| still | 176–473ms | 513–589ms |
+| 18-frame burst | 200–275ms | 532–582ms |
+| burst, no effect | 121–143ms | — |
+
+So the generator was never the problem: a burst costs the same as a still, and both are
+well under a second. (On the simulator the same runs took 1–4s, which is where the first
+guess came from — do not judge Core Image cost on the simulator.) Two changes came out of it
+anyway: the animated frames now render in ordered chunks via `concurrentPerform`
+(`GIFGenerator.concurrency`; bytes are identical to the serial loop, checked), and the burst
+preview stack renders at utility QoS and never alongside a generation.
+
+The real cost was **the canvas playback living in the view model**: `burstPreviewIndex`
+ticking at 12Hz on an `@Observable` re-evaluated the whole editor body and re-ran
+`updateFaceMarkers` twelve times a second. It moved into `ImageCanvasView`'s coordinator
+(`updatePlayback`), which swaps `imageView.image` on its own timer; SwiftUI is not involved
+in a frame change at all. `EditorViewModel.canvasPlaybackFrames` just says *what* to play.

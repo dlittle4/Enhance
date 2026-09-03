@@ -175,22 +175,24 @@ struct BurstCaptureTests {
         #expect(vm.takePendingBurstHandoff()?.count == 5)
     }
 
-    /// The live canvas plays the burst: with no effect it shows the raw frame under the
-    /// index, and with an effect pending it holds frame 0's preview rather than flashing raw.
+    /// The live canvas plays the burst: with no effect it is handed the raw frames to cycle,
+    /// and a still hands it nothing. The cycling itself is the canvas's, not the model's.
     @MainActor
-    @Test func canvasImagePlaysTheBurstAndHoldsThePreviewWhileRendering() {
+    @Test func canvasIsHandedTheRawBurstToPlayWhenNoEffectIsOn() {
         let a = UIImage(cgImage: frame(0.1))
         let b = UIImage(cgImage: frame(0.5))
         let vm = EditorViewModel(content: .newImage(a))
+        #expect(vm.canvasPlaybackFrames == nil, "a still has nothing to cycle")
         #expect(vm.canvasImage == nil, "a still with no effect draws the photo itself")
 
         vm.adoptBurst([a, b])
         #expect(vm.burstFrames?.count == 2)
-        #expect(vm.canvasImage === a)
+        #expect(vm.canvasPlaybackFrames?.count == 2)
+        #expect(vm.canvasPlaybackFrames?.first === a)
 
         vm.adoptBurst(nil)
         #expect(vm.burstFrames == nil)
-        #expect(vm.canvasImage == nil)
+        #expect(vm.canvasPlaybackFrames == nil)
     }
 
     /// The generator is handed a snapshot of the burst rather than reading the live arrays.

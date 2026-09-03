@@ -208,52 +208,43 @@ class EditorViewModel {
 
     // MARK: Burst preview
 
-    /// Which burst frame the live canvas is showing. Advanced by `burstPreviewTimer` at the
-    /// burst's own rate, so the canvas plays the motion rather than freezing on frame 0.
-    private(set) var burstPreviewIndex = 0
-    private var burstPreviewTimer: Timer?
     /// The selected effect rendered onto every burst frame, in order — the burst's answer to
-    /// `previewImage`. Double-buffered: a rebuild fills `burstPreviewPending` and swaps it in
-    /// whole, so a slider drag never shows a half-rendered stack flickering between raw and
+    /// `previewImage`. Double-buffered: a rebuild renders the whole stack off-main and swaps it
+    /// in whole, so a slider drag never shows a half-rendered stack flickering between raw and
     /// effected frames.
     private(set) var burstPreviewFrames: [UIImage]?
     private var burstPreviewSources: [CGImage] = []
     private var burstPreviewWorkItem: DispatchWorkItem?
+    /// The burst's own rate, for the canvas to play the stack at.
+    private(set) var burstPreviewFPS: Double = 12
 
-    /// What the live canvas draws. For a still that is the effect preview or the photo; for a
-    /// burst it is the current frame of the rendered stack, the raw frame while no effect is
-    /// on, or frame 0's preview while the stack is still rendering.
-    var canvasImage: UIImage? {
-        guard let burstFrames, !burstFrames.isEmpty else { return previewImage }
-        let index = burstPreviewIndex % burstFrames.count
-        if let rendered = burstPreviewFrames, rendered.count == burstFrames.count {
-            return rendered[index]
-        }
-        return previewImage ?? burstFrames[index]
-    }
+    /// What the live canvas draws when it is not playing a stack: the effect preview or the
+    /// photo. For a burst that is frame 0's preview, which the canvas holds while a stack is
+    /// still rendering.
+    var canvasImage: UIImage? { previewImage }
 
-    private func startBurstPreviewTimer(fps: Double) {
-        burstPreviewTimer?.invalidate()
-        let interval = 1 / max(1, fps)
-        burstPreviewTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            guard let self, self.burstFrames != nil, self.showsLiveCanvas else { return }
-            self.burstPreviewIndex += 1
-        }
+    /// The frames the live canvas should cycle, or nil to show `canvasImage` still.
+    ///
+    /// **Played by the canvas, not by this model.** The first cut advanced an index here on a
+    /// 12Hz timer, and every tick re-evaluated the whole editor body and reconfigured the face
+    /// markers — on device that read as the app crawling under a burst. The canvas's UIKit
+    /// coordinator swaps `imageView.image` on its own clock and SwiftUI never hears about it.
+    var canvasPlaybackFrames: [UIImage]? {
+        guard let burstFrames, burstFrames.count > 1 else { return nil }
+        if let rendered = burstPreviewFrames, rendered.count == burstFrames.count { return rendered }
+        // No effect on: the raw burst plays. An effect rendering: hold frame 0's preview.
+        return previewImage == nil ? burstFrames : nil
     }
 
     deinit {
-        burstPreviewTimer?.invalidate()
         burstDetection?.cancel()
     }
 
     private func stopBurstPreview() {
-        burstPreviewTimer?.invalidate()
-        burstPreviewTimer = nil
         burstPreviewWorkItem?.cancel()
         burstPreviewWorkItem = nil
         burstPreviewFrames = nil
         burstPreviewSources = []
-        burstPreviewIndex = 0
     }
 
     /// Hands the editor a burst. Detection runs per frame off the main actor — ~18 Vision
@@ -266,7 +257,7 @@ class EditorViewModel {
         guard let frames, frames.count > 1 else { burstFrames = nil; return }
         burstFrames = frames
         burstFaces = Array(repeating: [], count: frames.count)
-        startBurstPreviewTimer(fps: CanvasTuningStore.shared.tuning.burstFPS)
+        burstPreviewFPS = CanvasTuningStore.shared.tuning.burstFPS
         let service = burstDetectionService
         burstDetection = Task { [weak self] in
             for (index, frame) in frames.enumerated() {
@@ -1661,6 +1652,10 @@ class EditorViewModel {
     private func scheduleBurstPreview(visualEffects: [VisualEffect], faceEffect: FaceEffect?, fallbackFaces: [DetectedFace], debounce: Bool) {
         burstPreviewWorkItem?.cancel()
         guard let burstFrames, burstFrames.count > 1 else { return }
+        // Never alongside a GIF: eighteen face renders competing with the generator's own
+        // is what made a burst GIF feel slow on device. Generation completion re-runs the
+        // preview, so the stack is not lost, only deferred.
+        guard !isGenerating, !isRegenerating else { return }
 
         if burstPreviewSources.count != burstFrames.count {
             burstPreviewSources = burstFrames.compactMap {
@@ -1722,8 +1717,9 @@ class EditorViewModel {
         }
         burstPreviewWorkItem = work
         // Behind the single-frame preview in the queue, so frame 0 lands first and the canvas
-        // has something effected to show while the stack renders.
-        DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + (debounce ? 0.12 : 0.02), execute: work)
+        // has something effected to show while the stack renders. Utility QoS: it must lose
+        // to a slider's own frame-0 preview and to any generation that starts.
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + (debounce ? 0.12 : 0.02), execute: work)
     }
 
     /// For existing GIFs: the first frame extracted for re-editing
@@ -1947,6 +1943,7 @@ class EditorViewModel {
                             self.enhanceState = .share
                             self.isGenerating = false
                         }
+                        if self.burstFrames != nil { self.updateCombinedPreview() }
                     }
                 } catch {
                     DispatchQueue.main.async {
@@ -1990,6 +1987,7 @@ class EditorViewModel {
                             self.isRegenerating = false
                             self.enhanceState = .share
                         }
+                        if self.burstFrames != nil { self.updateCombinedPreview() }
                         self.drainPendingRegeneration()
                     }
                 } catch {
