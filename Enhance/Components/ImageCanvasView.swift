@@ -48,6 +48,10 @@ struct ImageCanvasView: View {
     /// STEERABLE ZOOM: a one-finger touch lays down PATH stops. Shares the aim's recogniser and
     /// two-finger pan; the two modes are exclusive by construction (different tabs).
     var isZoomPathInteractive: Bool = false
+    /// The route, for hit-testing a touch against its stops and legs while editing.
+    var zoomPath: ZoomPath = ZoomPath()
+    /// Fired on touch-down with what the finger landed on, in the photo's normalized space.
+    var onZoomPathTouchDown: ((ZoomPathHit, CGPoint) -> Void)? = nil
     /// Normalized, top-left-origin — `visibleRect` space. Called on touch-down and every move.
     var onZoomPathPoint: ((CGPoint) -> Void)? = nil
     /// The region of the photo the scroll view is showing **right now**, kept honest through
@@ -102,6 +106,8 @@ struct ImageCanvasView: View {
                 onLaserAimBegan: onLaserAimBegan,
                 onLaserAimEnded: onLaserAimEnded,
                 isZoomPathInteractive: isZoomPathInteractive,
+                zoomPath: zoomPath,
+                onZoomPathTouchDown: onZoomPathTouchDown,
                 onZoomPathPoint: onZoomPathPoint,
                 onZoomPathBegan: onZoomPathBegan,
                 onZoomPathEnded: onZoomPathEnded,
@@ -142,6 +148,8 @@ private struct ScrollableCanvasView: UIViewRepresentable {
     var onLaserAimBegan: (() -> Void)?
     var onLaserAimEnded: (() -> Void)?
     var isZoomPathInteractive: Bool
+    var zoomPath: ZoomPath
+    var onZoomPathTouchDown: ((ZoomPathHit, CGPoint) -> Void)?
     var onZoomPathPoint: ((CGPoint) -> Void)?
     var onZoomPathBegan: (() -> Void)?
     var onZoomPathEnded: (() -> Void)?
@@ -512,7 +520,19 @@ private struct ScrollableCanvasView: UIViewRepresentable {
                 parent.onInteraction?()
                 parent.onZoomPathBegan?()
                 HapticService.light()
-                if let p = normalized() { parent.onZoomPathPoint?(p) }
+                if let p = normalized() {
+                    // Hit-tested in the image view's own coordinates, where a screen point is
+                    // `1 / zoom` of a content point — so the 22pt target stays 22pt on screen
+                    // however far the photo is pinched.
+                    let size = imageView.bounds.size
+                    let tolerance = 22 / max(0.01, currentZoomScale)
+                    let hit = parent.zoomPath.hitTest(
+                        recognizer.location(in: imageView),
+                        map: { CGPoint(x: $0.x * size.width, y: $0.y * size.height) },
+                        tolerance: tolerance
+                    )
+                    parent.onZoomPathTouchDown?(hit, p)
+                }
             case .changed:
                 guard !aimSurrenderedToPinch else { return }
                 if recognizer.numberOfTouches > 1 { aimSurrenderedToPinch = true; return }

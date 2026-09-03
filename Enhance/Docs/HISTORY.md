@@ -1273,6 +1273,19 @@ half strength, the finger goes back to the pinch, and ENHANCE shows its GIF like
 card; EDIT PATH re-enters. CLEAR PATH is gone — tweaking a route is undo and redo, one entry
 per stroke *(user's call)*. A hint after the first stroke says where the zoom level lives.
 
+### PATH stops can be added and deleted, and pause on the way (2026-09-03)
+
+*(User's ask, scoped down from a full vector tool: no curve handles.)* In drawing mode a touch
+is hit-tested against the route (`ZoomPath.hitTest`, 22pt on screen at any zoom): a stop under
+the finger is picked up — a tap selects it, ringed, with a DELETE STOP chip; a drag moves it —
+the route under the finger gets a new stop inserted *on the curve* there and picked up the
+same way; empty photo draws freehand as before. Every touch is one undo entry.
+
+PATH's panel grew a fourth row. PAUSE AT END is the zoom's pause; PAUSE AT STOPS is seconds
+parked at each interior stop, and it is **added to the journey** rather than carved out of the
+fixed `1s / SPEED` length — `ZoomPathTiming` hands the generator a slower effective speed and
+the matching dwell fraction, capped at the generator's 4s. The lab's DWELL row went with it.
+
 ### "Sluggish next to the preview, and stuck at the end" (2026-09-03)
 
 Both were the zoom's timing applied to real motion. The GIF's animated length is fixed at

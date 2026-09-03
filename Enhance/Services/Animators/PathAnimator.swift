@@ -21,7 +21,8 @@ public struct PathAnimator: Animator {
     init(path: ZoomPath, ease: CGFloat = 0.6, dwell: CGFloat = 0.1, smoothing: Bool = true, scaleRamp: CGFloat = 0) {
         self.path = path
         self.ease = max(0, min(1, ease))
-        self.dwell = max(0, min(0.3, dwell))
+        // Up to 0.9 of the journey may be parked in total; `ZoomPath.point` caps the sum.
+        self.dwell = max(0, min(0.9, dwell))
         self.smoothing = smoothing
         self.scaleRamp = max(0, min(1, scaleRamp))
     }

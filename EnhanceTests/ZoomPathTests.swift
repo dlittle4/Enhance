@@ -213,6 +213,94 @@ struct ZoomPathTests {
         #expect(!vm.showsZoomPathDoneHint, "retired for good once finished once")
     }
 
+    // MARK: - Stop editing
+
+    @Test func hitTestPrefersAStopThenTheRouteThenNothing() {
+        let path = ZoomPath(stops: [CGPoint(x: 0.1, y: 0.5), CGPoint(x: 0.9, y: 0.5)])
+        let map: (CGPoint) -> CGPoint = { CGPoint(x: $0.x * 100, y: $0.y * 100) }
+        #expect(path.hitTest(CGPoint(x: 12, y: 51), map: map, tolerance: 8) == .stop(0))
+        #expect(path.hitTest(CGPoint(x: 88, y: 49), map: map, tolerance: 8) == .stop(1))
+        if case .segment(let i, let f) = path.hitTest(CGPoint(x: 50, y: 52), map: map, tolerance: 8) {
+            #expect(i == 0)
+            #expect(abs(f - 0.5) < 0.05)
+        } else {
+            Issue.record("expected a segment hit")
+        }
+        #expect(path.hitTest(CGPoint(x: 50, y: 90), map: map, tolerance: 8) == .none)
+    }
+
+    @Test func insertPutsTheNewStopOnTheRouteAndRemoveTakesItOut() {
+        var path = ZoomPath(stops: [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 0)])
+        let index = path.insert(onSegment: 0, f: 0.5)
+        #expect(index == 1)
+        #expect(path.stops.count == 3)
+        #expect(abs(path.stops[1].x - 0.5) < 1e-6)
+        path.move(stop: 1, to: CGPoint(x: 0.5, y: 0.3))
+        #expect(path.stops[1] == CGPoint(x: 0.5, y: 0.3))
+        path.remove(stop: 1)
+        #expect(path.stops.count == 2)
+        path.remove(stop: 7)
+        #expect(path.stops.count == 2, "out of range is a no-op")
+    }
+
+    @MainActor
+    @Test func touchingTheRouteInsertsAndSelectsAndDeleteIsUndoable() {
+        let vm = EditorViewModel(content: .newImage(UIImage()))
+        vm.selectedAnimatorType = .path
+        vm.zoomPath = ZoomPath(stops: [CGPoint(x: 0, y: 0), CGPoint(x: 1, y: 0)])
+
+        vm.beginZoomPathTouch(.segment(0, f: 0.5), at: CGPoint(x: 0.5, y: 0), minimumSpacing: 0.02)
+        #expect(vm.zoomPath.stops.count == 3)
+        #expect(vm.selectedZoomStop == 1)
+        vm.moveZoomPathTouch(to: CGPoint(x: 0.5, y: 0.4), minimumSpacing: 0.02)
+        vm.endZoomPathTouch()
+        #expect(vm.zoomPath.stops[1] == CGPoint(x: 0.5, y: 0.4))
+        #expect(vm.canUndo)
+
+        vm.deleteSelectedZoomStop()
+        #expect(vm.zoomPath.stops.count == 2)
+        #expect(vm.selectedZoomStop == nil)
+        vm.undo()
+        #expect(vm.zoomPath.stops.count == 3)
+
+        // A touch on empty photo deselects and draws, as before.
+        vm.beginZoomPathTouch(.none, at: CGPoint(x: 0.2, y: 0.9), minimumSpacing: 0.02)
+        #expect(vm.selectedZoomStop == nil)
+        #expect(vm.zoomPath.stops.count == 4)
+        vm.endZoomPathTouch()
+    }
+
+    // MARK: - Stop pause
+
+    @Test func stopPauseLengthensTheGIFRatherThanEatingTheTravel() {
+        // No interior stops: nothing to park at, speed passes through.
+        let two = ZoomPathTiming.resolve(speed: 1, stopPause: 0.5, stopCount: 2)
+        #expect(two.speed == 1 && two.dwell == 0)
+
+        // 1s of travel plus two stops at 0.5s: a 2s GIF, a quarter of it parked at each stop.
+        let four = ZoomPathTiming.resolve(speed: 1, stopPause: 0.5, stopCount: 4)
+        #expect(abs(four.speed - 0.5) < 1e-9)
+        #expect(abs(four.dwell - 0.25) < 1e-9)
+
+        // Past the generator's 4s ceiling the pauses shrink to fit.
+        let long = ZoomPathTiming.resolve(speed: 0.5, stopPause: 1.0, stopCount: 6)
+        #expect(abs(long.speed - 0.25) < 1e-9)
+        #expect(abs(long.dwell - (2.0 / 4) / 4) < 1e-9)
+    }
+
+    @MainActor
+    @Test func stopPauseRidesTheSnapshotAndCountsAsAChange() {
+        let vm = EditorViewModel(content: .newImage(UIImage()))
+        vm.selectAnimator(.path)
+        #expect(vm.isStopPauseAtDefault)
+        vm.pushUndo()
+        vm.stopPause = 0.8
+        #expect(vm.hasNonDefaultSettings)
+        #expect(abs(vm.generationSpeed - vm.playbackSpeed) < 1e-9, "no interior stops yet, so no lengthening")
+        vm.undo()
+        #expect(vm.isStopPauseAtDefault)
+    }
+
     @MainActor
     @Test func activeAnimatorIsAPathAnimatorForThePathCard() {
         let vm = EditorViewModel(content: .newImage(UIImage()))

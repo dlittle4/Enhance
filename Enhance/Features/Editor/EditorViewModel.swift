@@ -26,6 +26,9 @@ struct EditorSnapshot {
     /// The PATH zoom's route. Snapshotted so undo steps back through drawing sessions and RESET
     /// clears it with everything else.
     let zoomPath: ZoomPath
+    /// PATH's STOP PAUSE, seconds parked at each interior stop. Output timing like
+    /// `pauseDuration`, so it rides the snapshot beside it.
+    let stopPause: Double
     let tintColor: LaserColor
     let gradientStops: GradientStops
     /// PIXELATE's cell shape. A typed field rather than an entry in `parameterValues`,
@@ -206,6 +209,30 @@ class EditorViewModel {
     /// The route a PATH zoom travels. Drawn on the live canvas while the PATH card is selected;
     /// kept when another zoom is chosen so coming back finds it.
     var zoomPath = ZoomPath()
+
+    /// Seconds the PATH zoom parks at each interior stop *(user's ask, 2026-09-03)*. The end
+    /// pause is `pauseDuration`, as for every zoom; this one is PATH's own second slider.
+    var stopPause: Double = ZoomPathTiming.defaultStopPause
+
+    var stopPauseUnit: Double {
+        get { stopPause / ZoomPathTiming.maxStopPause }
+        set { stopPause = max(0, min(1, newValue)) * ZoomPathTiming.maxStopPause }
+    }
+
+    var stopPauseLabel: String { ZoomPlayback.pauseText(stopPause) }
+
+    var isStopPauseAtDefault: Bool { abs(stopPause - ZoomPathTiming.defaultStopPause) < 1e-6 }
+
+    /// PATH's timing resolved: the stops' parking time is *added* to the journey rather than
+    /// carved out of it, by handing the generator a slower effective speed. See `ZoomPathTiming`.
+    private var pathTiming: ZoomPathTiming.Resolved {
+        ZoomPathTiming.resolve(speed: playbackSpeed, stopPause: stopPause, stopCount: zoomPath.stops.count)
+    }
+
+    /// What the generator is told for SPEED. PATH lengthens the GIF to fit its stop pauses.
+    var generationSpeed: Double {
+        selectedAnimatorType == .path ? pathTiming.speed : playbackSpeed
+    }
     var isDetectingFaces: Bool = false
     private let faceDetectionService = FaceDetectionService()
 
@@ -315,14 +342,14 @@ class EditorViewModel {
             return gifGenerator.generateGIF(
                 frames: frames, frameInterval: 1 / max(1, burstPreviewFPS),
                 currentScale: scale, visibleRect: rect, animator: animator,
-                speed: playbackSpeed, pauseDuration: pauseDuration,
+                speed: generationSpeed, pauseDuration: pauseDuration,
                 visualEffects: activeVisualEffectList, faceEffect: activeFaceEffect,
                 textOverlay: textOverlay
             )
         }
         return gifGenerator.generateGIF(
             from: image, currentScale: scale, visibleRect: rect, animator: animator,
-            speed: playbackSpeed, pauseDuration: pauseDuration,
+            speed: generationSpeed, pauseDuration: pauseDuration,
             visualEffects: activeVisualEffectList, faceEffect: activeFaceEffect,
             detectedFaces: activeFaces, textOverlay: textOverlay
         )
@@ -496,8 +523,8 @@ class EditorViewModel {
     /// before layout, and cannot infer it from opaque content.
     var editingRowCount: Int {
         switch selectedEffectCategory {
-        // Speed, pause, motion — built directly rather than declared.
-        case .zoomEffects:   return 3
+        // Speed, pause, motion — built directly rather than declared. PATH adds STOP PAUSE.
+        case .zoomEffects:   return selectedAnimatorType == .path ? 4 : 3
         case .visualEffects: return selectedVisualEffect?.parameters.count ?? 0
         case .faceFilters:   return selectedFaceFilter?.parameters.count ?? 0
         // FILL — which now carries its own swatches rather than pushing them into a second,
@@ -681,6 +708,7 @@ class EditorViewModel {
     func finishZoomPath() {
         guard isEditingZoomPath else { return }
         isEditingZoomPath = false
+        selectedZoomStop = nil
         hasFinishedZoomPath = true
         updateCombinedPreview()
         regenerateIfNeeded()
@@ -722,6 +750,59 @@ class EditorViewModel {
             push(entry)
             regenerateIfNeeded()
         }
+    }
+
+    // MARK: Stop editing (2026-09-03)
+
+    /// The stop a tap picked out, shown ringed with a DELETE chip. Navigation state, not
+    /// snapshotted: undo restores the route, not the highlight.
+    private(set) var selectedZoomStop: Int?
+
+    /// What the current touch is doing, decided on touch-down from the hit test.
+    private enum ZoomPathTouch { case stroke, stop(Int) }
+    private var zoomPathTouch: ZoomPathTouch = .stroke
+
+    /// Touch-down in editing mode. A stop under the finger is picked up (a tap selects it, a
+    /// drag moves it); the route under the finger gets a new stop there, picked up the same
+    /// way; empty photo starts a freehand stroke as before.
+    func beginZoomPathTouch(_ hit: ZoomPathHit, at point: CGPoint, minimumSpacing spacing: CGFloat) {
+        beginZoomPathStroke()
+        switch hit {
+        case .stop(let i):
+            zoomPathTouch = .stop(i)
+            selectedZoomStop = i
+        case .segment(let i, let f):
+            let inserted = zoomPath.insert(onSegment: i, f: f)
+            zoomPathTouch = .stop(inserted)
+            selectedZoomStop = inserted
+            HapticService.selection()
+        case .none:
+            zoomPathTouch = .stroke
+            selectedZoomStop = nil
+            extendZoomPath(to: point, minimumSpacing: spacing)
+        }
+    }
+
+    func moveZoomPathTouch(to point: CGPoint, minimumSpacing spacing: CGFloat) {
+        switch zoomPathTouch {
+        case .stop(let i): zoomPath.move(stop: i, to: point)
+        case .stroke:      extendZoomPath(to: point, minimumSpacing: spacing)
+        }
+    }
+
+    func endZoomPathTouch() {
+        zoomPathTouch = .stroke
+        endZoomPathStroke()
+    }
+
+    /// DELETE STOP on the canvas: one undo entry. Deleting the last stop leaves an empty route.
+    func deleteSelectedZoomStop() {
+        guard let i = selectedZoomStop, zoomPath.stops.indices.contains(i) else { return }
+        pushUndo()
+        zoomPath.remove(stop: i)
+        selectedZoomStop = nil
+        HapticService.medium()
+        regenerateIfNeeded()
     }
 
     /// CLEAR on the canvas: one undo entry, back to an empty route.
@@ -851,6 +932,7 @@ class EditorViewModel {
             laserColor: laserColor,
             laserAim: laserAim,
             zoomPath: zoomPath,
+            stopPause: stopPause,
             tintColor: tintColor,
             gradientStops: gradientStopsOverride ?? gradientStops,
             pixelShape: pixelShape,
@@ -871,6 +953,8 @@ class EditorViewModel {
         laserColor = snapshot.laserColor
         laserAim = snapshot.laserAim
         zoomPath = snapshot.zoomPath
+        stopPause = snapshot.stopPause
+        selectedZoomStop = nil
         tintColor = snapshot.tintColor
         pixelShape = snapshot.pixelShape
         gradientStops = snapshot.gradientStops
@@ -1056,7 +1140,7 @@ class EditorViewModel {
             base = PathAnimator(
                 path: zoomPath,
                 ease: CGFloat(tuning.pathEase),
-                dwell: CGFloat(tuning.pathDwell),
+                dwell: CGFloat(pathTiming.dwell),
                 smoothing: tuning.pathSmoothing,
                 scaleRamp: CGFloat(tuning.pathScaleRamp)
             )
@@ -1078,6 +1162,7 @@ class EditorViewModel {
         // starts at 3s, and comparing to the wrong baseline would show RESET on an untouched
         // editor and hide it on a genuinely edited one.
         let timingChanged = !isSpeedAtDefault || !isPauseAtDefault
+            || (selectedAnimatorType == .path && !isStopPauseAtDefault)
         let base = selectedAnimatorType != defaultAnimatorType || hasActiveModifier || timingChanged
             || hasVisualEffect || hasFaceFilter || hasText
 
@@ -1141,6 +1226,8 @@ class EditorViewModel {
         laserAim = nil
         zoomPath = ZoomPath()
         isEditingZoomPath = false
+        selectedZoomStop = nil
+        stopPause = ZoomPathTiming.defaultStopPause
         tintColor = .red
         pixelShape = .square
         gradientStops = .default

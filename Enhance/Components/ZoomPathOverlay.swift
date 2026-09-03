@@ -15,8 +15,11 @@ struct ZoomPathOverlay: View {
     let smoothing: Bool
     /// Drawing mode: strokes extend the route and the chip reads DONE.
     let isEditing: Bool
+    /// The stop a tap picked out, ringed, with DELETE STOP offered.
+    let selectedStop: Int?
     let onDone: () -> Void
     let onEdit: () -> Void
+    let onDeleteStop: () -> Void
 
     private func canvasPoint(_ p: CGPoint) -> CGPoint {
         guard visibleRect.width > 0, visibleRect.height > 0 else { return .zero }
@@ -51,10 +54,16 @@ struct ZoomPathOverlay: View {
                 }
                 for (index, p) in points.enumerated() {
                     let isEnd = index == 0 || index == points.count - 1
-                    let r: CGFloat = isEnd ? 7 : 3.5
+                    // Every stop is a target while editing, so the interior ones grow to be
+                    // seen and hit; at rest they shrink back to route markers.
+                    let r: CGFloat = isEnd ? 7 : (isEditing ? 5.5 : 3.5)
                     let dot = Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2))
                     context.fill(dot, with: .color(isEnd ? Color.enhanceMint : .white))
                     context.stroke(dot, with: .color(.black.opacity(0.6)), lineWidth: 1)
+                    if index == selectedStop {
+                        let ring = Path(ellipseIn: CGRect(x: p.x - r - 5, y: p.y - r - 5, width: (r + 5) * 2, height: (r + 5) * 2))
+                        context.stroke(ring, with: .color(Color.enhanceMint), lineWidth: 2)
+                    }
                 }
             }
             .allowsHitTesting(false)
@@ -63,6 +72,11 @@ struct ZoomPathOverlay: View {
                 chip("DONE", tint: Color.enhanceMint) { onDone() }
             } else {
                 chip("EDIT PATH", tint: .white) { onEdit() }
+            }
+        }
+        .overlay(alignment: .topLeading) {
+            if isEditing, selectedStop != nil {
+                chip("DELETE STOP", tint: Color.overdrive) { onDeleteStop() }
             }
         }
         .frame(width: canvasSize, height: canvasSize)

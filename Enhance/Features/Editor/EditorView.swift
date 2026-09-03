@@ -423,12 +423,23 @@ struct EditorView: View {
                 valueText: viewModel.speedLabel
             )
             ParameterSliderRow(
-                label: "PAUSE",
+                label: viewModel.selectedAnimatorType == .path ? "PAUSE AT END" : "PAUSE",
                 value: $viewModel.pauseUnit,
                 onCommit: { viewModel.onParameterDragEnded() },
                 allowsZero: true,
                 valueText: viewModel.pauseLabel
             )
+            if viewModel.selectedAnimatorType == .path {
+                // PATH's own: seconds parked at each stop along the way. Added to the journey,
+                // not carved out of it — see `ZoomPathTiming`.
+                ParameterSliderRow(
+                    label: "PAUSE AT STOPS",
+                    value: $viewModel.stopPauseUnit,
+                    onCommit: { viewModel.onParameterDragEnded() },
+                    allowsZero: true,
+                    valueText: viewModel.stopPauseLabel
+                )
+            }
             ParameterPickerRow(label: "MOTION") {
                 SegmentedToggle(
                     items: ModifierType.allCases,
@@ -632,15 +643,20 @@ struct EditorView: View {
                 onLaserAimBegan: { viewModel.beginLaserAim() },
                 onLaserAimEnded: { viewModel.endLaserAim() },
                 isZoomPathInteractive: viewModel.wantsZoomPath,
+                zoomPath: viewModel.zoomPath,
+                onZoomPathTouchDown: { hit, point in
+                    let contentSide = canvasSize * max(1, viewModel.currentScale)
+                    viewModel.beginZoomPathTouch(hit, at: point, minimumSpacing: canvasStore.tuning.pathSampleSpacing / contentSide)
+                },
                 onZoomPathPoint: { point in
                     // The lab's spacing is in canvas points on the *content*, so it is scaled by
                     // the zoom: at 2× the same 28pt of screen is half as much photo.
                     let contentSide = canvasSize * max(1, viewModel.currentScale)
-                    viewModel.extendZoomPath(to: point, minimumSpacing: canvasStore.tuning.pathSampleSpacing / contentSide)
+                    viewModel.moveZoomPathTouch(to: point, minimumSpacing: canvasStore.tuning.pathSampleSpacing / contentSide)
                 },
                 displayedRect: $displayedRect,
-                onZoomPathBegan: { viewModel.beginZoomPathStroke() },
-                onZoomPathEnded: { viewModel.endZoomPathStroke() },
+                onZoomPathBegan: { },
+                onZoomPathEnded: { viewModel.endZoomPathTouch() },
                 onInteraction: { viewModel.noteCanvasInteraction() },
                 onInteractionEnded: { viewModel.commitZoomCardFraming() },
                 canvasSize: canvasSize
@@ -654,8 +670,10 @@ struct EditorView: View {
                         canvasSize: canvasSize,
                         smoothing: canvasStore.tuning.pathSmoothing,
                         isEditing: viewModel.isEditingZoomPath,
+                        selectedStop: viewModel.selectedZoomStop,
                         onDone: { viewModel.finishZoomPath() },
-                        onEdit: { viewModel.editZoomPath() }
+                        onEdit: { viewModel.editZoomPath() },
+                        onDeleteStop: { viewModel.deleteSelectedZoomStop() }
                     )
                 }
             }
