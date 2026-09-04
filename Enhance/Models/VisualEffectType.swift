@@ -62,6 +62,10 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     case stretch       = "STRETCH"
     /// ROADMAP §2f — outlines of the segmented subject radiating outward from it.
     case subjectEcho   = "ECHO"
+    /// FRAME ECHO (FEATURE-MOTION-EFFECTS.md §2): earlier burst frames' subject cut-outs
+    /// behind the current one. **Burst-only** — see `VisualEffectType.burstOnly` and
+    /// `EditorViewModel.carouselVisualEffects`; on a still the effect is the identity.
+    case frameEcho     = "FRAME ECHO"
     /// ROADMAP §2b — 1-bit clustered-dot halftone in two spot colours.
     case bitmap        = "BITMAP"
     // The twelve SwiftUIShaders looks starred in SHADER LAB, graduated 2026-09-02 as Core Image
@@ -120,6 +124,13 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     static var selectable: [VisualEffectType] {
         allCases.filter { !retired.contains($0) }
     }
+
+    /// Effects that need a burst's frames to draw anything. Shown in the carousel only while
+    /// the editor holds a burst and MOTION EFFECTS is on; selectable and lab-windowable
+    /// regardless, so the lab and the tests see them like any other card.
+    static let burstOnly: Set<VisualEffectType> = [.frameEcho]
+
+    var isBurstOnly: Bool { Self.burstOnly.contains(self) }
 
     var isRetired: Bool { Self.retired.contains(self) }
 
@@ -194,6 +205,10 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
         case .subjectEcho:
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "SPREAD"))
             params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "ECHOES"))
+        case .frameEcho:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "ECHOES"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "SPACING", defaultValue: 0))
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "TINT", defaultValue: 0))
         case .bitmap:
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "SCALE"))
             params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "CONTRAST"))
@@ -279,7 +294,8 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
         // card has. The old `selectable` gate only ever existed because nobody could reach them.
         // HEART BEAT is excluded too: it runs from the ZOOM tab, whose panel has no subject mask
         // to offer, and the modifier is only honoured for the IMAGE tab's selection.
-        if self != .subjectEcho, self != .pulse {
+        // FRAME ECHO draws *from* the masks like ECHO does, so the toggle means nothing to it.
+        if self != .subjectEcho, self != .pulse, self != .frameEcho {
             params.append(.backgroundOnly)
         }
 
@@ -289,7 +305,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     /// Which picker row to show beneath the sliders, if any.
     var colorPickerKind: EffectPickerKind? {
         switch self {
-        case .duotone, .coloredEdges, .caustic, .subjectEcho: return .tintColor
+        case .duotone, .coloredEdges, .caustic, .subjectEcho, .frameEcho: return .tintColor
         case .gradientMap, .risoPrint, .bitmap: return .gradientStops
         default:                      return nil
         }
@@ -354,6 +370,16 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
                 intensity: clamped,
                 spread: EffectParameter.clampSlider(options.size),
                 count: EffectParameter.clampSlider(options.tertiary),
+                color: options.tintColor
+            )
+        case .frameEcho:
+            // Draws only with a `MotionContext`, which the generator and the burst preview
+            // stack hand it per frame; the thumbnail, rendered from one still, shows the photo.
+            return FrameEchoEffect(
+                intensity: clamped,
+                echoes: EffectParameter.clampSlider(options.size),
+                spacing: EffectParameter.clampSlider(options.tertiary),
+                tintStrength: EffectParameter.clampSlider(options.quaternary),
                 color: options.tintColor
             )
         case .stretch:      return StretchEffect(intensity: clamped,

@@ -1430,7 +1430,7 @@ struct EditorView: View {
 
     private func visualEffectsGrid(cardSize: CGFloat) -> some View {
         EffectCarousel(
-            items: EffectChoice.gallery(viewModel.effectLab.enabledVisualEffects),
+            items: EffectChoice.gallery(viewModel.carouselVisualEffects),
             scrollTo: EffectChoice(viewModel.selectedVisualEffect),
             contentInset: canvasInset,
             cascade: cardCascade

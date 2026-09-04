@@ -333,6 +333,8 @@ class EditorViewModel {
             burstFrames = nil
             if carryPause { pauseDuration = defaultPauseDuration }
             if carrySpeed { playbackSpeed = defaultPlaybackSpeed }
+            // A burst-only card cannot stay selected on a still.
+            if selectedVisualEffect?.isBurstOnly == true { selectedVisualEffect = nil }
             return
         }
         burstFrames = frames
@@ -441,6 +443,14 @@ class EditorViewModel {
     }
 
     /// What the generator gets for a burst: every frame with its faces, or nil for a still.
+    /// What the IMAGE carousel offers: the lab's enabled effects, less the burst-only cards
+    /// unless a burst is loaded and MOTION EFFECTS is on. A still never shows FRAME ECHO
+    /// *(user's call, 2026-09-03)*.
+    var carouselVisualEffects: [VisualEffectType] {
+        let showsBurstCards = FeatureFlags.motionEffects && burstFrames != nil
+        return effectLab.enabledVisualEffects.filter { showsBurstCards || !$0.isBurstOnly }
+    }
+
     var burstSourceFrames: [BurstFrame]? {
         guard let burstFrames else { return nil }
         return burstFrames.enumerated().map { index, image in
