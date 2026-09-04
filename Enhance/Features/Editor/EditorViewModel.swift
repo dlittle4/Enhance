@@ -397,7 +397,7 @@ class EditorViewModel {
                 CGPoint(x: $0.faceCenter.x / sides[i], y: $0.faceCenter.y / sides[i])
             }
         }
-        let subjectVelocities = MotionTrack.subjectVelocities(faceCentres: centres, smoothing: tuning.motionVelocitySmoothing)
+        let faceVelocities = MotionTrack.subjectVelocities(faceCentres: centres, smoothing: tuning.motionVelocitySmoothing)
 
         // Shrunk copies for segmentation and registration.
         let small: [CGImage?] = await Task.detached(priority: .utility) {
@@ -416,6 +416,21 @@ class EditorViewModel {
         let maskMs = Int(((ProcessInfo.processInfo.systemUptime - maskStart) * 1_000).rounded())
         if tuning.motionMaskSmoothing {
             masks = MotionMasks.neighbourSmoothed(masks)
+        }
+
+        // The subject's motion from the masks themselves — leading edge minus trailing edge —
+        // which follows a waving hand on a still body where the face track sees nothing. The
+        // face track is the fallback for frames whose masks did not change.
+        let maskContext = CIContext(options: [.useSoftwareRenderer: false])
+        var maskShifts = [CGVector](repeating: .zero, count: count)
+        for i in 1..<max(1, count) {
+            guard let a = masks[i - 1], let b = masks[i],
+                  let v = MotionMasks.motion(from: a, to: b, context: maskContext) else { continue }
+            maskShifts[i] = v
+        }
+        let maskVelocities = MotionTrack.cameraVelocities(translations: maskShifts, smoothing: tuning.motionVelocitySmoothing)
+        let subjectVelocities = zip(maskVelocities, faceVelocities).map { mask, face in
+            mask.motionMagnitude >= SpeedLinesEffect.minimumSpeed ? mask : face
         }
 
         // Camera track: translation between consecutive shrunk frames.

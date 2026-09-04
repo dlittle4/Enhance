@@ -43,7 +43,7 @@ struct FrameEchoTests {
 
     @Test func echoesLandWhereTheSubjectWasAndFadeWithAge() {
         let (ctx, image) = movingBurst()  // squares at x = 10, 30, 50, 70; current at 70
-        let effect = FrameEchoEffect(intensity: 0.6, echoes: 1, spacing: 0)  // 6 echoes, spacing 1
+        let effect = FrameEchoEffect(intensity: 0.6, echoes: 1, spacing: 0, opacity: 0.7)  // all echoes, spacing 1
         let out = effect.apply(to: image, progress: 1, frameIndex: 3, viewportCenter: nil, geometry: .identity, motion: ctx)
         let current = red(at: CGPoint(x: 80, y: 50), of: out)
         let one = red(at: CGPoint(x: 60, y: 50), of: out)
@@ -115,8 +115,9 @@ struct FrameEchoTests {
         let vm = EditorViewModel(content: .newImage(UIImage()))
         #expect(vm.resolvedValue(EffectParameter.tertiaryID, for: VisualEffectType.frameEcho) == 0)
         #expect(vm.resolvedValue(EffectParameter.quinaryID, for: VisualEffectType.frameEcho) == 0, "colour NONE")
-        #expect(vm.resolvedValue(EffectParameter.quaternaryID, for: VisualEffectType.frameEcho) == 0.7, "opacity")
-        #expect(vm.resolvedValue(EffectParameter.intensityID, for: VisualEffectType.frameEcho) == 0.5)
+        #expect(vm.resolvedValue(EffectParameter.quaternaryID, for: VisualEffectType.frameEcho) == 1, "opacity: strobe by default")
+        #expect(vm.resolvedValue(EffectParameter.intensityID, for: VisualEffectType.frameEcho) == 1, "fade: holds by default")
+        #expect(vm.resolvedValue(EffectParameter.sizeID, for: VisualEffectType.frameEcho) == 1, "echoes: all by default")
         // Others still resolve exactly as the lab says (HALFTONE ships a graduated window).
         let labAnswer = vm.effectLab.resolvedSliderValue(stored: nil, paramID: EffectParameter.tertiaryID, for: VisualEffectType.halftone, declared: 0.5)
         #expect(vm.resolvedValue(EffectParameter.tertiaryID, for: VisualEffectType.halftone) == labAnswer, "others unchanged")

@@ -28,7 +28,9 @@ struct FrameEchoEffect: VisualEffect {
     /// frame. 0 is FRAME ECHO's crisp cut-outs.
     private let smear: CGFloat
 
-    static let maximumEchoes = 6
+    /// The ECHOES slider's top: more than any burst has frames, so "all of them" is reachable
+    /// — the strobe look the user asked for (2026-09-03), every earlier cut-out kept.
+    static let maximumEchoes = 40
     static let maximumSpacing = 4
 
     /// - Parameters:
@@ -37,7 +39,7 @@ struct FrameEchoEffect: VisualEffect {
     ///   - spacing: 0…1, mapped to 1…4 frames apart.
     ///   - opacity: the nearest echo's opacity, 0…1.
     ///   - tintStrength: 0…1; the colour row's NONE is 0.
-    init(intensity: Double = 0.5, echoes: Double = 0.5, spacing: Double = 0, opacity: Double = 0.7, tintStrength: Double = 0, color: LaserColor = .red, smear: Double = 0) {
+    init(intensity: Double = 1, echoes: Double = 1, spacing: Double = 0, opacity: Double = 1, tintStrength: Double = 0, color: LaserColor = .red, smear: Double = 0) {
         self.smear = CGFloat(max(0, min(1, smear)))
         self.fade = 0.3 + 0.7 * CGFloat(max(0, min(1, intensity)))
         self.opacity = CGFloat(max(0, min(1, opacity)))

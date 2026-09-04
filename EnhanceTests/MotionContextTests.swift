@@ -113,6 +113,27 @@ struct MotionContextTests {
         #expect(still.contexts.allSatisfy { $0 == nil })
     }
 
+    @Test func maskMotionFollowsTheLeadingEdge() {
+        // A white square that moves right by 20px: pixels appeared on its right, vanished on
+        // its left, so the motion points right by about the square's width in normalized units.
+        func square(at x: CGFloat) -> CIImage {
+            let bg = CIImage(color: .black).cropped(to: CGRect(x: 0, y: 0, width: 100, height: 100))
+            return CIImage(color: .white).cropped(to: CGRect(x: x, y: 40, width: 20, height: 20))
+                .applyingFilter("CISourceOverCompositing", parameters: [kCIInputBackgroundImageKey: bg]).cropped(to: bg.extent)
+        }
+        let ctx = CIContext(options: [.useSoftwareRenderer: false])
+        let v = MotionMasks.motion(from: square(at: 20), to: square(at: 40), context: ctx)
+        #expect(v != nil)
+        #expect((v?.dx ?? 0) > 0.1, "rightward")
+        #expect(abs(v?.dy ?? 1) < 0.05, "level")
+        // A still mask has no edge motion.
+        #expect(MotionMasks.motion(from: square(at: 20), to: square(at: 20), context: ctx) == nil)
+        // Centroid of a square at x 20…40, y 40…60 is (0.3, 0.5).
+        let c = MotionMasks.centroid(of: square(at: 20), context: ctx)
+        #expect(abs((c?.x ?? 0) - 0.3) < 0.03)
+        #expect(abs((c?.y ?? 0) - 0.5) < 0.03)
+    }
+
     @Test func maskConditioningKeepsExtentsAndTreatsMissingNeighboursAsSelf() {
         let m = solid(.white, side: 50)
         let feathered = MotionMasks.feathered(m, radius: 2)
