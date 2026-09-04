@@ -190,7 +190,10 @@ class EditorViewModel {
     /// translation between the slider the user sees and the number the effect's `init` reads,
     /// and both the preview and the GIF go through it.
     func resolvedValue<E: ParameterizedEffect>(_ paramID: String, for effect: E) -> Double {
-        effectLab.resolvedSliderValue(stored: storedValue(paramID, for: effect), paramID: paramID, for: effect)
+        effectLab.resolvedSliderValue(
+            stored: storedValue(paramID, for: effect), paramID: paramID, for: effect,
+            declared: effect.declaredDefault(paramID)
+        )
     }
 
     var tintColor: LaserColor = .red

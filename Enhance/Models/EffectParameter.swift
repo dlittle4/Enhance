@@ -163,6 +163,12 @@ protocol ParameterizedEffect {
     /// Identifies this effect within its namespace.
     var parameterKeyComponent: String { get }
 
+    /// The declared default of one slider, by id — a protocol requirement, not just an
+    /// extension method, for the reason `FaceEffect` records: a generic caller binds an
+    /// extension-only method statically, and an effect's override would silently never run
+    /// (which is exactly how the first cut failed). See the extension below for the default.
+    func declaredDefault(_ paramID: String) -> Double
+
     /// The controls this effect exposes, in display order.
     ///
     /// **View layer only.** This builds an array of structs on every call, so it must
@@ -174,4 +180,13 @@ protocol ParameterizedEffect {
 
 extension ParameterizedEffect where Self: RawRepresentable, Self.RawValue == String {
     var parameterKeyComponent: String { rawValue }
+}
+
+extension ParameterizedEffect {
+    /// The declared default of one slider, by id, without building `parameters` — for the
+    /// hot path that resolves values on every preview update. 0.5 unless an effect overrides
+    /// it, which is what every slider declared until FRAME ECHO's SPACING and TINT (2026-09-03):
+    /// the knob opened at their declared 0 while the effect was built with 0.5, so the echoes
+    /// were tinted and spaced out under sliders that said otherwise.
+    func declaredDefault(_ paramID: String) -> Double { 0.5 }
 }

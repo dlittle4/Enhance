@@ -108,6 +108,19 @@ struct FrameEchoTests {
         #expect(!vm.carouselVisualEffects.contains(.frameEcho), "flag off hides it")
     }
 
+    /// The knob and the effect agree on an untouched slider: SPACING and TINT open at 0 and
+    /// the effect is built with 0, not the resolver's generic midpoint.
+    @MainActor
+    @Test func declaredDefaultsReachTheBuiltEffect() {
+        let vm = EditorViewModel(content: .newImage(UIImage()))
+        #expect(vm.resolvedValue(EffectParameter.tertiaryID, for: VisualEffectType.frameEcho) == 0)
+        #expect(vm.resolvedValue(EffectParameter.quaternaryID, for: VisualEffectType.frameEcho) == 0)
+        #expect(vm.resolvedValue(EffectParameter.intensityID, for: VisualEffectType.frameEcho) == 0.5)
+        // Others still resolve exactly as the lab says (HALFTONE ships a graduated window).
+        let labAnswer = vm.effectLab.resolvedSliderValue(stored: nil, paramID: EffectParameter.tertiaryID, for: VisualEffectType.halftone, declared: 0.5)
+        #expect(vm.resolvedValue(EffectParameter.tertiaryID, for: VisualEffectType.halftone) == labAnswer, "others unchanged")
+    }
+
     @Test func frameEchoDeclaresItsRowsAndNoBackgroundOnly() {
         let ids = VisualEffectType.frameEcho.parameters.map(\.id)
         #expect(ids.contains("tint"))

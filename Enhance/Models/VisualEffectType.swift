@@ -125,6 +125,14 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
         allCases.filter { !retired.contains($0) }
     }
 
+    /// See `ParameterizedEffect.declaredDefault`. Keep in step with `parameters`.
+    func declaredDefault(_ paramID: String) -> Double {
+        switch (self, paramID) {
+        case (.frameEcho, EffectParameter.tertiaryID), (.frameEcho, EffectParameter.quaternaryID): return 0
+        default: return 0.5
+        }
+    }
+
     /// Effects that need a burst's frames to draw anything. Shown in the carousel only while
     /// the editor holds a burst and MOTION EFFECTS is on; selectable and lab-windowable
     /// regardless, so the lab and the tests see them like any other card.
