@@ -170,7 +170,11 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
         }
 
         // FRAME ECHO's primary is how much each echo keeps of the last, so it says so.
-        params.append(EffectParameter(id: EffectParameter.intensityID, label: self == .frameEcho ? "FADE" : "INTENSITY"))
+        params.append(EffectParameter(
+            id: EffectParameter.intensityID,
+            label: self == .frameEcho ? "FADE" : "INTENSITY",
+            displaysPercent: self == .frameEcho
+        ))
 
         switch self {
         case .fisheye:
@@ -221,7 +225,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             // OPACITY is the nearest echo's; FADE is how much each further one keeps, up to
             // "all of it" so a trail can persist for the whole burst. The tint lives on the
             // colour row (NONE by default), in the quinary well.
-            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "OPACITY", defaultValue: 0.7))
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "OPACITY", defaultValue: 0.7, displaysPercent: true))
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "ECHOES"))
             params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "SPACING", defaultValue: 0))
         case .bitmap:

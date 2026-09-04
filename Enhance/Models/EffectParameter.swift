@@ -41,11 +41,17 @@ struct EffectParameter: Identifiable, Hashable {
     /// from dedicated view-model state.
     let defaultValue: Double
 
-    init(id: String, label: String, kind: Kind = .slider, defaultValue: Double = 0.5) {
+    /// Show the knob's value as a percentage rather than the 20-step lattice integer — for
+    /// sliders whose value *is* a fraction the user thinks of as one (an opacity), where "14"
+    /// for 0.7 reads as nothing *(user's ask, 2026-09-03: "the max end should be 100")*.
+    let displaysPercent: Bool
+
+    init(id: String, label: String, kind: Kind = .slider, defaultValue: Double = 0.5, displaysPercent: Bool = false) {
         self.id = id
         self.label = label
         self.kind = kind
         self.defaultValue = defaultValue
+        self.displaysPercent = displaysPercent
     }
 
     // MARK: - Well-known ids
