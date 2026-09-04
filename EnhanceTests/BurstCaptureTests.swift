@@ -146,8 +146,9 @@ struct BurstCaptureTests {
             camera.onPreviewFrame?(frame(CGFloat(i) / 6))
             try await Task.sleep(for: .milliseconds(8))
         }
-        // Past the duration: the auto-stop task ends the burst on its own.
-        try await Task.sleep(for: .milliseconds(450))
+        // Past the duration: the auto-stop task ends the burst on its own. Generous, because
+        // the suites run in parallel clones and a starved task once missed a 200ms margin.
+        try await Task.sleep(for: .milliseconds(900))
         #expect(!vm.isBursting)
         #expect(vm.capturedImage != nil)
 

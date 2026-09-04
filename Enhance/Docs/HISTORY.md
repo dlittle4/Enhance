@@ -1334,6 +1334,28 @@ shapes now go through `AppConstants.CornerRadius` (new steps `tiny`/`chip`/`smal
 stay circles. Read at body time, so a screen already on the stack repaints on its next
 evaluation, not the instant the toggle flips.
 
+### Motion effects, phases 0 and 1 (2026-09-03)
+
+Per [FEATURE-MOTION-EFFECTS.md](FEATURE-MOTION-EFFECTS.md). **Phase 0**: `MotionContext`
+(earlier frames, a mask per frame, subject and camera velocity) reaches every visual effect
+through a defaulted `VisualEffect` overload; the generator hands one to every burst frame and
+`nil` to stills, byte-identical for the shipped effects (tested). Masks come from Vision at the
+lab's MASK SIZE, feathered and neighbour-smoothed (`MotionMasks`); the subject track from the
+per-frame faces (`MotionTrack`, nearest-centre matching, EMA, gap tolerance); the camera track
+from `VNTranslationalImageRegistrationRequest` (`BurstRegistration`). All under
+MOTION EFFECTS (BURSTS); CANVAS LAB's MOTION FX section holds the knobs. **Phase 1**:
+FRAME ECHO, burst-only in the carousel.
+
+**One crash on the way, recorded:** the first cut of the analysis wrote the view model's
+observable arrays from its background task. `EditorViewModel` is *not* actor-isolated, and the
+test host died mid-run with a wall of 0.000s failures in an unrelated suite — the tell
+LEARNINGS already names. The analysis is now a `nonisolated static` that touches no view-model
+state; the caller snapshots the faces on the main actor before and publishes the result after.
+
+**Not yet measured on device** — the plan's phase-0 numbers (segmentation ms per frame on both
+phones, registration ms) are printed by the `motion` debug log on the first burst; capture
+them and record here.
+
 ### "Sluggish next to the preview, and stuck at the end" (2026-09-03)
 
 Both were the zoom's timing applied to real motion. The GIF's animated length is fixed at

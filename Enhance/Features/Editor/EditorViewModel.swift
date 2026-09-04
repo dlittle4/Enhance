@@ -269,9 +269,6 @@ class EditorViewModel {
     /// Per-frame velocities from the face track and from frame registration.
     private(set) var burstSubjectVelocities: [CGVector] = []
     private(set) var burstCameraVelocities: [CGVector] = []
-    /// Its own instance for the same reason as `burstDetectionService`: the editor's still
-    /// segmentation may run at the same time on the same class's unsynchronised cache.
-    private let burstSegmentationService = SubjectSegmentationService()
     private static let motionLog = Logger(subsystem: "Enhance", category: "motion")
 
     // MARK: Burst preview
@@ -356,46 +353,66 @@ class EditorViewModel {
             // eyes for every frame; one more pass now that every frame has its own.
             await MainActor.run { [weak self] in self?.updateCombinedPreview() }
             guard FeatureFlags.motionEffects, !Task.isCancelled else { return }
-            await self?.analyseBurstMotion(frames)
+            // Inputs are read on the main actor, the work runs off it, and every publish hops
+            // back: this class is not actor-isolated, and its observable arrays were being
+            // written from the task's own thread — a race that crashed the test host.
+            guard let faces = await MainActor.run(body: { self?.burstFaces }) else { return }
+            let analysed = await Self.analyseBurstMotion(frames, faces: faces)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                guard let self, self.burstFrames?.count == frames.count else { return }
+                self.burstMasks = analysed.masks
+                self.burstSubjectVelocities = analysed.subjectVelocities
+                self.burstCameraVelocities = analysed.cameraVelocities
+                self.updateCombinedPreview()
+            }
         }
     }
 
+    /// What the motion analysis produces for a burst; published to the view model in one hop.
+    struct BurstMotionAnalysis {
+        var masks: [CIImage?]
+        var subjectVelocities: [CGVector]
+        var cameraVelocities: [CGVector]
+    }
+
     /// The motion foundation: a mask per frame, the subject track from the faces, the camera
-    /// track from frame registration. Runs after detection in the same task, publishing as it
-    /// goes; every step is measured to the log, since the plan's device pass is about numbers.
-    private func analyseBurstMotion(_ frames: [UIImage]) async {
+    /// track from frame registration. Static and off the main actor on purpose — it touches
+    /// no view-model state; the caller reads the faces before and publishes after. Every step
+    /// is measured to the log, since the plan's device pass is about numbers.
+    nonisolated static func analyseBurstMotion(_ frames: [UIImage], faces: [[DetectedFace]]) async -> BurstMotionAnalysis {
         let tuning = CanvasTuningStore.shared.tuning
         let side = Int(tuning.motionMaskSide)
         let count = frames.count
-        let segmentation = burstSegmentationService
+        let segmentation = SubjectSegmentationService()
 
         // Subject track: normalized face centres per frame, largest face first.
         let sides = frames.map { CGFloat(max(1, $0.size.width * $0.scale)) }
-        let centres: [[CGPoint]] = burstFaces.enumerated().map { i, faces in
-            faces.sorted { $0.faceWidth > $1.faceWidth }.map {
+        let centres: [[CGPoint]] = (0..<count).map { i in
+            let frameFaces = i < faces.count ? faces[i] : []
+            return frameFaces.sorted { $0.faceWidth > $1.faceWidth }.map {
                 CGPoint(x: $0.faceCenter.x / sides[i], y: $0.faceCenter.y / sides[i])
             }
         }
-        burstSubjectVelocities = MotionTrack.subjectVelocities(faceCentres: centres, smoothing: tuning.motionVelocitySmoothing)
+        let subjectVelocities = MotionTrack.subjectVelocities(faceCentres: centres, smoothing: tuning.motionVelocitySmoothing)
 
         // Shrunk copies for segmentation and registration.
         let small: [CGImage?] = await Task.detached(priority: .utility) {
             frames.map { EffectThumbnailRenderer.previewSource(from: $0, maxPixel: side) }
         }.value
 
-        // Masks, one at a time, landing as they finish.
-        burstMasks = Array(repeating: nil, count: count)
+        // Masks, one at a time.
+        var masks = [CIImage?](repeating: nil, count: count)
         let maskStart = ProcessInfo.processInfo.systemUptime
         for i in 0..<count {
-            if Task.isCancelled { return }
+            if Task.isCancelled { break }
             guard let cg = small[i] else { continue }
             let mask = await segmentation.subjectMask(for: UIImage(cgImage: cg))
-            guard i < burstMasks.count else { return }
-            burstMasks[i] = mask.map { MotionMasks.feathered($0, radius: tuning.motionMaskFeather) }
+            masks[i] = mask.map { MotionMasks.feathered($0, radius: tuning.motionMaskFeather) }
         }
         let maskMs = Int(((ProcessInfo.processInfo.systemUptime - maskStart) * 1_000).rounded())
         if tuning.motionMaskSmoothing {
-            burstMasks = MotionMasks.neighbourSmoothed(burstMasks)
+            masks = MotionMasks.neighbourSmoothed(masks)
         }
 
         // Camera track: translation between consecutive shrunk frames.
@@ -408,12 +425,12 @@ class EditorViewModel {
             }
             return out
         }.value
-        burstCameraVelocities = MotionTrack.cameraVelocities(translations: translations, smoothing: tuning.motionVelocitySmoothing)
+        let cameraVelocities = MotionTrack.cameraVelocities(translations: translations, smoothing: tuning.motionVelocitySmoothing)
         let regMs = Int(((ProcessInfo.processInfo.systemUptime - regStart) * 1_000).rounded())
 
-        let found = burstMasks.compactMap { $0 }.count
-        Self.motionLog.debug("burst motion: \(count, privacy: .public) frames, masks \(found, privacy: .public) in \(maskMs, privacy: .public)ms at \(side, privacy: .public)px, registration \(regMs, privacy: .public)ms, subject v0 \(self.burstSubjectVelocities.first?.motionMagnitude ?? 0, privacy: .public), camera v0 \(self.burstCameraVelocities.first?.motionMagnitude ?? 0, privacy: .public)")
-        updateCombinedPreview()
+        let found = masks.compactMap { $0 }.count
+        motionLog.debug("burst motion: \(count, privacy: .public) frames, masks \(found, privacy: .public) in \(maskMs, privacy: .public)ms at \(side, privacy: .public)px, registration \(regMs, privacy: .public)ms, subject v0 \(subjectVelocities.first?.motionMagnitude ?? 0, privacy: .public), camera v0 \(cameraVelocities.first?.motionMagnitude ?? 0, privacy: .public)")
+        return BurstMotionAnalysis(masks: masks, subjectVelocities: subjectVelocities, cameraVelocities: cameraVelocities)
     }
 
     /// The one call both generation paths make. A burst goes through the frames overload with
