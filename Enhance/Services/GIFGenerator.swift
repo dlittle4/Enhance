@@ -63,6 +63,9 @@ public class GIFGenerator: GIFGenerating {
         let frameDelay: Double
         let pauseFrameCount: Int
         let pauseFrameDelay: Double
+        /// A burst's measured camera motion per source frame, normalized units per frame —
+        /// empty for a still. `ShakeModifier` reads it (FEATURE-MOTION-EFFECTS.md §3).
+        var cameraVelocities: [CGVector] = []
     }
     
     func generateGIF(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double = 1.0, pauseDuration: Double = 1.0, visualEffects: [VisualEffect] = [], faceEffect: FaceEffect? = nil, detectedFaces: [DetectedFace] = [], textOverlay: TextOverlay? = nil) -> Data? {
@@ -87,12 +90,13 @@ public class GIFGenerator: GIFGenerating {
     }
 
     private func generateGIF(from image: UIImage, currentScale: CGFloat, visibleRect: CGRect, animator: Animator, speed: Double, pauseDuration: Double, visualEffects: [VisualEffect], faceEffect: FaceEffect?, detectedFaces: [DetectedFace], textOverlay: TextOverlay?, burst: [BurstFrame]?, burstInterval: Double? = nil) -> Data? {
-        guard let context = prepareDrawingContext(
+        guard var context = prepareDrawingContext(
             from: image, currentScale: currentScale, visibleRect: visibleRect, speed: speed, pauseDuration: pauseDuration,
             burstFrameCount: burst?.count, burstInterval: burstInterval
         ) else {
             return nil
         }
+        context.cameraVelocities = burst?.map(\.cameraVelocity) ?? []
 
         let data = NSMutableData()
         guard let destination = setupGIFDestination(data: data, totalFrames: context.frameCount + context.pauseFrameCount) else {

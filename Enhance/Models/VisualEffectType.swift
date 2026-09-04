@@ -66,6 +66,10 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     /// behind the current one. **Burst-only** — see `VisualEffectType.burstOnly` and
     /// `EditorViewModel.carouselVisualEffects`; on a still the effect is the identity.
     case frameEcho     = "FRAME ECHO"
+    /// MOTION TRAIL: FRAME ECHO with each echo smeared along the motion. Burst-only.
+    case motionTrail   = "MOTION TRAIL"
+    /// SPEED LINES: comic streaks behind the moving subject. Burst-only.
+    case speedLines    = "SPEED LINES"
     /// ROADMAP §2b — 1-bit clustered-dot halftone in two spot colours.
     case bitmap        = "BITMAP"
     // The twelve SwiftUIShaders looks starred in SHADER LAB, graduated 2026-09-02 as Core Image
@@ -128,8 +132,9 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     /// See `ParameterizedEffect.declaredDefault`. Keep in step with `parameters`.
     func declaredDefault(_ paramID: String) -> Double {
         switch (self, paramID) {
-        case (.frameEcho, EffectParameter.tertiaryID), (.frameEcho, EffectParameter.quinaryID): return 0
-        case (.frameEcho, EffectParameter.quaternaryID): return 0.7
+        case (.frameEcho, EffectParameter.tertiaryID): return 0
+        case (.frameEcho, EffectParameter.quinaryID), (.motionTrail, EffectParameter.quinaryID), (.speedLines, EffectParameter.quinaryID): return 0
+        case (.frameEcho, EffectParameter.quaternaryID), (.motionTrail, EffectParameter.quaternaryID): return 0.7
         default: return 0.5
         }
     }
@@ -137,7 +142,16 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     /// Effects that need a burst's frames to draw anything. Shown in the carousel only while
     /// the editor holds a burst and MOTION EFFECTS is on; selectable and lab-windowable
     /// regardless, so the lab and the tests see them like any other card.
-    static let burstOnly: Set<VisualEffectType> = [.frameEcho]
+    static let burstOnly: Set<VisualEffectType> = [.frameEcho, .motionTrail, .speedLines]
+
+    /// The primary slider's label: INTENSITY for most, what the burst cards actually mean.
+    private var primarySliderLabel: String {
+        switch self {
+        case .frameEcho, .motionTrail: return "FADE"
+        case .speedLines: return "LENGTH"
+        default: return "INTENSITY"
+        }
+    }
 
     var isBurstOnly: Bool { Self.burstOnly.contains(self) }
 
@@ -159,7 +173,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
         var params: [EffectParameter] = []
 
         switch colorPickerKind {
-        case .tintColor where self == .frameEcho:
+        case .tintColor where isBurstOnly:
             params.append(EffectParameter(id: EffectParameter.quinaryID, label: "COLOR", kind: .tintColorOrNone, defaultValue: 0))
         case .tintColor:
             params.append(EffectParameter(id: "tint", label: "COLOR", kind: .tintColor))
@@ -172,8 +186,8 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
         // FRAME ECHO's primary is how much each echo keeps of the last, so it says so.
         params.append(EffectParameter(
             id: EffectParameter.intensityID,
-            label: self == .frameEcho ? "FADE" : "INTENSITY",
-            displaysPercent: self == .frameEcho
+            label: primarySliderLabel,
+            displaysPercent: isBurstOnly
         ))
 
         switch self {
@@ -228,6 +242,12 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "OPACITY", defaultValue: 0.7, displaysPercent: true))
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "ECHOES"))
             params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "SPACING", defaultValue: 0))
+        case .motionTrail:
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "OPACITY", defaultValue: 0.7, displaysPercent: true))
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "ECHOES"))
+            params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "SMEAR", displaysPercent: true))
+        case .speedLines:
+            params.append(EffectParameter(id: EffectParameter.sizeID, label: "DENSITY", displaysPercent: true))
         case .bitmap:
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "SCALE"))
             params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "CONTRAST"))
@@ -314,7 +334,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
         // HEART BEAT is excluded too: it runs from the ZOOM tab, whose panel has no subject mask
         // to offer, and the modifier is only honoured for the IMAGE tab's selection.
         // FRAME ECHO draws *from* the masks like ECHO does, so the toggle means nothing to it.
-        if self != .subjectEcho, self != .pulse, self != .frameEcho {
+        if self != .subjectEcho, self != .pulse, !isBurstOnly {
             params.append(.backgroundOnly)
         }
 
@@ -324,7 +344,7 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     /// Which picker row to show beneath the sliders, if any.
     var colorPickerKind: EffectPickerKind? {
         switch self {
-        case .duotone, .coloredEdges, .caustic, .subjectEcho, .frameEcho: return .tintColor
+        case .duotone, .coloredEdges, .caustic, .subjectEcho, .frameEcho, .motionTrail, .speedLines: return .tintColor
         case .gradientMap, .risoPrint, .bitmap: return .gradientStops
         default:                      return nil
         }
@@ -401,6 +421,22 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
                 opacity: EffectParameter.clampSlider(options.quaternary),
                 tintStrength: EffectParameter.clampSlider(options.quinary),
                 color: options.tintColor
+            )
+        case .motionTrail:
+            return FrameEchoEffect(
+                intensity: clamped,
+                echoes: EffectParameter.clampSlider(options.size),
+                spacing: 0,
+                opacity: EffectParameter.clampSlider(options.quaternary),
+                tintStrength: EffectParameter.clampSlider(options.quinary),
+                color: options.tintColor,
+                smear: EffectParameter.clampSlider(options.tertiary)
+            )
+        case .speedLines:
+            return SpeedLinesEffect(
+                intensity: clamped,
+                density: EffectParameter.clampSlider(options.size),
+                color: EffectParameter.isOn(options.quinary) ? options.tintColor : nil
             )
         case .stretch:      return StretchEffect(intensity: clamped,
                                                  angle: EffectParameter.clampSlider(options.size),

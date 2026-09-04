@@ -24,6 +24,9 @@ struct FrameEchoEffect: VisualEffect {
     /// 0 keeps the echoes' own colours; 1 paints them fully in `tint`.
     private let tintStrength: CGFloat
     private let tint: CIColor
+    /// MOTION TRAIL: each echo smeared along the subject's motion by this fraction of the
+    /// frame. 0 is FRAME ECHO's crisp cut-outs.
+    private let smear: CGFloat
 
     static let maximumEchoes = 6
     static let maximumSpacing = 4
@@ -34,7 +37,8 @@ struct FrameEchoEffect: VisualEffect {
     ///   - spacing: 0…1, mapped to 1…4 frames apart.
     ///   - opacity: the nearest echo's opacity, 0…1.
     ///   - tintStrength: 0…1; the colour row's NONE is 0.
-    init(intensity: Double = 0.5, echoes: Double = 0.5, spacing: Double = 0, opacity: Double = 0.7, tintStrength: Double = 0, color: LaserColor = .red) {
+    init(intensity: Double = 0.5, echoes: Double = 0.5, spacing: Double = 0, opacity: Double = 0.7, tintStrength: Double = 0, color: LaserColor = .red, smear: Double = 0) {
+        self.smear = CGFloat(max(0, min(1, smear)))
         self.fade = 0.3 + 0.7 * CGFloat(max(0, min(1, intensity)))
         self.opacity = CGFloat(max(0, min(1, opacity)))
         self.echoes = 1 + Int((CGFloat(max(0, min(1, echoes))) * CGFloat(Self.maximumEchoes - 1)).rounded())
@@ -54,7 +58,7 @@ struct FrameEchoEffect: VisualEffect {
         for k in stride(from: echoes, through: 1, by: -1) {
             guard let cutout = motion.subjectCutout(back: k * spacing, in: image, geometry: geometry) else { continue }
             let alpha = opacity * pow(fade, CGFloat(k - 1))
-            result = tinted(cutout)
+            result = tinted(smeared(cutout, in: image, velocity: motion.velocity))
                 .applyingFilter("CIColorMatrix", parameters: [
                     "inputAVector": CIVector(x: 0, y: 0, z: 0, w: alpha)
                 ])
@@ -66,6 +70,15 @@ struct FrameEchoEffect: VisualEffect {
             result = current.applyingFilter("CISourceOverCompositing", parameters: [kCIInputBackgroundImageKey: result])
         }
         return result.cropped(to: image.extent)
+    }
+
+    /// Smears a cut-out along the motion for MOTION TRAIL; identity at smear 0 or with no motion.
+    private func smeared(_ cutout: CIImage, in image: CIImage, velocity: CGVector) -> CIImage {
+        guard smear > 0.001, velocity.motionMagnitude >= SpeedLinesEffect.minimumSpeed else { return cutout }
+        let radius = smear * 0.12 * min(image.extent.width, image.extent.height)
+        return cutout
+            .applyingFilter("CIMotionBlur", parameters: [kCIInputRadiusKey: radius, kCIInputAngleKey: velocity.motionAngle])
+            .cropped(to: image.extent)
     }
 
     /// Blends the cut-out toward a flat tint by `tintStrength`, keeping its alpha.

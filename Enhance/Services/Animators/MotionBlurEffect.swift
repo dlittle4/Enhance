@@ -29,4 +29,24 @@ struct MotionBlurEffect: VisualEffect {
             kCIInputAngleKey: angle
         ]).cropped(to: image.extent)
     }
+
+    /// Speed, in normalized units per frame, at which the blur reaches its full radius.
+    static let fullBlurSpeed: CGFloat = 0.06
+
+    /// On a burst the blur follows what actually moved: the angle comes from the measured
+    /// velocity and the radius from its speed, with no progress ramp — a frame where nothing
+    /// moved stays sharp (FEATURE-MOTION-EFFECTS.md §3). The ANGLE slider is the fallback for
+    /// a frame with no measurable motion, and the whole of it for a still.
+    func apply(to image: CIImage, progress: CGFloat, frameIndex: Int, viewportCenter: CGPoint?, geometry: FrameGeometry, motion: MotionContext?) -> CIImage {
+        guard let motion, motion.velocity.motionMagnitude >= SpeedLinesEffect.minimumSpeed else {
+            return apply(to: image, progress: progress, frameIndex: frameIndex)
+        }
+        let speed = motion.velocity.motionMagnitude
+        let radius = maxRadius * min(1, speed / Self.fullBlurSpeed)
+        guard radius > 0.5 else { return image }
+        return image.applyingFilter("CIMotionBlur", parameters: [
+            kCIInputRadiusKey: radius,
+            kCIInputAngleKey: motion.velocity.motionAngle
+        ]).cropped(to: image.extent)
+    }
 }

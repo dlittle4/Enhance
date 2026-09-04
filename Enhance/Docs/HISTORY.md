@@ -1352,6 +1352,14 @@ test host died mid-run with a wall of 0.000s failures in an unrelated suite — 
 LEARNINGS already names. The analysis is now a `nonisolated static` that touches no view-model
 state; the caller snapshots the faces on the main actor before and publishes the result after.
 
+**Phases 2–5 (same day):** MOTION BLUR takes its angle and radius from the measured velocity
+on a burst (the ANGLE slider is the fallback); MOTION TRAIL is FRAME ECHO with a per-echo smear
+along the motion; SPEED LINES draws a stripe wedge behind the subject from the mask smeared and
+shifted back, minus the body, under the subject; SHAKE adds the registration-measured camera
+motion to its synthetic jitter (`DrawingContext.cameraVelocities`). All three new cards are
+burst-only and lead with the NONE-capable colour row. Verified on a synthetic moving square in
+tests; not yet seen on a real burst.
+
 **Not yet measured on device** — the plan's phase-0 numbers (segmentation ms per frame on both
 phones, registration ms) are printed by the `motion` debug log on the first burst; capture
 them and record here.
