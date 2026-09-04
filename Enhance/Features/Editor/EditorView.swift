@@ -1404,6 +1404,9 @@ struct EditorView: View {
                     label: param.label,
                     value: parameterBinding(param, for: effect),
                     onCommit: { viewModel.onParameterDragEnded() },
+                    valueText: param.displaysPercent
+                        ? "\(Int((parameterBinding(param, for: effect).wrappedValue * 100).rounded()))"
+                        : nil,
                     overdriveMax: EffectParameter.overdriveCeiling,
                     overdriveGain: canvasStore.tuning.overdriveGain,
                     glitchRate: canvasStore.tuning.overdriveGlitchRate

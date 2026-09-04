@@ -131,6 +131,9 @@ struct FrameEchoTests {
         #expect(ids.contains(EffectParameter.quaternaryID))
         #expect(!ids.contains(EffectParameter.backgroundOnlyID))
         // The colour row is the NONE-capable kind, in the quinary well, off by default.
+        #expect(params.first { $0.id == EffectParameter.quaternaryID }?.displaysPercent == true, "OPACITY reads 0…100")
+        #expect(params.first { $0.id == EffectParameter.intensityID }?.displaysPercent == true, "FADE reads 0…100")
+        #expect(VisualEffectType.halftone.parameters.allSatisfy { !$0.displaysPercent }, "others keep the lattice")
         let colour = params.first { $0.kind == .tintColorOrNone }
         #expect(colour?.id == EffectParameter.quinaryID)
         #expect(colour?.defaultValue == 0)
