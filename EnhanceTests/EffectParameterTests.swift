@@ -51,7 +51,7 @@ struct EffectParameterTests {
             let params = type.parameters
 
             // COLOR leads when the filter has one; the first *slider* is still the primary.
-            if let colorPicker = params.first(where: { $0.kind == .tintColor || $0.kind == .gradientStops }) {
+            if let colorPicker = params.first(where: { $0.kind == .tintColor || $0.kind == .tintColorOrNone || $0.kind == .gradientStops }) {
                 #expect(params.first?.id == colorPicker.id, "\(type.rawValue) must lead with COLOR")
             }
             let firstSlider = params.first { $0.kind == .slider }
@@ -235,7 +235,7 @@ struct EffectParameterTests {
             // Specifically a *colour* picker. PIXELATE's `.pixelShape` is a picker row that is
             // not a colour, and it keeps its declared position among the sliders — the rule the
             // user set is about colour, not about pickers in general.
-            if let colorPicker = params.first(where: { $0.kind == .tintColor || $0.kind == .gradientStops }) {
+            if let colorPicker = params.first(where: { $0.kind == .tintColor || $0.kind == .tintColorOrNone || $0.kind == .gradientStops }) {
                 #expect(params.first?.id == colorPicker.id, "\(type.rawValue) must lead with COLOR")
             }
             #expect(params.first { $0.kind == .slider }?.id == EffectParameter.intensityID,
@@ -262,7 +262,7 @@ struct EffectParameterTests {
             // may agree with it. PIXELATE's `.pixelShape` is a picker row that is not a
             // colour picker, and conflating the two would either fail here or force
             // `colorPickerKind` to lie about an effect that has no colour.
-            let colourPickers = params.filter { $0.kind == .tintColor || $0.kind == .gradientStops }
+            let colourPickers = params.filter { $0.kind == .tintColor || $0.kind == .tintColorOrNone || $0.kind == .gradientStops }
             #expect((colourPickers.first != nil) == type.supportsColorPicker,
                     "\(type.rawValue) colour picker disagrees with colorPickerKind")
         }

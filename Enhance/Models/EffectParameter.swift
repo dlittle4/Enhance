@@ -14,6 +14,10 @@ struct EffectParameter: Identifiable, Hashable {
         case slider
         /// The six-swatch `LaserColor` row.
         case tintColor
+        /// The same row with a NONE swatch first, selected by default — for effects whose
+        /// colour is optional (FRAME ECHO's tint). Stored as a `Double` in the `quinary` well:
+        /// 0 is none, 1 is the picked `tintColor`.
+        case tintColorOrNone
         /// The three gradient stop colour wells.
         case gradientStops
         /// PIXELATE's cell shape. A picker rather than a slider because the value is a

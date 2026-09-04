@@ -1285,6 +1285,16 @@ struct EditorView: View {
     }
 
     private func colorSwatchContent(selection: Binding<LaserColor>) -> some View {
+        colorSwatchContent(
+            selection: Binding<LaserColor?>(get: { selection.wrappedValue }, set: { if let c = $0 { selection.wrappedValue = c } }),
+            allowsNone: false
+        )
+    }
+
+    /// The swatch row, optionally led by a NONE swatch (a hollow circle with a strike) that
+    /// clears the selection. Selection is size, as ever; NONE grows the same way when it is
+    /// the choice, so the row always shows exactly one thing selected.
+    private func colorSwatchContent(selection: Binding<LaserColor?>, allowsNone: Bool) -> some View {
         // The zeroed spacing and `minLength` are both load-bearing. The
         // Spacer-on-both-sides pattern distributes the swatches evenly, but a bare
         // `Spacer()` carries its own ~8pt minimum *in addition to* the HStack's default
@@ -1294,6 +1304,26 @@ struct EditorView: View {
         // the display. At zero, the swatches alone (156pt) set the floor and the Spacers
         // only distribute whatever is left over.
         HStack(spacing: 0) {
+            if allowsNone {
+                Spacer(minLength: 0)
+                Button {
+                    HapticService.light()
+                    selection.wrappedValue = nil
+                } label: {
+                    let isNone = selection.wrappedValue == nil
+                    ZStack {
+                        Circle()
+                            .stroke(Color.textPrimary, lineWidth: isNone ? 2 : 1.5)
+                        Rectangle()
+                            .fill(Color.textPrimary)
+                            .frame(width: isNone ? 22 : 18, height: 1.5)
+                            .rotationEffect(.degrees(-45))
+                    }
+                    .frame(width: isNone ? 30 : 26, height: isNone ? 30 : 26)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("No colour")
+            }
             ForEach(LaserColor.allCases) { color in
                 Spacer(minLength: 0)
                 Button {
@@ -1381,6 +1411,25 @@ struct EditorView: View {
             case .tintColor:
                 ParameterPickerRow(label: param.label) {
                     colorSwatchContent(selection: colorSelection)
+                }
+            case .tintColorOrNone:
+                // NONE first and selected by default; picking a swatch turns the tint on and
+                // sets its colour, NONE turns it off. The on/off lives in the parameter's own
+                // well so undo, reset and the snapshot carry it with the rest.
+                ParameterPickerRow(label: param.label) {
+                    colorSwatchContent(
+                        selection: Binding<LaserColor?>(
+                            get: {
+                                EffectParameter.isOn(parameterBinding(param, for: effect).wrappedValue) ? colorSelection.wrappedValue : nil
+                            },
+                            set: { picked in
+                                if let picked { colorSelection.wrappedValue = picked }
+                                parameterBinding(param, for: effect).wrappedValue = picked == nil ? 0 : 1
+                                viewModel.onParameterDragEnded()
+                            }
+                        ),
+                        allowsNone: true
+                    )
                 }
             case .gradientStops:
                 ParameterPickerRow(label: param.label) {

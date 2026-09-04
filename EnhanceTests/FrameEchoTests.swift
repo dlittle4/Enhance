@@ -114,7 +114,8 @@ struct FrameEchoTests {
     @Test func declaredDefaultsReachTheBuiltEffect() {
         let vm = EditorViewModel(content: .newImage(UIImage()))
         #expect(vm.resolvedValue(EffectParameter.tertiaryID, for: VisualEffectType.frameEcho) == 0)
-        #expect(vm.resolvedValue(EffectParameter.quaternaryID, for: VisualEffectType.frameEcho) == 0)
+        #expect(vm.resolvedValue(EffectParameter.quinaryID, for: VisualEffectType.frameEcho) == 0, "colour NONE")
+        #expect(vm.resolvedValue(EffectParameter.quaternaryID, for: VisualEffectType.frameEcho) == 0.7, "opacity")
         #expect(vm.resolvedValue(EffectParameter.intensityID, for: VisualEffectType.frameEcho) == 0.5)
         // Others still resolve exactly as the lab says (HALFTONE ships a graduated window).
         let labAnswer = vm.effectLab.resolvedSliderValue(stored: nil, paramID: EffectParameter.tertiaryID, for: VisualEffectType.halftone, declared: 0.5)
@@ -122,13 +123,34 @@ struct FrameEchoTests {
     }
 
     @Test func frameEchoDeclaresItsRowsAndNoBackgroundOnly() {
-        let ids = VisualEffectType.frameEcho.parameters.map(\.id)
-        #expect(ids.contains("tint"))
+        let params = VisualEffectType.frameEcho.parameters
+        let ids = params.map(\.id)
         #expect(ids.contains(EffectParameter.intensityID))
         #expect(ids.contains(EffectParameter.sizeID))
         #expect(ids.contains(EffectParameter.tertiaryID))
         #expect(ids.contains(EffectParameter.quaternaryID))
         #expect(!ids.contains(EffectParameter.backgroundOnlyID))
+        // The colour row is the NONE-capable kind, in the quinary well, off by default.
+        let colour = params.first { $0.kind == .tintColorOrNone }
+        #expect(colour?.id == EffectParameter.quinaryID)
+        #expect(colour?.defaultValue == 0)
+        #expect(!ids.contains("tint"))
         #expect(VisualEffectType.frameEcho.effect() is FrameEchoEffect)
+    }
+
+    @Test func opacitySetsTheNearestEchoAndFadeOneHoldsEveryEcho() {
+        let (ctx, image) = movingBurst()
+        // OPACITY 0.5 at the nearest, FADE 1: every echo at half — nothing fades away.
+        let held = FrameEchoEffect(intensity: 1, echoes: 1, spacing: 0, opacity: 0.5)
+            .apply(to: image, progress: 1, frameIndex: 3, viewportCenter: nil, geometry: .identity, motion: ctx)
+        let one = red(at: CGPoint(x: 60, y: 50), of: held)
+        let three = red(at: CGPoint(x: 20, y: 50), of: held)
+        #expect(abs(one - three) <= 3, "FADE at its top keeps every echo at the same opacity")
+        #expect(one > 100 && one < 160, "half opacity over black reads near mid grey")
+
+        // OPACITY 0 draws nothing.
+        let none = FrameEchoEffect(intensity: 1, echoes: 1, spacing: 0, opacity: 0)
+            .apply(to: image, progress: 1, frameIndex: 3, viewportCenter: nil, geometry: .identity, motion: ctx)
+        #expect(red(at: CGPoint(x: 60, y: 50), of: none) < 5)
     }
 }

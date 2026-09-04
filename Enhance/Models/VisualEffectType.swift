@@ -128,7 +128,8 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
     /// See `ParameterizedEffect.declaredDefault`. Keep in step with `parameters`.
     func declaredDefault(_ paramID: String) -> Double {
         switch (self, paramID) {
-        case (.frameEcho, EffectParameter.tertiaryID), (.frameEcho, EffectParameter.quaternaryID): return 0
+        case (.frameEcho, EffectParameter.tertiaryID), (.frameEcho, EffectParameter.quinaryID): return 0
+        case (.frameEcho, EffectParameter.quaternaryID): return 0.7
         default: return 0.5
         }
     }
@@ -158,6 +159,8 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
         var params: [EffectParameter] = []
 
         switch colorPickerKind {
+        case .tintColor where self == .frameEcho:
+            params.append(EffectParameter(id: EffectParameter.quinaryID, label: "COLOR", kind: .tintColorOrNone, defaultValue: 0))
         case .tintColor:
             params.append(EffectParameter(id: "tint", label: "COLOR", kind: .tintColor))
         case .gradientStops:
@@ -166,7 +169,8 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             break
         }
 
-        params.append(EffectParameter(id: EffectParameter.intensityID, label: "INTENSITY"))
+        // FRAME ECHO's primary is how much each echo keeps of the last, so it says so.
+        params.append(EffectParameter(id: EffectParameter.intensityID, label: self == .frameEcho ? "FADE" : "INTENSITY"))
 
         switch self {
         case .fisheye:
@@ -214,9 +218,12 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "SPREAD"))
             params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "ECHOES"))
         case .frameEcho:
+            // OPACITY is the nearest echo's; FADE is how much each further one keeps, up to
+            // "all of it" so a trail can persist for the whole burst. The tint lives on the
+            // colour row (NONE by default), in the quinary well.
+            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "OPACITY", defaultValue: 0.7))
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "ECHOES"))
             params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "SPACING", defaultValue: 0))
-            params.append(EffectParameter(id: EffectParameter.quaternaryID, label: "TINT", defaultValue: 0))
         case .bitmap:
             params.append(EffectParameter(id: EffectParameter.sizeID, label: "SCALE"))
             params.append(EffectParameter(id: EffectParameter.tertiaryID, label: "CONTRAST"))
@@ -387,7 +394,8 @@ enum VisualEffectType: String, CaseIterable, Identifiable, Hashable, Parameteriz
                 intensity: clamped,
                 echoes: EffectParameter.clampSlider(options.size),
                 spacing: EffectParameter.clampSlider(options.tertiary),
-                tintStrength: EffectParameter.clampSlider(options.quaternary),
+                opacity: EffectParameter.clampSlider(options.quaternary),
+                tintStrength: EffectParameter.clampSlider(options.quinary),
                 color: options.tintColor
             )
         case .stretch:      return StretchEffect(intensity: clamped,
